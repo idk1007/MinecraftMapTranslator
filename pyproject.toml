@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcmt"
+version = "0.1.0.dev0"
+description = "Minecraft 地圖翻譯工具"
+requires-python = ">=3.11"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+dependencies = [
+    "amulet-nbt>=2.1.8,<3",
+]
+
+[project.optional-dependencies]
+# 執行期可選：讀取 LZ4 壓縮（type 4）的 chunk
+lz4 = ["lz4>=4"]
+# 執行期可選：翻譯層的 anthropic provider
+llm = ["anthropic>=0.40"]
+# dev/test 專用。jsonschema 不是執行期相依（CLAUDE.md §四）
+dev = [
+    "pytest>=8",
+    "jsonschema>=4.20",
+    "referencing>=0.35",
+]
+
+[project.scripts]
+mcmt = "mcmt.cli.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
