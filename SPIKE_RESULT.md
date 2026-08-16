@@ -687,6 +687,7 @@ v1 對策（見 CLAUDE.md 二節）：chunk DataVersion ≥ 4325 且節點為舊
 | MP2 那 585 面全 `'""'` 告示牌是否真的顯示引號 | 在 sandbox 副本裡走到現場肉眼確認 | 中 — M0-4 的直接推論，成立則證實那是地圖自身的顯示瑕疵，工具不應「順手修好」 |
 | `pack_format` 多舊才會拒載 | 逐級下調 `pack_format` 並移除 `supported_formats` | 低 — M0-5 已證明「過期不拒載」，只剩邊界未知 |
 | region 是否會出現 LZ4 (type 4) | 對更多來源的地圖跑 `probe_compression.py`，特別是伺服器匯出的 | 中 — 第二輪 5 張地圖 16.2 萬 chunk 全為 type 2，仍未見 type 4 |
+| **type 4 的實際位元組框架** | 拿到真實 type 4 chunk 後，用 `nbtio/compression.py` 的 `_decompress_lz4` 對它跑一次 | 中 — `[文件]` 級：Mojang 走 lz4-java 的 `LZ4BlockOutputStream`（`"LZ4Block"` magic + 每區塊 21 bytes 標頭），**不是**標準 LZ4 frame。M1.1 已照此格式實作並以手寫編碼器測過，但沒有任何真實樣本走過這條路徑 |
 | 外部 `.mcc` 檔 | 需要找到含 `.mcc` 的地圖 | 低 — 第二輪 5 張地圖 16.2 萬 chunk 外部 chunk 數為 **0** |
 | `{"": v}` 是否為 `NbtOps` 通則而非告示牌專屬 | 讀 Mojang 原始碼，或對其他 component list 做同樣測試 | 低，不影響實作 |
 | ~~`extra` 巢狀是否存在~~ | ~~掃描 MP2~~ | **已完成**：可翻譯路徑上 2,261 筆，最大深度 3，84% 帶自身格式 |

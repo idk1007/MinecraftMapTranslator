@@ -3,13 +3,13 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-17**
+最後更新：**2026-08-17**（M1.1 完成）
 
 ---
 
 ## 一句話現況
 
-**規劃與合約已定稿，M0 端到端驗證已通過，尚未寫任何 `src/` 程式碼。下一步是 M1.1 壓縮分派。**
+**規劃與合約已定稿，M0 端到端驗證已通過，M1.1 壓縮分派已完成。下一步是 M1.2 region 讀取。**
 
 ## 該讀哪幾份（依序）
 
@@ -45,15 +45,25 @@
 
 合約隨之 bump 到 `SCHEMA_VERSION = 3`：新增 `occurrence.excluded`、`stats.skipped_legacy_json_in_native_chunk`、unit flag `legacy_json_in_native_chunk`，並在 editplan schema 結構性禁止「DV ≥ 4325 + `json_*` encoding」的組合。驗證器 44 passed。
 
+### M1.1 — 壓縮分派（2026-08-17）✅
+
+`src/mcmt/nbtio/compression.py` + `src/mcmt/errors.py` + 22 個單元測試。同時建立 `pyproject.toml` 與 `.venv`（editable 安裝）。
+
+三個實作決定與規範的關係，之後不必重推：
+
+- **`chunk_index` 是必填關鍵字參數**。CLAUDE.md 只要求訊息含 chunk index，但可選參數等於允許呼叫端丟掉它。
+- **`decompress_chunk` 收到未遮罩的位元組（如 `0x82`）會拋錯，不順手遮罩**。遮罩是 `parse_compression_byte` 的職責，兩處都做等於允許跳過 parse。
+- **type 4 走 lz4-java 的 `LZ4BlockOutputStream` 框架**（`"LZ4Block"` magic + 每區塊 21 bytes 標頭），不是標準 LZ4 frame。無真實樣本，標 `[待驗]`，已寫回 `SPIKE_RESULT.md`。xxhash32 檢查碼不驗（為它引入相依不划算，壞資料會被 NBT 解析擋下）。
+
+已用突變測試確認「先判型別再遮罩」會讓 4 個測試變紅——這條不變式是真的被測到的，不是寫在註解裡而已。
+
 ---
 
-## 下一步：M1 — `mcmt doctor`（唯讀）
-
-從 **M1.1 壓縮分派**開始 —— 整條讀取鏈最底層、最容易測、也最容易寫錯（`0x80` 遮罩順序）的一環。
+## 下一步：M1.2 region 讀取
 
 | 任務 | 驗收條件 |
 |---|---|
-| M1.1 壓縮分派 | 四種類型 + `0x80` **遮罩先行**；未知類型 `UnknownCompressionError` 含數值與 chunk index；缺 `lz4` 時訊息含安裝指令 |
+| ~~M1.1 壓縮分派~~ | ✅ 完成 |
 | M1.2 region 讀取 | 原始壓縮位元組**不解壓**；offset/length/sector 邊界檢查；截斷檔 `TruncatedRegionError` |
 | M1.3 世界結構偵測 | `Level.TileEntities` / `Text1..Text4` / `data_version` 為 null → `UnsupportedWorldStructureError`；`0x80` → `ExternalChunkError` |
 | M1.4 `doctor` CLI | DataVersion 直方圖、壓縮分佈、`.mcc` 數、節點形狀分佈、疑似損壞 chunk。**per-region 串流**，峰值記憶體為單一 chunk。唯讀 |
@@ -80,4 +90,5 @@
 - **語料地圖在版本隔離的資料夾**：`%APPDATA%\.minecraft\versions\1.21.10\saves`，不是 `%APPDATA%\.minecraft\saves`。找不到 Minecraft Party 2 就是找錯地方了。
 - `spike/.venv` 與 `spike/.venv_alt` 共 134 MB，已 gitignore。
 - `claude-code-stats/` 是**放在同一個資料夾裡的第三方工具**，與 mcmt 無關，已 gitignore。
-- 驗證合約：`python tools/validate_contracts.py`（目前 44 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
+- 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 44 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
+- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 22 passed）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
