@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mcmt/mcmt/schemas/editplan.schema.json",
+  "title": "mcmt edit plan",
+  "description": "Layer 5 (output backend) output, consumed by the writer. Kept as a separate contract so the output backend stays decoupled from the writer (an architectural requirement, not a staffing one) and so each layer has its own regression fixture. A backend decides WHAT value goes where; the writer decides HOW to encode it, and owns NBT list homogeneity, surgical region rewriting, backups and rollback.",
+  "type": "object",
+  "required": ["format", "schema_version", "backend", "extract_ref", "edits"],
+  "additionalProperties": false,
+  "properties": {
+    "format": { "const": "mcmt-editplan" },
+    "schema_version": { "type": "integer", "const": 3 },
+    "generated_at": { "type": "string", "format": "date-time" },
+
+    "backend": {
+      "type": "string",
+      "enum": ["resourcepack", "inplace"],
+      "description": "v1 ships resourcepack only. The inplace value exists so the pluggable-backend seam is real rather than hypothetical; nothing emits it yet."
+    },
+
+    "extract_ref": {
+      "type": "object",
+      "required": ["extract_fingerprint", "world_fingerprint"],
+      "additionalProperties": false,
+      "properties": {
+        "extract_fingerprint": { "type": "string", "pattern": "^blake2b:[0-9a-f]{16,64}$" },
+        "world_fingerprint": {
+          "type": "string",
+          "pattern": "^blake2b:[0-9a-f]{16,64}$",
+          "description": "Re-derived from the live world at apply time. A mismatch means the world moved under the plan -- most often because someone simply opened it in-game, which upgrades chunk DataVersions."
+        },
+        "languages": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "assets": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Files the backend produced that apply must place into the world folder. Paths are relative to the run's output directory.",
+      "properties": {
+        "resources_zip": { "type": ["string", "null"] },
+        "lang_files": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+
+    "edits": { "type": "array", "items": { "$ref": "#/$defs/edit" } },
+
+    "unwritten": {
+      "type": "array",
+      "description": "Units the BACKEND declined to write. Refusals originating in the writer go to apply_report.unwritten instead, with their own reason vocabulary.",
+      "items": {
+        "type": "object",
+        "required": ["unit_id", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "unit_id": { "type": "string" },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "untranslated",
+              "skipped",
+              "rejected_by_validator",
+              "overflow_rejected",
+              "placeholder_mismatch",
+              "unsupported_target",
+              "already_target_language"
+            ]
+          },
+          "detail": { "type": "string" }
+        }
+      }
+    }
+  },
+
+  "$defs": {
+    "edit": {
+      "type": "object",
+      "required": ["occurrence_id", "unit_id", "container", "node_path", "expected_encoding", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "occurrence_id": { "type": "string", "pattern": "^o:[0-9]{1,8}$" },
+        "unit_id": { "type": "string" },
+
+        "container": {
+          "$ref": "https://github.com/mcmt/mcmt/schemas/extract.schema.json#/$defs/container",
+          "description": "Copied verbatim from the occurrence. The writer uses container.data_version only to decide what generation to write the CHUNK back as; the node encoding comes from expected_encoding."
+        },
+
+        "node_path": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "https://github.com/mcmt/mcmt/schemas/extract.schema.json#/$defs/pathStep" }
+        },
+
+        "expected_encoding": {
+          "type": "string",
+          "description": "The encoding recorded at scan time. Required, not optional: the writer re-reads the node and aborts the ENTIRE plan if it no longer matches, so a stale plan can never half-apply."
+        },
+
+        "value": { "$ref": "#/$defs/value" }
+      },
+
+      "allOf": [
+        {
+          "description": "A legacy JSON-shaped node inside a chunk that the game will NOT run DataFixerUpper on (data_version >= 4325) is display garbage, not content. [遊戲實測 M0-3/M0-4] Writing a translated JSON string back there produces a node that still renders as literal braces and quotes. Extract marks such occurrences excluded; this rule makes it structurally impossible for a backend to emit one anyway.",
+          "if": {
+            "required": ["container"],
+            "properties": {
+              "container": {
+                "required": ["data_version"],
+                "properties": { "data_version": { "type": "integer", "minimum": 4325 } }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "expected_encoding": {
+                "not": {
+                  "enum": ["json_string_object", "json_string_array", "json_string_scalar", "json_empty_quoted"]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+
+    "value": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "key"],
+          "additionalProperties": false,
+          "description": "Collapse the whole node to one translate component. Only legal when the unit is collapsible.",
+          "properties": {
+            "kind": { "const": "translate" },
+            "key": { "type": "string" },
+            "fallback": { "type": ["string", "null"] },
+            "style": {
+              "type": ["object", "null"],
+              "additionalProperties": true,
+              "description": "Formatting to place on the new component. Derived from the occurrence's segment_styles, not blindly copied."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "text"],
+          "additionalProperties": false,
+          "description": "Write a literal string. For a component node the writer emits {\"text\": ...}; for a plain_string node it writes the bare string.",
+          "properties": {
+            "kind": { "const": "literal" },
+            "text": {
+              "type": "string",
+              "description": "Final text with formatting codes already reinstated. A surviving [[n]] token is a bug: the writer MUST reject the plan rather than write it."
+            },
+            "style": { "type": ["object", "null"], "additionalProperties": true }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "tree"],
+          "additionalProperties": false,
+          "description": "Rebuild a non-collapsible component tree. Emitted when unit.collapsible is false, i.e. the tree carries click_event / hover_event / font / insertion / nested translate, or styling that legacy § codes cannot express. The backend fills each text slot with a per-segment translate key derived as <unit.key>.<segment_index>.",
+          "properties": {
+            "kind": { "const": "component" },
+            "tree": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "The component tree to write, built from occurrence.skeleton with each segment slot filled in. Shape mirrors a Minecraft text component."
+            }
+          }
+        }
+      ]
+    }
+  }
+}

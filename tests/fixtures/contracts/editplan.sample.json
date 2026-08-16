@@ -1,0 +1,205 @@
+{
+  "format": "mcmt-editplan",
+  "schema_version": 3,
+  "generated_at": "2026-08-16T09:35:10Z",
+  "backend": "resourcepack",
+  "extract_ref": {
+    "extract_fingerprint": "blake2b:41b0c7de99a2f005",
+    "world_fingerprint": "blake2b:9c1f0a44d2e7b381",
+    "languages": ["zh_tw"]
+  },
+  "assets": {
+    "resources_zip": "out/resources.zip",
+    "lang_files": { "zh_tw": "out/assets/mcmt/lang/zh_tw.json" }
+  },
+  "edits": [
+    {
+      "occurrence_id": "o:00001",
+      "unit_id": "u:sign:7f3a91c204d5e618",
+      "container": {
+        "kind": "region_chunk",
+        "path": "region/r.0.0.mca",
+        "dimension": "minecraft:overworld",
+        "chunk": { "cx": 7, "cz": -3 },
+        "data_version": 4671,
+        "compression": 2,
+        "external": false
+      },
+      "node_path": [
+        { "t": "key", "name": "block_entities" },
+        { "t": "index", "i": 3 },
+        { "t": "key", "name": "front_text" },
+        { "t": "key", "name": "messages" },
+        { "t": "index", "i": 0 }
+      ],
+      "expected_encoding": "empty_key_compound",
+      "value": {
+        "kind": "translate",
+        "key": "mcmt.sign.7f3a91c204d5e618",
+        "fallback": "§cWARNING: DANGER AHEAD",
+        "style": null
+      }
+    },
+
+    {
+      "occurrence_id": "o:00002",
+      "unit_id": "u:sign:aa10bc9d31f2e470",
+      "container": {
+        "kind": "region_chunk",
+        "path": "region/r.0.0.mca",
+        "dimension": "minecraft:overworld",
+        "chunk": { "cx": 7, "cz": -3 },
+        "data_version": 4556,
+        "compression": 2,
+        "external": false
+      },
+      "node_path": [
+        { "t": "key", "name": "block_entities" },
+        { "t": "index", "i": 3 },
+        { "t": "key", "name": "front_text" },
+        { "t": "key", "name": "messages" },
+        { "t": "index", "i": 1 }
+      ],
+      "expected_encoding": "compound_tree",
+      "value": {
+        "kind": "component",
+        "tree": {
+          "translate": "mcmt.sign.aa10bc9d31f2e470.0",
+          "fallback": "Cost:",
+          "extra": [
+            {
+              "translate": "mcmt.sign.aa10bc9d31f2e470.1",
+              "fallback": " 5 Coins",
+              "color": "gold"
+            }
+          ]
+        }
+      }
+    },
+
+    {
+      "occurrence_id": "o:00003",
+      "unit_id": "u:sign:0e77f2a5cc31b409",
+      "container": {
+        "kind": "region_chunk",
+        "path": "region/r.0.0.mca",
+        "dimension": "minecraft:overworld",
+        "chunk": { "cx": 5, "cz": 0 },
+        "data_version": 4556,
+        "compression": 2,
+        "external": false
+      },
+      "node_path": [
+        { "t": "key", "name": "block_entities" },
+        { "t": "index", "i": 0 },
+        { "t": "key", "name": "back_text" },
+        { "t": "key", "name": "messages" },
+        { "t": "index", "i": 2 }
+      ],
+      "expected_encoding": "bare_string",
+      "value": {
+        "kind": "translate",
+        "key": "mcmt.sign.0e77f2a5cc31b409",
+        "fallback": "Press [[0]] to continue",
+        "style": null
+      }
+    },
+
+    {
+      "occurrence_id": "o:00512",
+      "unit_id": "u:hover_text:5d2e88a10c47bb39",
+      "container": {
+        "kind": "region_chunk",
+        "path": "region/r.0.0.mca",
+        "dimension": "minecraft:overworld",
+        "chunk": { "cx": 2, "cz": 1 },
+        "data_version": 4556,
+        "compression": 2,
+        "external": false
+      },
+      "node_path": [
+        { "t": "key", "name": "block_entities" },
+        { "t": "index", "i": 1 },
+        { "t": "key", "name": "Book" },
+        { "t": "key", "name": "components" },
+        { "t": "key", "name": "minecraft:written_book_content" },
+        { "t": "key", "name": "pages" },
+        { "t": "index", "i": 0 },
+        { "t": "key", "name": "raw" },
+        { "t": "key", "name": "extra" },
+        { "t": "index", "i": 2 },
+        { "t": "key", "name": "hover_event" },
+        { "t": "key", "name": "name" }
+      ],
+      "expected_encoding": "compound_tree",
+      "value": {
+        "kind": "component",
+        "tree": {
+          "translate": "mcmt.hover_text.5d2e88a10c47bb39.0",
+          "color": "light_purple",
+          "italic": true
+        }
+      }
+    },
+
+    {
+      "occurrence_id": "o:00902",
+      "unit_id": "u:sign:b31f00ac5d7e2916",
+      "container": {
+        "kind": "region_chunk",
+        "path": "region/r.-1.6.mca",
+        "dimension": "minecraft:overworld",
+        "chunk": { "cx": -3, "cz": 13 },
+        "data_version": 3955,
+        "compression": 2,
+        "external": false
+      },
+      "node_path": [
+        { "t": "key", "name": "block_entities" },
+        { "t": "index", "i": 2 },
+        { "t": "key", "name": "front_text" },
+        { "t": "key", "name": "messages" },
+        { "t": "index", "i": 0 }
+      ],
+      "expected_encoding": "json_string_object",
+      "value": {
+        "kind": "translate",
+        "key": "mcmt.sign.b31f00ac5d7e2916",
+        "fallback": "Welcome to the Lobby",
+        "style": { "color": "aqua" }
+      }
+    },
+
+    {
+      "occurrence_id": "o:00801",
+      "unit_id": "u:level_name:c4b8210f9e3a7d51",
+      "container": {
+        "kind": "level_dat",
+        "path": "level.dat",
+        "dimension": null,
+        "chunk": null,
+        "data_version": 4671,
+        "compression": null,
+        "external": false
+      },
+      "node_path": [
+        { "t": "key", "name": "Data" },
+        { "t": "key", "name": "LevelName" }
+      ],
+      "expected_encoding": "plain_string",
+      "value": {
+        "kind": "literal",
+        "text": "§l§kM §9§lMinecraft 派對",
+        "style": null
+      }
+    }
+  ],
+
+  "unwritten": [
+    {
+      "unit_id": "u:command_text:31c9de07aa5b1e62",
+      "reason": "rejected_by_validator",
+      "detail": "status=needs_review with low_confidence; --strict was in effect so it was not written."
+    }
+  ]
+}

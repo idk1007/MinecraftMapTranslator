@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mcmt/mcmt/schemas/translations.schema.json",
+  "title": "mcmt translations document",
+  "description": "Layer 4 (translation) output, one file per target language, consumed by Layer 5 (output backends). Kept separate from extract.json: it shares zero fields with it (unit_id is a foreign key, not a copy), it is the human review surface, it is written once per target language, and incremental runs diff two of these against each other.",
+  "type": "object",
+  "required": ["format", "schema_version", "language", "extract_ref", "entries"],
+  "additionalProperties": false,
+  "properties": {
+    "format": { "const": "mcmt-translations" },
+    "schema_version": {
+      "type": "integer",
+      "const": 3,
+      "description": "Shared by all four mcmt contracts. Mismatch is fatal; there is no migration path."
+    },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "language": { "type": "string", "pattern": "^[a-z]{2,3}_[a-z]{2}$" },
+
+    "extract_ref": {
+      "type": "object",
+      "required": ["extract_fingerprint", "world_fingerprint", "rule_set_version", "unit_count"],
+      "additionalProperties": false,
+      "description": "Binds these translations to one specific extract document. apply aborts on any mismatch unless explicitly overridden.",
+      "properties": {
+        "extract_fingerprint": {
+          "type": "string",
+          "pattern": "^blake2b:[0-9a-f]{16,64}$",
+          "description": "★ The primary check. world_fingerprint alone is insufficient: re-running extract on an unchanged world with a new rule_set_version leaves world_fingerprint identical while unit_ids change, so stale translations would validate and then silently degrade into mass 'untranslated'."
+        },
+        "world_fingerprint": { "type": "string", "pattern": "^blake2b:[0-9a-f]{16,64}$" },
+        "rule_set_version": { "type": "string" },
+        "unit_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Weak corroboration only. Never treat a matching count as evidence of a matching extract."
+        },
+        "namespace": { "type": "string" },
+        "generated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+
+    "entries": {
+      "type": "object",
+      "description": "unit_id -> entry. A unit_id present in the extract but absent here is untranslated: apply leaves the source text in place and reports it in apply_report.",
+      "propertyNames": { "pattern": "^u:[a-z0-9_]+:[0-9a-f]{16}(_[0-9]+)?$" },
+      "additionalProperties": { "$ref": "#/$defs/entry" }
+    },
+
+    "run": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "batch_id": { "type": ["string", "null"] },
+        "started_at": { "type": "string", "format": "date-time" },
+        "finished_at": { "type": "string", "format": "date-time" },
+        "usage": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "input_tokens": { "type": "integer" },
+            "output_tokens": { "type": "integer" },
+            "cache_read_input_tokens": { "type": "integer" }
+          }
+        }
+      }
+    },
+
+    "stats": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "translated": { "type": "integer", "minimum": 0 },
+        "needs_review": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0 },
+        "rejected_placeholder_mismatch": { "type": "integer", "minimum": 0 },
+        "overflow": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "required": ["text", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "The translated string in the same [[n]] placeholder convention as source.text. The placeholder multiset MUST be identical to the source's -- not a token more, not a token fewer, no duplicates. This is a HARD failure, never a warning: § formatting runs stay in effect until §r or end of line, so one dropped token bleeds colour across the rest of the sign. Token ORDER may differ, because Chinese reorders clauses."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["translated", "needs_review", "skipped", "unchanged", "rejected"],
+          "description": "rejected: the validator refused this translation (placeholder mismatch after retry). apply MUST NOT write a rejected entry; it goes to apply_report.unwritten instead."
+        },
+        "origin": {
+          "type": "string",
+          "enum": ["machine", "human", "glossary", "carried_over"],
+          "default": "machine"
+        },
+        "measured_width_px": { "type": ["integer", "null"] },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "overflow_width",
+              "overflow_lines",
+              "overflow_chars",
+              "placeholder_mismatch",
+              "placeholder_front_loaded",
+              "empty_translation",
+              "untranslated_identical",
+              "contains_section_sign",
+              "low_confidence"
+            ]
+          },
+          "description": "placeholder_front_loaded: the token multiset matches but every token migrated to the head of the string, e.g. '[[0]][[1]]文字'. The set check passes while the styling is destroyed, so this is checked separately and reported as a warning for human review."
+        },
+        "notes": { "type": "string" },
+        "alternatives": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Shorter renderings offered after a width-overflow retry, best first."
+        }
+      }
+    }
+  }
+}

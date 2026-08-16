@@ -1,0 +1,153 @@
+[
+  {
+    "world": "Minecraft Party 2",
+    "chunks_scanned": 120218,
+    "unreadable_chunks": 0,
+    "external_mcc_chunks": 0,
+    "compression_types": {
+      "2": 120218
+    },
+    "data_versions": {
+      "3955": 51369,
+      "4325": 22,
+      "4438": 47159,
+      "4440": 71,
+      "4556": 21597
+    },
+    "P1": {
+      "components_seen": 22776,
+      "with_extra": 3073,
+      "extra_pct": 13.49,
+      "extra_depth_hist": {
+        "1": 2785,
+        "2": 274,
+        "3": 14
+      },
+      "extra_len_hist": {
+        "1": 1553,
+        "2": 45,
+        "3": 175,
+        "4": 57,
+        "5": 998,
+        "6": 6,
+        "7": 8,
+        "8": 2,
+        "9": 3,
+        "10": 1,
+        "11": 1,
+        "12": 15,
+        "15": 9,
+        "16": 25,
+        "19": 113,
+        "20": 53,
+        "21": 3,
+        "22": 2,
+        "24": 3,
+        "34": 1
+      },
+      "extra_by_generation": {
+        "legacy_json": 199,
+        "native_nbt": 2874
+      },
+      "extra_elements_carrying_own_format": 2663,
+      "examples": [
+        {
+          "path": "/block_entities[]/LastOutput",
+          "dv": 4556,
+          "json": "{\"text\":\"[23:51:55] \",\"extra\":[{\"translate\":\"commands.data.block.modified\",\"with\":[\"-147\",\"26\",\"-474\"]}]}"
+        },
+        {
+          "path": "/block_entities[]/LastOutput",
+          "dv": 4556,
+          "json": "{\"text\":\"[23:51:56] \",\"extra\":[{\"translate\":\"commands.data.block.modified\",\"with\":[\"-148\",\"26\",\"-474\"]}]}"
+        },
+        {
+          "path": "/block_entities[]/LastOutput",
+          "dv": 4556,
+          "json": "{\"text\":\"[23:53:22] \",\"extra\":[{\"translate\":\"commands.data.block.modified\",\"with\":[\"-145\",\"26\",\"-474\"]}]}"
+        },
+        {
+          "path": "/block_entities[]/LastOutput",
+          "dv": 4556,
+          "json": "{\"text\":\"[14:59:37] \",\"extra\":[{\"translate\":\"commands.data.block.modified\",\"with\":[\"-146\",\"26\",\"-474\"]}]}"
+        },
+        {
+          "path": "/block_entities[]/LastOutput",
+          "dv": 4556,
+          "json": "{\"text\":\"[23:52:01] \",\"extra\":[{\"translate\":\"commands.data.block.modified\",\"with\":[\"-153\",\"26\",\"-474\"]}]}"
+        },
+        {
+          "path": "/block_entities[]/LastOutput",
+          "dv": 4556,
+          "json": "{\"text\":\"[23:51:58] \",\"extra\":[{\"translate\":\"commands.data.block.modified\",\"with\":[\"-151\",\"26\",\"-474\"]}]}"
+        },
+        {
+          "path": "/block_entities[]/LastOutput",
+          "dv": 4556,
+          "json": "{\"text\":\"[23:51:59] \",\"extra\":[{\"translate\":\"commands.data.block.modified\",\"with\":[\"-152\",\"26\",\"-474\"]}]}"
+        },
+        {
+          "path": "/block_entities[]/LastOutput",
+          "dv": 4556,
+          "json": "{\"text\":\"[23:51:57] \",\"extra\":[{\"translate\":\"commands.data.block.modified\",\"with\":[\"-149\",\"26\",\"-474\"]}]}"
+        }
+      ]
+    },
+    "P2": {
+      "filterable_paths": {},
+      "examples": []
+    },
+    "P3": {
+      "sign_shapes": {
+        "modern_front_back_text": 6745
+      },
+      "messages_by_data_version": {
+        "4438": {
+          "messages:bare_literal_nonempty": 161,
+          "messages:native_compound_emptykey_empty": 85,
+          "messages:native_compound_emptykey_text": 81,
+          "messages:native_compound_text_nonempty": 97,
+          "messages:native_compound_translate": 109,
+          "messages:native_empty_zero_length": 1147
+        },
+        "4556": {
+          "messages:bare_literal_nonempty": 3136,
+          "messages:legacy_json_content": 110,
+          "messages:legacy_json_empty_quoted": 2340,
+          "messages:native_compound_emptykey_empty": 2051,
+          "messages:native_compound_emptykey_text": 497,
+          "messages:native_compound_text_empty": 40,
+          "messages:native_compound_text_nonempty": 2572,
+          "messages:native_compound_translate": 2412,
+          "messages:native_empty_zero_length": 39106
+        }
+      }
+    }
+  },
+  {
+    "world": "round2_mp2.json",
+    "chunks_scanned": 0,
+    "unreadable_chunks": 0,
+    "external_mcc_chunks": 0,
+    "compression_types": {},
+    "data_versions": {},
+    "P1": {
+      "components_seen": 0,
+      "with_extra": 0,
+      "extra_pct": 0,
+      "extra_depth_hist": {},
+      "extra_len_hist": {},
+      "extra_by_generation": {},
+      "extra_elements_carrying_own_format": 0,
+      "examples": []
+    },
+    "P2": {
+      "filterable_paths": {},
+      "examples": []
+    },
+    "P3": {
+      "sign_shapes": {},
+      "messages_by_data_version": {}
+    }
+  }
+]

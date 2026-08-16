@@ -1,0 +1,473 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mcmt/mcmt/schemas/extract.schema.json",
+  "title": "mcmt extract document",
+  "description": "Layer 3 (rule tagging) output, consumed by Layer 4 (translation) and Layer 5 (output backends). SCHEMA_VERSION 3. There is no backwards compatibility: a document whose schema_version does not equal the tool's SCHEMA_VERSION is rejected outright.",
+  "type": "object",
+  "required": ["format", "schema_version", "generated_at", "generator", "project", "world", "units"],
+  "additionalProperties": false,
+  "properties": {
+    "format": { "const": "mcmt-extract" },
+    "schema_version": {
+      "type": "integer",
+      "const": 3,
+      "description": "Single version number shared by all four mcmt contracts. Mismatch is a fatal error, never a migration."
+    },
+    "generated_at": { "type": "string", "format": "date-time" },
+
+    "generator": {
+      "type": "object",
+      "required": ["tool", "version", "rule_set_version"],
+      "additionalProperties": false,
+      "properties": {
+        "tool": { "const": "mcmt" },
+        "version": { "type": "string" },
+        "rule_set_version": {
+          "type": "string",
+          "description": "Version of the rule pack. Changing it changes which nodes are extracted, so it participates in extract_fingerprint."
+        }
+      }
+    },
+
+    "project": {
+      "type": "object",
+      "required": ["namespace", "source_language", "target_languages"],
+      "additionalProperties": false,
+      "properties": {
+        "namespace": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]{2,32}$",
+          "not": { "const": "minecraft" },
+          "description": "Single custom lang-key namespace. MUST NOT be 'minecraft'."
+        },
+        "source_language": { "$ref": "#/$defs/langCode" },
+        "target_languages": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/langCode" } },
+        "glossary_ref": { "type": ["string", "null"] }
+      }
+    },
+
+    "world": {
+      "type": "object",
+      "required": ["name", "level_data_version", "world_fingerprint", "extract_fingerprint"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "level_data_version": { "type": "integer" },
+        "world_fingerprint": {
+          "$ref": "#/$defs/fingerprint",
+          "description": "Identity of the scanned world snapshot. MUST be derived from per-chunk DataVersions and region content, NOT from file mtime or size: [實測] opening a world in-game upgraded 182 of 120,036 chunks with no meaningful mtime signal."
+        },
+        "extract_fingerprint": {
+          "$ref": "#/$defs/fingerprint",
+          "description": "Identity of THIS extract document: hash over world_fingerprint + rule_set_version + namespace + the sorted unit_id list. Two extracts of the same world with different rule_set_version have the same world_fingerprint but different extract_fingerprint. translations.json binds to this, not to world_fingerprint alone."
+        },
+        "dimensions": { "type": "array", "items": { "type": "string" } },
+        "chunk_data_version_histogram": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[0-9]+$" },
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+
+    "stats": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "unit_count": { "type": "integer", "minimum": 0 },
+        "occurrence_count": { "type": "integer", "minimum": 0 },
+        "deduped_count": { "type": "integer", "minimum": 0 },
+        "skipped_unparseable": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Nodes that looked like legacy JSON but failed to parse. These are counted and reported, never silently treated as literal text."
+        },
+        "skipped_legacy_json_in_native_chunk": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Legacy JSON-shaped nodes found in a chunk whose data_version is >= 4325. [遊戲實測 M0-3/M0-4] the game does not JSON-parse a TAG_String in a native chunk, it renders it literally, so these are display garbage rather than content. Translating them would write back a string that still renders as garbage; v1 excludes them and reports the count."
+        },
+        "by_category": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
+      }
+    },
+
+    "units": { "type": "array", "items": { "$ref": "#/$defs/unit" } }
+  },
+
+  "$defs": {
+    "fingerprint": { "type": "string", "pattern": "^blake2b:[0-9a-f]{16,64}$" },
+
+    "langCode": { "type": "string", "pattern": "^[a-z]{2,3}_[a-z]{2}$" },
+
+    "discriminator": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}(_[0-9]+)?$",
+      "description": "16 hex chars = 64 bits of blake2b, optionally followed by _<n> when a collision or a manual disambiguation forced a split. 40 bits was inadequate: at 50k entries its collision probability is ~11%, and the scan corpus includes 2,613 mcfunctions and 692 command blocks."
+    },
+
+    "unitId": {
+      "type": "string",
+      "pattern": "^u:[a-z0-9_]+:[0-9a-f]{16}(_[0-9]+)?$",
+      "description": "u:<category>:<discriminator>. The discriminator here and the discriminator inside translateKey are THE SAME STRING, produced once by one function. They never diverge."
+    },
+
+    "translateKey": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+\\.[a-z0-9_]+\\.[0-9a-f]{16}(_[0-9]+)?(\\.[0-9]+)?$",
+      "description": "<namespace>.<category>.<discriminator>[.<segment_index>]. The optional trailing .<n> is the SEGMENT INDEX, present only when unit.collapsible is false and the backend must emit one key per text segment. Collision/disambiguation lives inside the discriminator as _<n>, never in the trailing segment slot."
+    },
+
+    "category": {
+      "type": "string",
+      "enum": [
+        "sign", "hanging_sign",
+        "item_name", "custom_name", "lore",
+        "book_title", "book_author", "book_page", "draft_book_page",
+        "entity_name", "text_display", "block_entity_name",
+        "bossbar", "objective", "team", "team_affix",
+        "advancement_title", "advancement_description",
+        "level_name",
+        "command_text",
+        "hover_text",
+        "unknown"
+      ],
+      "description": "hover_text covers components nested inside hover_event (MP2 has 331 such nodes under book pages). Included in scan scope by decision."
+    },
+
+    "unit": {
+      "type": "object",
+      "required": ["unit_id", "category", "strategy", "collapsible", "source", "constraints", "context", "occurrences"],
+      "additionalProperties": false,
+      "properties": {
+        "unit_id": { "$ref": "#/$defs/unitId" },
+        "key": {
+          "oneOf": [{ "$ref": "#/$defs/translateKey" }, { "type": "null" }],
+          "description": "Base key WITHOUT a segment index. Non-null iff strategy is translate_key. When collapsible is false the backend derives per-segment keys by appending .<i>."
+        },
+        "category": { "$ref": "#/$defs/category" },
+        "strategy": { "type": "string", "enum": ["translate_key", "in_place"] },
+
+        "collapsible": {
+          "type": "boolean",
+          "description": "True iff the whole component tree can be replaced by ONE {translate: key} node without losing anything: every segment's style is expressible as legacy § codes, and the tree contains no translate/score/selector/keybind/nbt/click_event/hover_event/insertion/font node. When false the backend MUST rebuild the tree and emit one key per segment. [實測] 2,261 translatable component trees in Minecraft Party 2 carry an extra array; 84% of them have children with their own formatting, and the deepest observed nesting is 3."
+        },
+
+        "source": { "$ref": "#/$defs/source" },
+        "constraints": { "$ref": "#/$defs/constraints" },
+        "context": { "$ref": "#/$defs/context" },
+        "occurrences": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/occurrence" } },
+
+        "flags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "duplicate_source",
+              "nested_in_command",
+              "nested_in_json_component",
+              "nested_in_hover_event",
+              "mixed_encoding",
+              "collision_resolved",
+              "manually_disambiguated",
+              "contains_placeholder_like_text",
+              "empty_source",
+              "vanilla_key_lookalike",
+              "already_target_language",
+              "non_collapsible_tree",
+              "legacy_json_in_native_chunk"
+            ]
+          },
+          "description": "already_target_language is set by a cheap CJK-ratio heuristic in layer 3 so the translation layer can skip text that is already in the target language. Real adventure maps are routinely mixed-language and this materially cuts token spend at 989 MB scale."
+        }
+      },
+
+      "allOf": [
+        {
+          "if": { "required": ["strategy"], "properties": { "strategy": { "const": "translate_key" } } },
+          "then": { "required": ["key"], "properties": { "key": { "$ref": "#/$defs/translateKey" } } }
+        },
+        {
+          "if": { "required": ["strategy"], "properties": { "strategy": { "const": "in_place" } } },
+          "then": { "properties": { "key": { "type": "null" } } }
+        },
+        {
+          "if": {
+            "required": ["category"],
+            "properties": {
+              "category": { "enum": ["level_name", "book_title", "book_author", "draft_book_page"] }
+            }
+          },
+          "then": {
+            "properties": { "strategy": { "const": "in_place" } },
+            "description": "[遊戲實測] These four fields only accept a literal string. A translate key placed in book title.raw renders the raw key on screen."
+          }
+        },
+        {
+          "if": {
+            "required": ["occurrences"],
+            "properties": {
+              "occurrences": {
+                "contains": { "required": ["encoding"], "properties": { "encoding": { "const": "plain_string" } } }
+              }
+            }
+          },
+          "then": {
+            "properties": { "strategy": { "const": "in_place" } },
+            "description": "plain_string means the field is not a component at all. Machine-enforced, not merely documented."
+          }
+        },
+        {
+          "if": { "required": ["collapsible"], "properties": { "collapsible": { "const": false } } },
+          "then": {
+            "properties": { "strategy": { "const": "translate_key" } },
+            "description": "A non-collapsible tree needs per-segment keys, which the in_place strategy has no way to express."
+          }
+        }
+      ]
+    },
+
+    "source": {
+      "type": "object",
+      "required": ["text", "plain", "segments"],
+      "additionalProperties": false,
+      "description": "The unit's text, flattened out of the component tree. § codes and structural formatting are NOT two separate mechanisms: both become segments, and both are marked in `text` by the same [[n]] token.",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "★ THE HASH INPUT and the LLM input. The literal text of the ENTIRE component tree (recursing through extra, and through hover_event when in scope) flattened into render order, with a [[n]] token inserted at the start of each style segment. n counts from 0 and indexes `segments`. A translation MUST preserve the exact multiset of [[n]] tokens."
+        },
+        "plain": {
+          "type": "string",
+          "description": "text with all [[n]] tokens removed. Display and width measurement only; never round-tripped."
+        },
+        "segments": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/segment" },
+          "description": "segments[n] describes what [[n]] opens. Style VALUES are per-occurrence (see occurrence.segment_styles); this array carries only the kind and the sigma-expressibility, which are what determine unit identity and collapsibility."
+        },
+        "escaped_literals": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Present when the ORIGINAL text contained a literal [[n]]-shaped substring. Those are escaped to [[\\n]] in `text`; this array records the originals in order so unmasking can restore them. Pairs with the contains_placeholder_like_text flag."
+        }
+      }
+    },
+
+    "segment": {
+      "type": "object",
+      "required": ["kind", "sigma_expressible"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["none", "legacy", "structural"],
+          "description": "none: unstyled run. legacy: opened by inline § codes. structural: opened by component fields (color/bold/italic/...). The distinction exists for the writer, not for the translator -- the LLM sees an opaque [[n]] either way."
+        },
+        "sigma_expressible": {
+          "type": "boolean",
+          "description": "True iff this segment's style can be written as legacy § codes inside a lang-file value. False for click_event, hover_event, font, insertion, and for nested translate nodes. A single false here forces unit.collapsible to false."
+        }
+      }
+    },
+
+    "constraints": {
+      "type": "object",
+      "required": ["enforcement", "measurement"],
+      "additionalProperties": false,
+      "properties": {
+        "max_width_px": { "type": ["integer", "null"], "minimum": 1 },
+        "max_lines": { "type": ["integer", "null"], "minimum": 1 },
+        "max_chars": { "type": ["integer", "null"], "minimum": 1 },
+        "wrap": { "type": "string", "enum": ["none", "auto"], "default": "none" },
+        "enforcement": {
+          "type": "string",
+          "enum": ["error", "warn", "none"],
+          "description": "Stays at warn for every category until the in-game font-width calibration lands. Enforcing an unverified budget would reject correct translations."
+        },
+        "measurement": { "type": "string", "enum": ["vanilla_font_v1", "char_count", "none"] },
+        "source_width_px": { "type": ["integer", "null"] }
+      }
+    },
+
+    "context": {
+      "type": "object",
+      "required": ["hint"],
+      "additionalProperties": false,
+      "properties": {
+        "hint": { "type": "string" },
+        "group_id": { "type": ["string", "null"] },
+        "group_index": { "type": ["integer", "null"], "minimum": 0 },
+        "siblings": { "type": "array", "items": { "$ref": "#/$defs/unitId" } },
+        "neighbour_text": { "type": "array", "items": { "type": "string" } },
+        "dimension": { "type": ["string", "null"] },
+        "position": {
+          "type": ["array", "null"],
+          "items": { "type": "number" },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "number, not integer: entity coordinates are doubles and text_display entities are routinely at non-integral positions."
+        }
+      }
+    },
+
+    "occurrence": {
+      "type": "object",
+      "required": ["occurrence_id", "container", "node_path", "encoding", "segment_styles"],
+      "additionalProperties": false,
+      "description": "One physical location of this text. The write-back address, plus everything needed to rebuild the original component tree. The translation layer MUST NOT read this.",
+      "properties": {
+        "occurrence_id": { "type": "string", "pattern": "^o:[0-9]{1,8}$" },
+        "container": { "$ref": "#/$defs/container" },
+
+        "anchor": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "type": "string", "enum": ["block", "entity", "item", "player", "file", "global"] },
+            "id": { "type": ["string", "null"] },
+            "x": { "type": ["number", "null"] },
+            "y": { "type": ["number", "null"] },
+            "z": { "type": ["number", "null"] },
+            "uuid": { "type": ["string", "null"] }
+          }
+        },
+
+        "node_path": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/pathStep" } },
+
+        "encoding": {
+          "type": "string",
+          "enum": [
+            "bare_string",
+            "empty_key_compound",
+            "text_compound",
+            "compound_tree",
+            "json_string_object",
+            "json_string_array",
+            "json_string_scalar",
+            "json_empty_quoted",
+            "plain_string",
+            "snbt_string"
+          ],
+          "description": "★ AUTHORITATIVE. The shape actually found at this node, determined by sniffing the value -- NOT derived from container.data_version. [實測] DataVersion 4556 chunks in Minecraft Party 2 contain 2,340 json_empty_quoted and 110 json_string_object message elements, so DataVersion does not predict node shape. json_string_array is the ['', {...}, {...}] form (66 occurrences in 100 Ways To Die, 40 in Questioning). json_empty_quoted is the 2-character string '\"\"'."
+        },
+
+        "segment_styles": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true },
+          "description": "Style values for this occurrence, parallel to source.segments. segment_styles[n] is either {\"codes\": \"§c\"} for a legacy segment or the component's own formatting fields for a structural one. Style VALUES live here rather than on the unit so that the same sentence in gold and in red stays a single translation unit."
+        },
+
+        "skeleton": {
+          "type": ["object", "null"],
+          "additionalProperties": true,
+          "description": "The original component tree with every literal text replaced by its segment index. Required when encoding is compound_tree, json_string_object or json_string_array. This is what lets the writer rebuild a non-collapsible tree after translation; it is NOT 'verbatim carry-over'."
+        },
+
+        "raw_snapshot": {
+          "type": ["string", "null"],
+          "description": "Byte-exact original value at this node, when it was a string. Used by the writer's expected-encoding guard to detect that the world changed under a stale plan."
+        },
+
+        "list_context": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "list_size": { "type": "integer", "minimum": 1 },
+            "index": { "type": "integer", "minimum": 0 },
+            "element_type": { "type": "string", "enum": ["string", "compound", "mixed"] },
+            "homogeneity_required": { "type": "boolean", "const": true }
+          }
+        },
+
+        "excluded": {
+          "type": ["object", "null"],
+          "required": ["reason"],
+          "additionalProperties": false,
+          "description": "Non-null means this occurrence MUST NOT appear in an edit plan. The exclusion is per-occurrence, not per-unit: the same source text can be real content in a DV 3955 chunk and display garbage in a DV 4556 one, so the unit is still translated and only the affected occurrences are held back.",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "enum": ["legacy_json_in_native_chunk", "unparseable_json"]
+            },
+            "detail": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "container": {
+      "type": "object",
+      "required": ["kind", "path", "data_version"],
+      "additionalProperties": false,
+      "description": "There is deliberately NO `generation` field. It used to be derived from data_version, and that derivation is now known to be wrong.",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["region_chunk", "entities_chunk", "poi_chunk", "level_dat", "scoreboard_dat", "player_dat", "datapack_file"]
+        },
+        "path": { "type": "string", "description": "Relative to the world root, forward slashes." },
+        "dimension": { "type": ["string", "null"] },
+        "chunk": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["cx", "cz"],
+          "properties": { "cx": { "type": "integer" }, "cz": { "type": "integer" } }
+        },
+        "data_version": {
+          "type": ["integer", "null"],
+          "description": "This chunk's own DataVersion, used ONLY to write the chunk back at the generation it came from. It does NOT determine node encoding -- see occurrence.encoding. Null for chunks that predate the field entirely; such worlds are rejected by v1."
+        },
+        "compression": {
+          "type": ["integer", "null"],
+          "description": "Compression type as read, after masking off 0x80. Deliberately a plain integer rather than an enum: an unknown value must surface as UnknownCompressionError from parse_compression_byte, whose message names the offending value and chunk, not as a generic schema validation failure."
+        },
+        "external": { "type": "boolean", "default": false }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["kind"],
+            "properties": { "kind": { "enum": ["region_chunk", "entities_chunk", "poi_chunk"] } }
+          },
+          "then": { "required": ["chunk"], "properties": { "chunk": { "type": "object" } } }
+        }
+      ]
+    },
+
+    "pathStep": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["t", "name"],
+          "additionalProperties": false,
+          "properties": { "t": { "const": "key" }, "name": { "type": "string" } }
+        },
+        {
+          "type": "object",
+          "required": ["t", "i"],
+          "additionalProperties": false,
+          "properties": { "t": { "const": "index" }, "i": { "type": "integer", "minimum": 0 } }
+        },
+        {
+          "type": "object",
+          "required": ["t", "codec"],
+          "additionalProperties": false,
+          "description": "Descend into a nested document encoded as a string at the current node. On write the writer re-encodes every decode level from the innermost outwards.",
+          "properties": {
+            "t": { "const": "decode" },
+            "codec": { "type": "string", "enum": ["json_component", "snbt", "command", "lang_json"] },
+            "arg": { "type": ["string", "null"] },
+            "span": {
+              "type": ["array", "null"],
+              "items": { "type": "integer" },
+              "minItems": 2,
+              "maxItems": 2,
+              "description": "Byte offsets [start, end) inside the parent string. WARNING: when one parent string holds several translatable spans, editing any span invalidates the offsets of all later ones. The writer MUST apply same-parent edits in descending span order, or rebuild structurally instead of splicing."
+            }
+          }
+        }
+      ]
+    }
+  }
+}

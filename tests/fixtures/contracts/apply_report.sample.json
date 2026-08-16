@@ -1,0 +1,53 @@
+{
+  "format": "mcmt-apply-report",
+  "schema_version": 3,
+  "generated_at": "2026-08-16T09:38:57Z",
+  "outcome": "applied",
+  "world": {
+    "path": "sandbox/TT_WORLD_NAME_PROBE",
+    "world_fingerprint_before": "blake2b:9c1f0a44d2e7b381",
+    "world_fingerprint_after": "blake2b:2ad4e01f77c3b8ae",
+    "extract_fingerprint": "blake2b:41b0c7de99a2f005"
+  },
+  "backup": {
+    "directory": "C:/Users/a0483/Desktop/minecraft map translate/sandbox/TT_WORLD_NAME_PROBE/.mcmt-backup/2026-08-16T09-38-41Z",
+    "file_count": 2,
+    "bytes": 5398528
+  },
+  "counts": {
+    "edits_planned": 5,
+    "edits_written": 4,
+    "chunks_touched": 3,
+    "chunks_copied_verbatim": 3604,
+    "files_rewritten": 2,
+    "list_promotions": 1
+  },
+  "unwritten": [
+    {
+      "unit_id": "u:sign:0e77f2a5cc31b409",
+      "occurrence_id": "o:00003",
+      "reason": "node_changed",
+      "detail": "expected_encoding=bare_string but the node is now text_compound. The world was opened in-game after extract ran; re-run extract."
+    }
+  ],
+  "warnings": [
+    {
+      "kind": "sector_realignment",
+      "unit_id": null,
+      "detail": "region/r.0.0.mca 5,398,528 -> 5,304,320 bytes. Gaps in the original file were reclaimed; no data was lost."
+    },
+    {
+      "kind": "width_overflow",
+      "unit_id": "u:sign:aa10bc9d31f2e470",
+      "detail": "measured 88px against a 90px budget under vanilla_font_v1, which is unverified; enforcement=warn so it was written."
+    }
+  ],
+  "assets_installed": [
+    {
+      "source": "out/resources.zip",
+      "destination": "sandbox/TT_WORLD_NAME_PROBE/resources.zip",
+      "replaced_existing": false,
+      "backup_of_replaced": null
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+# --- 安全規則 1：sandbox 是唯一合法的寫入位置，裡面是別人的地圖副本，永不進版本控制
+sandbox/
+
+# --- 虛擬環境（spike/.venv + spike/.venv_alt 共 134 MB）
+.venv/
+.venv_alt/
+venv/
+
+# --- 放在同一個資料夾裡的第三方工具，與 mcmt 無關
+claude-code-stats/
+
+# --- Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- 執行輸出
+out/
+*.log
+
+# --- 大型二進位語料。tests/fixtures/regions/ 底下的小切片（每個 < 1 MB）是刻意要進版控的，
+#     用 ! 例外放行；其餘 .mca / .mcc / .dat 一律擋掉，避免不小心把整張地圖 commit 進來。
+*.mca
+*.mcc
+*.dat
+*.dat_old
+!tests/fixtures/regions/*.mca
+
+# --- 編輯器 / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

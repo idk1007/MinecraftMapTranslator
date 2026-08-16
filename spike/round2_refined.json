@@ -1,0 +1,306 @@
+[
+  {
+    "world": "From Ashes Reborn 1.12 v03 Standard",
+    "data_versions": {
+      "1139": 3305,
+      "1241": 12877,
+      "None": 882
+    },
+    "R1_extra_split": {
+      "extra_total": 289,
+      "extra_on_denylisted_paths": 288,
+      "extra_on_translatable_paths": 1,
+      "translatable_pct_of_extra": 0.35,
+      "translatable_depth_hist": {
+        "1": 1
+      },
+      "translatable_len_hist": {
+        "2": 1
+      },
+      "translatable_with_styled_children": 1,
+      "top_paths": {
+        "/Level/TileEntities[]/LastOutput": 288,
+        "/Level/TileEntities[]/Items[]/tag/pages[]": 1
+      },
+      "translatable_examples": [
+        {
+          "path": "/Level/TileEntities[]/Items[]/tag/pages[]",
+          "dv": 1241,
+          "json": "{\"extra\":[{\"text\":\"Don\\u0027t you hate bureaucracy? So many people sitting at their desks, and yet things go missing all the time. The Core was supposed not to be removed no matter the circumstances. They had loaded it into a battleship which sunk just \"},{\"color\":\"dark_green\",\"text\":\"south of our station \"}],\"text\":\"\"}"
+        }
+      ]
+    },
+    "R2_filterable": {
+      "book_component_census": {
+        "legacy_tag_pages": 49
+      },
+      "sign_sides_seen": 0,
+      "filterable_hits": {}
+    },
+    "R3_legacy_in_native": {
+      "quoted_empty_by_dv_side": {},
+      "json_shape_inside_native_dv": {},
+      "examples": []
+    },
+    "sign_shapes": {
+      "legacy_Text1_4": 924
+    },
+    "legacy_json_array_form": 0,
+    "legacy_json_invalid": 0
+  },
+  {
+    "world": "LOST - Horror Map 1.12.10",
+    "data_versions": {
+      "4556": 7523
+    },
+    "R1_extra_split": {
+      "extra_total": 101,
+      "extra_on_denylisted_paths": 101,
+      "extra_on_translatable_paths": 0,
+      "translatable_pct_of_extra": 0.0,
+      "translatable_depth_hist": {},
+      "translatable_len_hist": {},
+      "translatable_with_styled_children": 0,
+      "top_paths": {
+        "/block_entities[]/LastOutput": 88,
+        "/block_entities[]/LastOutput/extra[]": 10,
+        "/block_entities[]/LastOutput/extra[]/with[]/with[]": 3
+      },
+      "translatable_examples": []
+    },
+    "R2_filterable": {
+      "book_component_census": {
+        "minecraft:written_book_content": 26,
+        "minecraft:written_book_content.title": 26,
+        "minecraft:written_book_content.author": 26,
+        "minecraft:written_book_content.pages": 26,
+        "title_is_filterable_wrapper": 26,
+        "page_is_filterable_wrapper": 208,
+        "legacy_tag_pages": 26
+      },
+      "sign_sides_seen": 2,
+      "filterable_hits": {}
+    },
+    "R3_legacy_in_native": {
+      "quoted_empty_by_dv_side": {},
+      "json_shape_inside_native_dv": {},
+      "examples": []
+    },
+    "sign_shapes": {
+      "modern_front_back_text": 1
+    },
+    "legacy_json_array_form": 0,
+    "legacy_json_invalid": 0
+  },
+  {
+    "world": "100 Ways To Die",
+    "data_versions": {
+      "3953": 203,
+      "4082": 1783,
+      "4189": 7,
+      "4325": 7899
+    },
+    "R1_extra_split": {
+      "extra_total": 2828,
+      "extra_on_denylisted_paths": 2604,
+      "extra_on_translatable_paths": 224,
+      "translatable_pct_of_extra": 7.92,
+      "translatable_depth_hist": {
+        "1": 224
+      },
+      "translatable_len_hist": {
+        "1": 5,
+        "2": 215,
+        "3": 2,
+        "4": 1,
+        "6": 1
+      },
+      "translatable_with_styled_children": 220,
+      "top_paths": {
+        "/block_entities[]/LastOutput": 1914,
+        "/block_entities[]/LastOutput/extra[]/with[]": 287,
+        "/block_entities[]/LastOutput/extra[]": 286,
+        "/block_entities[]/CustomName": 215,
+        "/block_entities[]/LastOutput/extra[]/with[]/with[]": 68,
+        "/block_entities[]/LastOutput/extra[]/extra[]": 49,
+        "/Entities[]/text": 7,
+        "/block_entities[]/Book/components/minecraft:written_book_content/pages[]/raw": 2
+      },
+      "translatable_examples": [
+        {
+          "path": "/block_entities[]/Book/components/minecraft:written_book_content/pages[]/raw",
+          "dv": 4325,
+          "snbt": "{'color': StringTag(\"dark_purple\"), 'extra': ListTag([CompoundTag({'color': StringTag(\"dark_purple\"), 'text': StringTag(\"\n\nIf you are lagging, type \")}), CompoundTag({'color': StringTag(\"light_purple\"), 'text': StringTag(\"/trigger\nreduce_audience\")}), CompoundTag({'color': StringTag(\"dark_purple\"), 'text': StringTag(\"\n\n\")}), CompoundTag({'color': StringTag(\"dark_aqua\"), 'text': StringTag(\"If you can see the start button, the resource pack is working!\n\nIf not, download it before starting!\")})], 1"
+        },
+        {
+          "path": "/block_entities[]/Book/components/minecraft:written_book_content/pages[]/raw",
+          "dv": 4325,
+          "snbt": "{'color': StringTag(\"light_purple\"), 'extra': ListTag([CompoundTag({'color': StringTag(\"dark_green\"), 'underlined': ByteTag(1), 'text': StringTag(\"Credits\n\n\"), 'bold': ByteTag(1)}), CompoundTag({'color': StringTag(\"dark_aqua\"), 'text': StringTag(\"Lobby Models: Soorpionem\")}), CompoundTag({'click_event': CompoundTag({'action': StringTag(\"open_url\"), 'url': StringTag(\"https://www.planetminecraft.com/mob-skin/mouse-silverfish/\")}), 'color': StringTag(\"#964B00\"), 'text': StringTag(\"\n\nRats: Wyvrenn\")"
+        },
+        {
+          "path": "/block_entities[]/CustomName",
+          "dv": 4325,
+          "snbt": "{'color': StringTag(\"dark_gray\"), 'extra': ListTag([CompoundTag({'color': StringTag(\"#F58500\"), 'text': StringTag(\"CRD\"), 'bold': ByteTag(1), 'italic': ByteTag(0)}), CompoundTag({'text': StringTag(\"]\"), 'bold': ByteTag(0), 'italic': ByteTag(0)})], 10), 'text': StringTag(\"[\"), 'bold': ByteTag(0), 'italic': ByteTag(0)}"
+        },
+        {
+          "path": "/block_entities[]/CustomName",
+          "dv": 4325,
+          "snbt": "{'color': StringTag(\"dark_gray\"), 'extra': ListTag([CompoundTag({'color': StringTag(\"#F58500\"), 'text': StringTag(\"CRD\"), 'bold': ByteTag(1), 'italic': ByteTag(0)}), CompoundTag({'text': StringTag(\"]\"), 'bold': ByteTag(0), 'italic': ByteTag(0)})], 10), 'text': StringTag(\"[\"), 'bold': ByteTag(0), 'italic': ByteTag(0)}"
+        },
+        {
+          "path": "/block_entities[]/CustomName",
+          "dv": 4325,
+          "snbt": "{'color': StringTag(\"dark_gray\"), 'extra': ListTag([CompoundTag({'color': StringTag(\"#F58500\"), 'text': StringTag(\"CRD\"), 'bold': ByteTag(1), 'italic': ByteTag(0)}), CompoundTag({'text': StringTag(\"]\"), 'bold': ByteTag(0), 'italic': ByteTag(0)})], 10), 'text': StringTag(\"[\"), 'bold': ByteTag(0), 'italic': ByteTag(0)}"
+        },
+        {
+          "path": "/block_entities[]/CustomName",
+          "dv": 4325,
+          "snbt": "{'color': StringTag(\"dark_gray\"), 'extra': ListTag([CompoundTag({'color': StringTag(\"#F58500\"), 'text': StringTag(\"CRD\"), 'bold': ByteTag(1), 'italic': ByteTag(0)}), CompoundTag({'text': StringTag(\"]\"), 'bold': ByteTag(0), 'italic': ByteTag(0)})], 10), 'text': StringTag(\"[\"), 'bold': ByteTag(0), 'italic': ByteTag(0)}"
+        },
+        {
+          "path": "/block_entities[]/CustomName",
+          "dv": 4325,
+          "snbt": "{'color': StringTag(\"dark_gray\"), 'extra': ListTag([CompoundTag({'color': StringTag(\"#F58500\"), 'text': StringTag(\"CRD\"), 'bold': ByteTag(1), 'italic': ByteTag(0)}), CompoundTag({'text': StringTag(\"]\"), 'bold': ByteTag(0), 'italic': ByteTag(0)})], 10), 'text': StringTag(\"[\"), 'bold': ByteTag(0), 'italic': ByteTag(0)}"
+        },
+        {
+          "path": "/block_entities[]/CustomName",
+          "dv": 4325,
+          "snbt": "{'color': StringTag(\"dark_gray\"), 'extra': ListTag([CompoundTag({'color': StringTag(\"#F58500\"), 'text': StringTag(\"CRD\"), 'bold': ByteTag(1), 'italic': ByteTag(0)}), CompoundTag({'text': StringTag(\"]\"), 'bold': ByteTag(0), 'italic': ByteTag(0)})], 10), 'text': StringTag(\"[\"), 'bold': ByteTag(0), 'italic': ByteTag(0)}"
+        },
+        {
+          "path": "/block_entities[]/CustomName",
+          "dv": 4325,
+          "snbt": "{'color': StringTag(\"dark_gray\"), 'extra': ListTag([CompoundTag({'color': StringTag(\"#F58500\"), 'text': StringTag(\"CRD\"), 'bold': ByteTag(1), 'italic': ByteTag(0)}), CompoundTag({'text': StringTag(\"]\"), 'bold': ByteTag(0), 'italic': ByteTag(0)})], 10), 'text': StringTag(\"[\"), 'bold': ByteTag(0), 'italic': ByteTag(0)}"
+        },
+        {
+          "path": "/block_entities[]/CustomName",
+          "dv": 4325,
+          "snbt": "{'color': StringTag(\"dark_gray\"), 'extra': ListTag([CompoundTag({'color': StringTag(\"#F58500\"), 'text': StringTag(\"CRD\"), 'bold': ByteTag(1), 'italic': ByteTag(0)}), CompoundTag({'text': StringTag(\"]\"), 'bold': ByteTag(0), 'italic': ByteTag(0)})], 10), 'text': StringTag(\"[\"), 'bold': ByteTag(0), 'italic': ByteTag(0)}"
+        }
+      ]
+    },
+    "R2_filterable": {
+      "book_component_census": {
+        "minecraft:written_book_content": 147,
+        "minecraft:written_book_content.title": 147,
+        "minecraft:written_book_content.author": 147,
+        "minecraft:written_book_content.pages": 147,
+        "title_is_filterable_wrapper": 147,
+        "page_is_filterable_wrapper": 161,
+        "legacy_tag_pages": 149,
+        "minecraft:writable_book_content": 2,
+        "minecraft:writable_book_content.pages": 2
+      },
+      "sign_sides_seen": 2024,
+      "filterable_hits": {}
+    },
+    "R3_legacy_in_native": {
+      "quoted_empty_by_dv_side": {},
+      "json_shape_inside_native_dv": {},
+      "examples": []
+    },
+    "sign_shapes": {
+      "modern_front_back_text": 1012
+    },
+    "legacy_json_array_form": 66,
+    "legacy_json_invalid": 0
+  },
+  {
+    "world": "Questioning",
+    "data_versions": {
+      "3465": 7529
+    },
+    "R1_extra_split": {
+      "extra_total": 748,
+      "extra_on_denylisted_paths": 733,
+      "extra_on_translatable_paths": 15,
+      "translatable_pct_of_extra": 2.01,
+      "translatable_depth_hist": {
+        "1": 15
+      },
+      "translatable_len_hist": {
+        "1": 1,
+        "2": 11,
+        "5": 2,
+        "7": 1
+      },
+      "translatable_with_styled_children": 15,
+      "top_paths": {
+        "/block_entities[]/LastOutput": 733,
+        "/block_entities[]/Items[]/tag/display/Name": 9,
+        "/Entities[]/text": 4,
+        "/block_entities[]/Items[]/tag/pages[]": 1,
+        "/Entities[]/ArmorItems[]/tag/display/Name": 1
+      },
+      "translatable_examples": [
+        {
+          "path": "/block_entities[]/Items[]/tag/display/Name",
+          "dv": 3465,
+          "json": "[{\"text\":\"A\",\"italic\":false,\"bold\":true,\"color\":\"dark_purple\",\"obfuscated\":true},{\"text\":\"Secret Flower\",\"color\":\"#c753fd\",\"obfuscated\":false},{\"text\":\"A\"}]"
+        },
+        {
+          "path": "/block_entities[]/Items[]/tag/display/Name",
+          "dv": 3465,
+          "json": "[{\"text\":\"A\",\"italic\":false,\"bold\":true,\"color\":\"dark_purple\",\"obfuscated\":true},{\"text\":\"Secret Flower\",\"color\":\"#c753fd\",\"obfuscated\":false},{\"text\":\"A\"}]"
+        },
+        {
+          "path": "/block_entities[]/Items[]/tag/display/Name",
+          "dv": 3465,
+          "json": "[{\"text\":\"A\",\"italic\":false,\"bold\":true,\"color\":\"dark_purple\",\"obfuscated\":true},{\"text\":\"Secret Flower\",\"color\":\"#c753fd\",\"obfuscated\":false},{\"text\":\"A\"}]"
+        },
+        {
+          "path": "/block_entities[]/Items[]/tag/pages[]",
+          "dv": 3465,
+          "json": "[\"\",{\"text\":\"\\n--=--=--=+=--=--=--\\n\\n\\n\\niF our next lives\\nsaved idea\"},{\"text\":\"s\",\"bold\":true,\"color\":\"red\"},{\"text\":\" eve\",\"color\":\"reset\"},{\"text\":\"n\",\"bold\":true,\"color\":\"red\"},{\"text\":\" now,\\nWhaT would we do\\ntO never end up\\ngoing oN in eternity?\\n\\n\\n\\n--=--=--=+=--=--=--\",\"color\":\"reset\"}]"
+        },
+        {
+          "path": "/block_entities[]/Items[]/tag/display/Name",
+          "dv": 3465,
+          "json": "[{\"text\":\"A\",\"italic\":false,\"bold\":true,\"color\":\"dark_purple\",\"obfuscated\":true},{\"text\":\"Secret Flower\",\"color\":\"#c753fd\",\"obfuscated\":false},{\"text\":\"A\"}]"
+        },
+        {
+          "path": "/block_entities[]/Items[]/tag/display/Name",
+          "dv": 3465,
+          "json": "{\"extra\":[{\"text\":\"{\\\"text\\\":\\\"{\\\\\\\"text\\\\\\\":\\\\\\\"\"},{\"bold\":false,\"italic\":false,\"underlined\":false,\"strikethrough\":false,\"obfuscated\":false,\"color\":\"gold\",\"text\":\"A book with all color codes for Minecraft!\\\\\\\"}\\\"}\"}],\"text\":\"\"}"
+        },
+        {
+          "path": "/block_entities[]/Items[]/tag/display/Name",
+          "dv": 3465,
+          "json": "[{\"text\":\"A\",\"italic\":false,\"bold\":true,\"color\":\"dark_purple\",\"obfuscated\":true},{\"text\":\"Secret Flower\",\"color\":\"#c753fd\",\"obfuscated\":false},{\"text\":\"A\"}]"
+        },
+        {
+          "path": "/block_entities[]/Items[]/tag/display/Name",
+          "dv": 3465,
+          "json": "[{\"text\":\"A\",\"italic\":false,\"bold\":true,\"color\":\"dark_purple\",\"obfuscated\":true},{\"text\":\"Secret Flower\",\"color\":\"#c753fd\",\"obfuscated\":false},{\"text\":\"A\"}]"
+        },
+        {
+          "path": "/block_entities[]/Items[]/tag/display/Name",
+          "dv": 3465,
+          "json": "{\"extra\":[{\"text\":\"{\\\"text\\\":\\\"{\\\\\\\"text\\\\\\\":\\\\\\\"\"},{\"bold\":false,\"italic\":false,\"underlined\":false,\"strikethrough\":false,\"obfuscated\":false,\"color\":\"gold\",\"text\":\"A book with all color codes for Minecraft!\\\\\\\"}\\\"}\"}],\"text\":\"\"}"
+        },
+        {
+          "path": "/block_entities[]/Items[]/tag/display/Name",
+          "dv": 3465,
+          "json": "[{\"text\":\"A\",\"italic\":false,\"bold\":true,\"color\":\"dark_purple\",\"obfuscated\":true},{\"text\":\"Secret Flower\",\"color\":\"#c753fd\",\"obfuscated\":false},{\"text\":\"A\"}]"
+        }
+      ]
+    },
+    "R2_filterable": {
+      "book_component_census": {
+        "legacy_tag_pages": 22
+      },
+      "sign_sides_seen": 328,
+      "filterable_hits": {}
+    },
+    "R3_legacy_in_native": {
+      "quoted_empty_by_dv_side": {},
+      "json_shape_inside_native_dv": {},
+      "examples": []
+    },
+    "sign_shapes": {
+      "modern_front_back_text": 164
+    },
+    "legacy_json_array_form": 40,
+    "legacy_json_invalid": 0
+  }
+]

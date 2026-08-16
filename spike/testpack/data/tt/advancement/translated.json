@@ -1,0 +1,13 @@
+{
+  "display": {
+    "icon": { "id": "minecraft:emerald" },
+    "title": { "translate": "block.minecraft.diamond_block" },
+    "description": { "translate": "block.minecraft.gold_block" },
+    "frame": "challenge",
+    "show_toast": true,
+    "announce_to_chat": true
+  },
+  "criteria": {
+    "tick": { "trigger": "minecraft:tick" }
+  }
+}

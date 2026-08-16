@@ -1,0 +1,13 @@
+{
+  "display": {
+    "icon": { "id": "minecraft:diamond" },
+    "title": { "text": "TT_ADV_TITLE_PLAIN" },
+    "description": { "text": "TT_ADV_DESC_PLAIN" },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true
+  },
+  "criteria": {
+    "tick": { "trigger": "minecraft:tick" }
+  }
+}

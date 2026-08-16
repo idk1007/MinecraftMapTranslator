@@ -1,0 +1,114 @@
+[
+  {
+    "world": "From Ashes Reborn 1.12 v03 Standard",
+    "data_versions": {},
+    "R1_extra_split": {
+      "extra_total": 0,
+      "extra_on_denylisted_paths": 0,
+      "extra_on_translatable_paths": 0,
+      "translatable_pct_of_extra": 0,
+      "translatable_depth_hist": {},
+      "translatable_len_hist": {},
+      "translatable_with_styled_children": 0,
+      "top_paths": {},
+      "translatable_examples": []
+    },
+    "R2_filterable": {
+      "book_component_census": {},
+      "sign_sides_seen": 0,
+      "filterable_hits": {}
+    },
+    "R3_legacy_in_native": {
+      "quoted_empty_by_dv_side": {},
+      "json_shape_inside_native_dv": {},
+      "examples": []
+    },
+    "sign_shapes": {},
+    "legacy_json_array_form": 0,
+    "legacy_json_invalid": 0
+  },
+  {
+    "world": "LOST - Horror Map 1.12.10",
+    "data_versions": {},
+    "R1_extra_split": {
+      "extra_total": 0,
+      "extra_on_denylisted_paths": 0,
+      "extra_on_translatable_paths": 0,
+      "translatable_pct_of_extra": 0,
+      "translatable_depth_hist": {},
+      "translatable_len_hist": {},
+      "translatable_with_styled_children": 0,
+      "top_paths": {},
+      "translatable_examples": []
+    },
+    "R2_filterable": {
+      "book_component_census": {},
+      "sign_sides_seen": 0,
+      "filterable_hits": {}
+    },
+    "R3_legacy_in_native": {
+      "quoted_empty_by_dv_side": {},
+      "json_shape_inside_native_dv": {},
+      "examples": []
+    },
+    "sign_shapes": {},
+    "legacy_json_array_form": 0,
+    "legacy_json_invalid": 0
+  },
+  {
+    "world": "100 Ways To Die",
+    "data_versions": {},
+    "R1_extra_split": {
+      "extra_total": 0,
+      "extra_on_denylisted_paths": 0,
+      "extra_on_translatable_paths": 0,
+      "translatable_pct_of_extra": 0,
+      "translatable_depth_hist": {},
+      "translatable_len_hist": {},
+      "translatable_with_styled_children": 0,
+      "top_paths": {},
+      "translatable_examples": []
+    },
+    "R2_filterable": {
+      "book_component_census": {},
+      "sign_sides_seen": 0,
+      "filterable_hits": {}
+    },
+    "R3_legacy_in_native": {
+      "quoted_empty_by_dv_side": {},
+      "json_shape_inside_native_dv": {},
+      "examples": []
+    },
+    "sign_shapes": {},
+    "legacy_json_array_form": 0,
+    "legacy_json_invalid": 0
+  },
+  {
+    "world": "Questioning",
+    "data_versions": {},
+    "R1_extra_split": {
+      "extra_total": 0,
+      "extra_on_denylisted_paths": 0,
+      "extra_on_translatable_paths": 0,
+      "translatable_pct_of_extra": 0,
+      "translatable_depth_hist": {},
+      "translatable_len_hist": {},
+      "translatable_with_styled_children": 0,
+      "top_paths": {},
+      "translatable_examples": []
+    },
+    "R2_filterable": {
+      "book_component_census": {},
+      "sign_sides_seen": 0,
+      "filterable_hits": {}
+    },
+    "R3_legacy_in_native": {
+      "quoted_empty_by_dv_side": {},
+      "json_shape_inside_native_dv": {},
+      "examples": []
+    },
+    "sign_shapes": {},
+    "legacy_json_array_form": 0,
+    "legacy_json_invalid": 0
+  }
+]
