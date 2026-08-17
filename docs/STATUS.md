@@ -3,13 +3,13 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-17**（M2 完成）
+最後更新：**2026-08-17**（M3 完成）
 
 ---
 
 ## 一句話現況
 
-**M0 驗證通過，M1（`doctor` 唯讀讀取鏈）與 M2（安全層）完成。`mcmt doctor` 與 `mcmt sandbox import` 都在真實地圖上跑過。下一步是 M3 nbtio 完整（region 寫入）。**
+**M0 驗證通過，M1（`doctor` 唯讀讀取鏈）、M2（安全層）、M3（nbtio 完整，含外科式寫入）完成。下一步是 M4——那是進遊戲的人工驗證，不寫程式。**
 
 M1 只差「節點形狀分佈」那一項驗收條件——等 M5 的嗅探器，見下方 M1.4。
 
@@ -122,21 +122,39 @@ MP2 的 DataVersion 分佈證實 **per-chunk 世代分派不是理論問題**：
 
 > `sandbox/100 Ways To Die/` 現在有一份 95 MB 的真實世界副本（已 gitignore），M3/M4 要驗證 region 寫入時可以直接用。不需要了就整個資料夾刪掉。
 
+### M3 — nbtio 完整（2026-08-17）✅
+
+三個任務三個 commit（外加一個 fixture 更換）。178 個測試通過，其中 9 個是碰真實檔案的整合測試。
+
+**M3.1 region 寫入** `write_region` + `ChunkWrite` + `RegionWriteReport`
+- 介面讓「這個 chunk 有沒有被改過」在呼叫端**看得見**：`ChunkWrite.unchanged()` / `.replaced()` 兩個建構子，不是一個讓人隨手填的旗標。`unchanged` 只能從 `RawChunk` 建，帶著磁碟上的原始壓縮位元組與原始 timestamp。
+- **這一層永遠不壓縮任何東西。** payload 一律是已壓縮好的位元組。L2「重新壓縮後位元組一致」是巧合，寫入層不依賴它。
+- 先寫 `.mcmt-tmp` 再 `os.replace`：寫到一半掛掉時原檔完好無損。
+- 真實資料：讀進來寫回去，**檔案位元組與 fixture 完全一致**；改一個 chunk，其餘 29 個 payload 與 timestamp 全部原樣；整個世界（13 region / 6,465 chunk）round-trip **6,465/6,465 位元組一致**。
+- 那次全世界跑抓到一個真 bug：目標檔不存在時 `size_before` 是 0，`realigned` 因此恆為 true，13 張全被報成磁區重整。**警告出現在不需要它的地方，使用者就會學會忽略它。**已修。
+
+**M3.2 `datfile.py`** — `level.dat` 讀寫。**這裡沒有外科式寫入這回事**：region 是 1024 份獨立文件，`level.dat` 是一份，改一個欄位就得整份重編。保證只到 L1（解析→序列化位元組一致），已在真實 `level.dat`（7,271 bytes NBT）上實測成立。壓縮形式讀什麼寫什麼（不順手升級成 gzip）；gzip `mtime` 固定 0（否則同內容每次位元組都不同）。
+
+**M3.3 損壞防禦** — 補兩個 M1.2 沒處理的類別：**磁區重疊**（讀；兩邊都讀得出東西，不檢查就安靜地讀到垃圾）與**寫入端輸入驗證**（重複 index、index 超範圍、非法壓縮類型、空 payload）。重複 index 特別陰險——其中一筆會變成指不到的孤兒磁區，而檔案看起來還是合法的。驗證在動磁碟之前做完。
+
+**測試 fixture 的授權考量**：`tests/fixtures/` 底下的真實資料一律取自 `TT_WORLD_NAME_PROBE`（本專案自建的探測世界），**不用語料地圖**——那些是別人做的冒險地圖，放進要公開發布的 GPLv3 repo 等於重新散布別人的作品。`level.dat` fixture 另外移除了 `Player`（玩家 UUID 與座標）與 `WorldGenSettings`（種子）。
+
 ---
 
-## 下一步：M3 — nbtio 完整
+## 下一步：M4 — legacy 寫入驗證（人工，進遊戲）
 
-region **寫入**（外科式 + timestamp 表規則）、`datfile.py`、損壞防禦四種畸形檔。
+**這一項不寫程式，是進遊戲看結果。** 從 M7.4 提前到這裡的理由：legacy 佔 **43%**（51,369 chunks）、風險標記為高、讀取形狀比 native 更雜。
 
-| 任務 | 驗收條件 |
-|---|---|
-| M3.1 region 寫入 | 未修改的 chunk **原封複製原始壓縮位元組**；未改的 timestamp 原樣搬運、改過的更新為當下時間；磁區重整記進 `warnings` 的 `sector_realignment` |
-| M3.2 `datfile.py` | `level.dat` 的 gzip NBT 讀寫 |
-| M3.3 損壞防禦 | 四種畸形檔（截斷、offset 指向檔外、長度為 0 的空槽、磁區數溢位）——M1.2 已擋下前三種，補齊並確認寫入端同樣防禦 |
+- [ ] 在 DataVersion 3955 的 chunk 寫入 legacy JSON 形式的 translate key（工具鏈已經夠用了：`sandbox import` → `read_region` → 改一個 chunk → `write_region`）
+- [ ] 用 1.21.11 開啟，確認顯示正確
+- [ ] **觀察該 chunk 的 DataVersion 是否被順手升級**——若會，「寫回原世代」的承諾就有前提條件
+- [ ] 結果寫回 `SPIKE_RESULT.md` 並標 `[遊戲實測]`
 
-**寫入層的兩個前提已經就位**：`BackupSet`（M2.4）與 `ensure_writable`（M2.1）。順序不能反——「先寫入再備份」是 CLAUDE.md 明列的反模式。
+**若失敗**：`write/` 的設計要在寫任何實作前先改。
 
-之後：`M4 legacy 寫入驗證 ─► M5 掃描 ─► M6 規則引擎 ─► M7 extract ─► M8 字寬校準 ─► M9 翻譯層 ─► M10 resourcepack 後端 ─► M11 寫入層 ─► M12 自動化端到端 ─► M13 掃描廣度 ─► M14 CLI/報告/文件`
+順手可以一起補掉的 `[待驗]`：**混合 list 存到磁碟後是什麼形狀**（M11 前必補，見下節）——同一次進遊戲就能驗完。
+
+之後：`M5 掃描 ─► M6 規則引擎 ─► M7 extract ─► M8 字寬校準 ─► M9 翻譯層 ─► M10 resourcepack 後端 ─► M11 寫入層 ─► M12 自動化端到端 ─► M13 掃描廣度 ─► M14 CLI/報告/文件`
 
 ---
 
@@ -157,6 +175,7 @@ region **寫入**（外科式 + timestamp 表規則）、`datfile.py`、損壞�
 - `spike/.venv` 與 `spike/.venv_alt` 共 134 MB，已 gitignore。
 - `claude-code-stats/` 是**放在同一個資料夾裡的第三方工具**，與 mcmt 無關，已 gitignore。
 - 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 44 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
-- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 127 passed）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
+- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 178 passed，含 9 個碰真實檔案的整合測試）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
 - 跑 CLI：`.venv\Scripts\python -X utf8 -m mcmt.cli doctor "<世界資料夾>"`、`... -m mcmt.cli sandbox import "<來源世界>"`。**`-X utf8` 是必要的**，Windows 終端機的預設編碼會把中文報告印成亂碼。
-- `sandbox/` 已有一份 95 MB 的「100 Ways To Die」副本供 M3/M4 用（gitignore）。
+- `sandbox/` 已有一份 95 MB 的「100 Ways To Die」副本（gitignore）。M4 要的是 DataVersion 3955 的 chunk，那在 Minecraft Party 2；這份是 4325，可以留著當寫入測試的對象。
+- 測試 fixture 一律取自自建的 `TT_WORLD_NAME_PROBE`，不放語料地圖的內容（授權考量，見 M3 那節）。
