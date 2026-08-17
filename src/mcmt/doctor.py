@@ -32,7 +32,7 @@ from mcmt.errors import (
     UnsupportedWorldStructureError,
     WorldNotFoundError,
 )
-from mcmt.nbtio.region import read_region
+from mcmt.nbtio.region import read_region, region_files
 from mcmt.nbtio.structure import ensure_supported_structure, load_chunk_root
 
 __all__ = ["CorruptChunk", "WorldNotFoundError", "WorldSurvey", "survey_world"]
@@ -84,10 +84,9 @@ def survey_world(world: Path | str) -> WorldSurvey:
         )
 
     survey = WorldSurvey(world=world, region_dirs=region_dirs)
-    for region_dir in region_dirs:
-        for path in sorted(region_dir.glob("*.mca")):
-            survey.region_files += 1
-            _survey_region(path, survey)
+    for path in region_files(world):
+        survey.region_files += 1
+        _survey_region(path, survey)
     return survey
 
 

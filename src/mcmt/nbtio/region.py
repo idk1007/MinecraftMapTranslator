@@ -27,7 +27,13 @@ from typing import Iterator
 from mcmt.errors import MalformedRegionError, TruncatedRegionError
 from mcmt.nbtio.compression import parse_compression_byte
 
-__all__ = ["CHUNKS_PER_REGION", "RawChunk", "SECTOR_SIZE", "read_region"]
+__all__ = [
+    "CHUNKS_PER_REGION",
+    "RawChunk",
+    "SECTOR_SIZE",
+    "read_region",
+    "region_files",
+]
 
 SECTOR_SIZE = 4096
 CHUNKS_PER_REGION = 1024
@@ -54,6 +60,25 @@ class RawChunk:
     @property
     def local_z(self) -> int:
         return self.index // 32
+
+
+def region_files(world: Path | str) -> list[Path]:
+    """世界底下所有的方塊 region 檔，依路徑排序。
+
+    「所有名為 `region` 的目錄」涵蓋 `region/`、`DIM-1/region/`、`DIM1/region/`
+    與 datapack 自訂維度（`dimensions/<ns>/<name>/region/`）——[實測] MP2 有 5 個。
+
+    `entities/` 與 `poi/` 底下也是 `.mca`，但那不是方塊 chunk，v1 不看。掃描範圍
+    擴大到 entities 時（M13），**世界指紋的定義要一起重新考慮**，因為那會改變
+    「什麼算這個世界的內容」。
+    """
+    world = Path(world)
+    return sorted(
+        path
+        for directory in world.rglob("region")
+        if directory.is_dir()
+        for path in directory.glob("*.mca")
+    )
 
 
 def read_region(path: Path | str) -> Iterator[RawChunk]:
