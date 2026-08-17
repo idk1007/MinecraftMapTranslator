@@ -27,6 +27,25 @@ def format_survey(survey: WorldSurvey) -> str:
         survey.chunks,
         lambda t: f"{t} {COMPRESSION_NAMES.get(t, '?')}",
     )
+    lines += ["", f"節點形狀分佈（文字節點 {survey.text_nodes:,} 個）"]
+    lines += _histogram(survey.node_shapes, survey.text_nodes, str)
+    if survey.categories:
+        lines += ["", "節點種類"]
+        lines += _histogram(survey.categories, survey.text_nodes, str)
+    if survey.legacy_json_in_native_chunk:
+        lines += [
+            "",
+            f"※ 其中 {survey.legacy_json_in_native_chunk:,} 個是「新世代 chunk 裡的舊式 JSON」，"
+            "v1 會跳過不翻。",
+            "  理由：DataVersion ≥ 4325 的 chunk 不跑 DataFixer，那些字串在遊戲裡本來就是",
+            "  字面亂碼而不是內容——翻了會寫回一個顯示結果同樣是亂碼的字串。",
+        ]
+    if survey.unparseable:
+        lines += [
+            "",
+            f"※ {survey.unparseable:,} 個節點看起來是 JSON 但解析不了，會被跳過並計數。",
+        ]
+
     lines += [
         "",
         f"外部 .mcc chunk：{survey.external_chunks}",

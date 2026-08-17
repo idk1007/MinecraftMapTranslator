@@ -16,9 +16,13 @@ mtime 與大小，讓「唯讀」不只是一句承諾。
 **放在套件根而不是計畫裡的 `cli/`**：`cli/` 只組裝、不含邏輯（`docs/ownership.md`），
 所以統計在這裡，格式化在 `cli/doctor.py`。
 
-節點形狀分佈（M1.4 驗收條件之一）**尚未實作**：那需要 7 種形狀的嗅探器，而
-`occurrence.encoding` 的唯一權威只能有一份。等 M5 的 `model/component.py` 出來
-之後再接進來，現在另寫一份等於製造兩個會漂移的判斷邏輯。
+**節點形狀分佈**（M1.4 的驗收條件之一）由 M5.6 接上：形狀一律問 `model/component.py`
+那個唯一權威，掃描一律走 `scan/sources/region.py`。doctor 自己不判斷任何形狀——
+它只是把那兩個模組的答案數起來。
+
+`legacy_json_in_native_chunk` 這個計數特別重要：它直接告訴使用者「這張地圖有多少
+節點我們會跳過不翻」，而那個決定的理由（[遊戲實測 M0-3] 那些節點在遊戲裡本來就是
+字面亂碼）不寫在報告上沒人會知道。
 """
 
 from collections import Counter
@@ -32,9 +36,11 @@ from mcmt.errors import (
     UnsupportedWorldStructureError,
     WorldNotFoundError,
 )
+from mcmt.model.component import sniff
 from mcmt.nbtio.region import read_region, region_files
 from mcmt.nbtio.structure import ensure_supported_structure, load_chunk_root
 from mcmt.safety.paths import ensure_readable
+from mcmt.scan.sources.region import scan_chunk
 
 __all__ = ["CorruptChunk", "WorldNotFoundError", "WorldSurvey", "survey_world"]
 
@@ -61,6 +67,11 @@ class WorldSurvey:
     unsupported: Counter = field(default_factory=Counter)
     unsupported_examples: dict[str, tuple[str, int]] = field(default_factory=dict)
     corrupt: list[CorruptChunk] = field(default_factory=list)
+    text_nodes: int = 0
+    node_shapes: Counter = field(default_factory=Counter)
+    categories: Counter = field(default_factory=Counter)
+    unparseable: int = 0
+    legacy_json_in_native_chunk: int = 0
 
     @property
     def supported(self) -> bool:
@@ -133,3 +144,30 @@ def _survey_chunk(path, raw, survey: WorldSurvey) -> None:
         )
     else:
         survey.data_versions[data_version] += 1
+        _survey_text_nodes(root, data_version, survey)
+
+
+# DV 這條線以上的 chunk 不跑 DataFixer，所以裡面的舊式 JSON 是字面亂碼不是內容
+# （[遊戲實測 M0-3 / M4-3]）。
+_DATAFIXER_WATERSHED = 4325
+_LEGACY_JSON_SHAPES = frozenset(
+    {"json_string_object", "json_string_array", "json_string_scalar", "json_empty_quoted"}
+)
+
+
+def _survey_text_nodes(root, data_version: int, survey: WorldSurvey) -> None:
+    for node in scan_chunk(root):
+        try:
+            shape = sniff(node.tag)
+        except TypeError:
+            continue
+        survey.text_nodes += 1
+        survey.node_shapes[shape.encoding.value] += 1
+        survey.categories[node.category] += 1
+        if shape.problem == "unparseable_json":
+            survey.unparseable += 1
+        if (
+            data_version >= _DATAFIXER_WATERSHED
+            and shape.encoding.value in _LEGACY_JSON_SHAPES
+        ):
+            survey.legacy_json_in_native_chunk += 1

@@ -48,3 +48,27 @@ def test_missing_world_exits_nonzero_without_a_traceback(tmp_path, capsys) -> No
     captured = capsys.readouterr()
     assert code == 2
     assert "Traceback" not in captured.err
+
+
+def test_the_report_shows_the_node_shape_distribution(tmp_path, capsys) -> None:
+    """M1.4 的驗收條件之一，M5.6 補上。"""
+    import amulet_nbt
+
+    root = modern_chunk()
+    entity = amulet_nbt.CompoundTag()
+    entity["id"] = amulet_nbt.StringTag("minecraft:oak_sign")
+    face = amulet_nbt.CompoundTag()
+    face["messages"] = amulet_nbt.ListTag(
+        [amulet_nbt.StringTag('""'), amulet_nbt.StringTag("字")]
+    )
+    entity["front_text"] = face
+    root["block_entities"] = amulet_nbt.ListTag([entity])
+    world = tmp_path / "world"
+    write_region_file(world / "region", RegionBuilder().add_chunk_nbt(0, root).build())
+
+    main(["doctor", str(world)])
+
+    out = capsys.readouterr().out
+    assert "節點形狀分佈" in out
+    assert "json_empty_quoted" in out
+    assert "跳過不翻" in out  # 新世代 chunk 裡的舊式 JSON 要講清楚

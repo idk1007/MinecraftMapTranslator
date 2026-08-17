@@ -187,3 +187,82 @@ def test_survey_never_writes_anything(tmp_path) -> None:
         for p in sorted(world.rglob("*"))
     }
     assert after == before
+
+
+# --- 節點形狀分佈（M5.6：補上 M1.4 欠的驗收條件）--------------------------
+
+
+def sign_chunk(*lines, data_version: int = 4671):
+    root = modern_chunk(data_version=data_version)
+    entity = amulet_nbt.CompoundTag()
+    entity["id"] = amulet_nbt.StringTag("minecraft:oak_sign")
+    entity["x"] = amulet_nbt.IntTag(0)
+    entity["y"] = amulet_nbt.IntTag(0)
+    entity["z"] = amulet_nbt.IntTag(0)
+    face = amulet_nbt.CompoundTag()
+    face["messages"] = amulet_nbt.ListTag(
+        [amulet_nbt.StringTag(line) for line in lines]
+    )
+    entity["front_text"] = face
+    root["block_entities"] = amulet_nbt.ListTag([entity])
+    return root
+
+
+def test_the_survey_counts_node_shapes(tmp_path) -> None:
+    """M1.4 的驗收條件之一，等到 M5 的嗅探器出來才接得上。"""
+    world = tmp_path / "world"
+    write_region_file(
+        world / "region",
+        RegionBuilder()
+        .add_chunk_nbt(0, sign_chunk("裸字串", '""', '{"text":"物件"}', ""))
+        .build(),
+    )
+
+    survey = survey_world(world)
+
+    assert survey.text_nodes == 4
+    assert survey.node_shapes == {
+        "bare_string": 2,
+        "json_empty_quoted": 1,
+        "json_string_object": 1,
+    }
+
+
+def test_the_survey_counts_categories(tmp_path) -> None:
+    world = tmp_path / "world"
+    write_region_file(
+        world / "region", RegionBuilder().add_chunk_nbt(0, sign_chunk("字", "", "", "")).build()
+    )
+
+    assert survey_world(world).categories == {"sign": 4}
+
+
+def test_unparseable_nodes_are_counted_separately(tmp_path) -> None:
+    """規範要求它進 stats.skipped_unparseable 並列進報告，所以先數得出來。"""
+    world = tmp_path / "world"
+    write_region_file(
+        world / "region",
+        RegionBuilder().add_chunk_nbt(0, sign_chunk('{"text":', "", "", "")).build(),
+    )
+
+    assert survey_world(world).unparseable == 1
+
+
+def test_legacy_json_in_a_native_chunk_is_counted(tmp_path) -> None:
+    """[遊戲實測 M0-3] DV ≥ 4325 的 chunk 裡的舊式 JSON 是字面亂碼，不是內容。
+
+    doctor 要數得出來，因為那直接告訴使用者「這張地圖有多少節點我們會跳過」。
+    """
+    world = tmp_path / "world"
+    write_region_file(
+        world / "region",
+        RegionBuilder()
+        .add_chunk_nbt(0, sign_chunk('""', '{"text":"x"}', "", "", data_version=4671))
+        .add_chunk_nbt(1, sign_chunk('""', "", "", "", data_version=3955))
+        .build(),
+    )
+
+    survey = survey_world(world)
+
+    # 4671 那個 chunk 的兩個舊式節點會被跳過；3955 那個不算。
+    assert survey.legacy_json_in_native_chunk == 2
