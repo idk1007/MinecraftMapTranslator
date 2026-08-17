@@ -592,6 +592,23 @@ DataVersion 3955（51,369 chunks）**完全沒有 `front_text/back_text` 形狀�
 
 **建議**（待決策）：v1 明確只支援 `block_entities` + `front_text` 結構；`doctor` 偵測到 `Level.TileEntities` 或 `Text1-4` 時報錯並拒絕處理，而非半套支援。理由與 `.mcc` 相同——未測過的寫入路徑比拒絕處理危險。
 
+#### 補充（2026-08-17，M1.3 實作時的全掃）[實測]：**混合結構不是 1.12 專屬，`Text1-4` 也不是 1.12 的標記**
+
+`Find The Button No Cakewalk`（1.18.2，**32,409 chunk 全掃**）：
+
+| 結果 | chunk 數 | DataVersion |
+|---|---|---|
+| 通過 | 32,300 | 2975（6,678）· 2865（25,622） |
+| `Level` 包裝層 | **94** | **1963**（1.13.x） |
+| `Text1..Text4` | **15** | **2975**（1.18.2） |
+
+兩件事因此要修正上面的說法：
+
+1. **「同一世界兩套結構」不是 1.12 地圖的特例。** 一張 1.18.2 的地圖裡就有 94 個 1.13 世代、帶 `Level` 包裝的未升級 chunk。原文用 `From Ashes Reborn`（1.12）舉例容易讓人以為只要擋 1.12 就好。
+2. **`Text1..Text4` 是「1.20 之前的告示牌格式」，不是「1.12 結構」。** 那 15 個 chunk 的容器是現代的 `block_entities`（root keys 有 `Heightmaps`/`block_ticks`/`Status`），只有告示牌欄位是舊的——`front_text`/`back_text` 要到 1.20（23w12a）才出現。所以偵測 `Text1-4` 攔下的是**告示牌格式**，與 chunk 容器的世代無關，兩者要分開理解。
+
+拒絕的政策不變（未測過的寫入路徑比拒絕處理危險），但理由的精確描述應為：**v1 只支援 `block_entities` + `front_text`；任何一個 chunk 不符就拒絕整個世界。**
+
 ---
 
 ## 參考專案評估

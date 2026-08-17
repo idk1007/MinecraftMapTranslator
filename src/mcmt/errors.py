@@ -67,5 +67,38 @@ class MalformedRegionError(FormatError):
         )
 
 
+class ExternalChunkError(FormatError):
+    """chunk 的內容在外部 `.mcc` 檔。v1 拒絕處理。
+
+    帶 `0x80` 旗標時 region 內只有 header，「原封複製壓縮位元組」複製到的是空的。
+    這條寫入路徑在語料 16.2 萬 chunk 裡有 0 個樣本、完全沒測過（CLAUDE.md §1.4）。
+    """
+
+    def __init__(self, *, chunk_index: int) -> None:
+        self.chunk_index = chunk_index
+        super().__init__(
+            f"chunk index {chunk_index} 的內容在外部 .mcc 檔（壓縮位元組帶 0x80）。"
+            f"v1 拒絕處理——這條寫入路徑沒有任何樣本走過，未測過的寫入路徑比拒絕處理危險。"
+        )
+
+
+class UnsupportedWorldStructureError(FormatError):
+    """世界的 chunk 結構不是 1.21 的形狀（多半是 1.12）。v1 拒絕處理整個世界。
+
+    `reason` 是機器可讀的分類，讓 `doctor` 能統計是哪一種症狀：
+    `level_wrapper` / `legacy_sign_text` / `missing_data_version`。
+    """
+
+    def __init__(self, *, reason: str, chunk_index: int, detail: str) -> None:
+        self.reason = reason
+        self.chunk_index = chunk_index
+        self.detail = detail
+        super().__init__(
+            f"chunk index {chunk_index} 是不支援的世界結構（{reason}）：{detail}。"
+            f"v1 拒絕處理整個世界——1.12 地圖被 1.21 開過之後，同一個世界會同時"
+            f"存在兩套 chunk 結構。"
+        )
+
+
 class MissingDependencyError(McmtError):
     """需要一個可選相依，但它沒被安裝。訊息必須告訴使用者裝什麼。"""
