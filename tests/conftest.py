@@ -8,8 +8,25 @@
 import zlib
 
 import amulet_nbt
+import pytest
+
+from mcmt.safety.paths import reset_read_log
 
 SECTOR_SIZE = 4096
+
+
+@pytest.fixture
+def project(tmp_path, monkeypatch):
+    """一個有 `.git` 標記的假專案，工作目錄設在它底下。
+
+    這樣 `sandbox_root()` 會指到 `tmp_path/sandbox`——測試寫進去的東西是真的
+    在一個 sandbox 底下，不必為了測試在圍籬上開 `--force` 這種洞。
+    """
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "sandbox").mkdir()
+    monkeypatch.chdir(tmp_path)
+    reset_read_log()
+    return tmp_path
 
 
 class RegionBuilder:

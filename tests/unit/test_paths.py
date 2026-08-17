@@ -21,16 +21,6 @@ from mcmt.safety.paths import (
 )
 
 
-@pytest.fixture
-def project(tmp_path, monkeypatch):
-    """一個有 .git 標記的假專案，工作目錄設在它底下。"""
-    (tmp_path / ".git").mkdir()
-    (tmp_path / "sandbox").mkdir()
-    monkeypatch.chdir(tmp_path)
-    reset_read_log()
-    return tmp_path
-
-
 # --- sandbox 根目錄 -------------------------------------------------------
 
 

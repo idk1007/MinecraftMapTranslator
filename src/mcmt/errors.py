@@ -40,6 +40,26 @@ class MinecraftSavesPathError(SafetyError):
         )
 
 
+class SandboxTargetExistsError(SafetyError):
+    """`sandbox import` 的目標已經存在。覆蓋要明講（`--replace`）。"""
+
+    def __init__(self, *, target) -> None:
+        self.target = target
+        super().__init__(
+            f"sandbox 裡已經有 {target}。要覆蓋請加 --replace"
+            f"（那會刪掉現有的整份副本，包含你在裡面做過的任何修改）。"
+        )
+
+
+class SandboxTargetInsideSourceError(SafetyError):
+    """匯入目標落在來源底下——複製會把自己一直複製進自己。"""
+
+    def __init__(self, *, source, target) -> None:
+        self.source = source
+        self.target = target
+        super().__init__(f"匯入目標 {target} 在來源 {source} 底下，這會無限遞迴。")
+
+
 class FormatError(McmtError):
     """磁碟上的資料不是我們認得的形狀。"""
 
