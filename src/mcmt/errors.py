@@ -44,5 +44,28 @@ class CorruptCompressedDataError(FormatError):
         )
 
 
+class TruncatedRegionError(FormatError):
+    """region 檔比它自己宣告的短：header 或 payload 跑到檔尾之外。"""
+
+    def __init__(self, *, path, detail: str, chunk_index: int | None = None) -> None:
+        self.path = path
+        self.chunk_index = chunk_index
+        self.detail = detail
+        where = "" if chunk_index is None else f"（chunk index {chunk_index}）"
+        super().__init__(f"region 檔截斷{where}：{path} — {detail}")
+
+
+class MalformedRegionError(FormatError):
+    """region 的 header 自相矛盾：偏移指進表格、磁區數為 0、長度溢出磁區等。"""
+
+    def __init__(self, *, path, chunk_index: int, detail: str) -> None:
+        self.path = path
+        self.chunk_index = chunk_index
+        self.detail = detail
+        super().__init__(
+            f"region header 不合法（chunk index {chunk_index}）：{path} — {detail}"
+        )
+
+
 class MissingDependencyError(McmtError):
     """需要一個可選相依，但它沒被安裝。訊息必須告訴使用者裝什麼。"""
