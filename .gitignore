@@ -36,3 +36,6 @@ out/
 .idea/
 Thumbs.db
 desktop.ini
+
+# --- 測試 fixture 的 .dat 是刻意要進版控的（來自本專案自建的探測世界，已移除玩家資料）
+!tests/fixtures/**/*.dat

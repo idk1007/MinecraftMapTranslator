@@ -163,6 +163,15 @@ class ExternalChunkError(FormatError):
         )
 
 
+class DatFormatError(FormatError):
+    """`.dat` 檔既不是 gzip、也不是 zlib、也不是裸 NBT，或者解析不出來。"""
+
+    def __init__(self, *, path, detail: str) -> None:
+        self.path = path
+        self.detail = detail
+        super().__init__(f"{path} 不是可以辨識的 NBT 檔：{detail}")
+
+
 class ChunkTooLargeError(FormatError):
     """chunk 大到一個 region 槽放不下（超過 255 個磁區）。
 
