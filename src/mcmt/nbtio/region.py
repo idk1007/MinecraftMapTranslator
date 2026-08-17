@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""anvil region（`.mca`）的唯讀串流（M1.2）。
+"""anvil region（`.mca`）的讀寫（M1.2 讀 · M3.1 寫）。
 
 檔案結構：
 
@@ -16,24 +16,34 @@
 `read_region` 是產生器，逐 chunk yield，峰值記憶體是單一 chunk——12 萬 chunk 的
 世界不能整份讀進記憶體。
 
-註：路徑目前直接開，還沒過 `safety.ensure_readable`（那是 M2）。接上安全層時，
-唯一該改的地方是這裡的 `open`。
+寫入端（`write_region`）的規則見 `ChunkWrite` 與 `write_region` 的 docstring。
+一句話：**未修改的 chunk 原封複製原始壓縮位元組，這一層永遠不壓縮任何東西。**
 """
 
+import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Iterable, Iterator
 
-from mcmt.errors import MalformedRegionError, TruncatedRegionError
+from mcmt.errors import (
+    ChunkTooLargeError,
+    ExternalChunkError,
+    MalformedRegionError,
+    TruncatedRegionError,
+)
 from mcmt.nbtio.compression import parse_compression_byte
-from mcmt.safety.paths import ReadOnlyPath
+from mcmt.safety.paths import ReadOnlyPath, ensure_writable
 
 __all__ = [
     "CHUNKS_PER_REGION",
+    "ChunkWrite",
     "RawChunk",
+    "RegionWriteReport",
     "SECTOR_SIZE",
     "read_region",
     "region_files",
+    "write_region",
 ]
 
 SECTOR_SIZE = 4096
@@ -61,6 +71,131 @@ class RawChunk:
     @property
     def local_z(self) -> int:
         return self.index // 32
+
+
+@dataclass(frozen=True)
+class ChunkWrite:
+    """一個要寫回 region 的 chunk。
+
+    用 `unchanged()` 或 `replaced()` 建立，不要直接填欄位——那兩個建構子讓「這個
+    chunk 有沒有被改過」在呼叫端**看得見**，而 `modified` 決定 timestamp 走哪條路。
+
+    `payload` 一律是**已經壓縮好的位元組**。這一層永遠不壓縮任何東西：未修改的
+    chunk 帶著它從磁碟上讀來的原始位元組，修改過的由呼叫端負責編碼。
+    """
+
+    index: int
+    payload: bytes
+    compression_type: int
+    timestamp: int
+    modified: bool
+
+    @classmethod
+    def unchanged(cls, chunk: RawChunk) -> "ChunkWrite":
+        """原封沿用：原始壓縮位元組 + 原始 timestamp，一個位元都不動。"""
+        if chunk.is_external:
+            raise ExternalChunkError(chunk_index=chunk.index)
+        return cls(
+            index=chunk.index,
+            payload=chunk.payload,
+            compression_type=chunk.compression_type,
+            timestamp=chunk.timestamp,
+            modified=False,
+        )
+
+    @classmethod
+    def replaced(cls, chunk: RawChunk, payload: bytes) -> "ChunkWrite":
+        """換上新的壓縮位元組。timestamp 會被 `write_region` 更新為當下時間。"""
+        if chunk.is_external:
+            raise ExternalChunkError(chunk_index=chunk.index)
+        return cls(
+            index=chunk.index,
+            payload=payload,
+            compression_type=chunk.compression_type,
+            timestamp=chunk.timestamp,
+            modified=True,
+        )
+
+
+@dataclass(frozen=True)
+class RegionWriteReport:
+    """一次 region 寫入的結果。`size_*` 供 `apply_report` 的 `sector_realignment`。"""
+
+    path: Path
+    chunks_written: int
+    modified_count: int
+    size_before: int
+    size_after: int
+
+    @property
+    def realigned(self) -> bool:
+        """既有檔案的大小變了。**這不是資料遺失**，是磁區重整（原檔有空隙）。
+
+        使用者看到檔案縮小會合理地恐慌，所以必須報告（CLAUDE.md §1.5）。但新建的
+        檔案不算——`size_before` 是 0 只代表本來沒有這個檔案。警告出現在不需要它
+        的地方，使用者就會學會忽略它。
+        """
+        return self.size_before != 0 and self.size_after != self.size_before
+
+
+def write_region(
+    path: Path | str,
+    chunks: Iterable[ChunkWrite],
+    *,
+    now: int | None = None,
+) -> RegionWriteReport:
+    """把一組 chunk 寫成一張完整的 region 檔。
+
+    * **未修改的 chunk 原封複製原始壓縮位元組**，絕不重新編碼（CLAUDE.md §1.4）。
+    * timestamp 表：未修改的原樣搬運、修改過的更新為 `now`。不整表歸零（遊戲會
+      誤判所有 chunk 都是新的），也不整表沿用（被改的 chunk 帶著舊時間）。
+    * 先寫到 `.tmp` 再 `os.replace`：寫到一半掛掉時，磁碟上的原檔完好無損。
+    """
+    target = ensure_writable(path)
+    stamp = int(time.time()) if now is None else now
+    ordered = sorted(chunks, key=lambda c: c.index)
+
+    offsets = bytearray(SECTOR_SIZE)
+    timestamps = bytearray(SECTOR_SIZE)
+    body = bytearray()
+    next_sector = _HEADER_SECTORS
+
+    for chunk in ordered:
+        block = bytearray()
+        block += (len(chunk.payload) + 1).to_bytes(4, "big")
+        block += bytes([chunk.compression_type])
+        block += chunk.payload
+        sectors = -(-len(block) // SECTOR_SIZE)  # 無條件進位
+        if sectors > 255:
+            raise ChunkTooLargeError(chunk_index=chunk.index, sectors=sectors)
+        block += bytes(sectors * SECTOR_SIZE - len(block))
+
+        slot = chunk.index * 4
+        offsets[slot : slot + 4] = next_sector.to_bytes(3, "big") + bytes([sectors])
+        stored_time = stamp if chunk.modified else chunk.timestamp
+        timestamps[slot : slot + 4] = stored_time.to_bytes(4, "big")
+        body += block
+        next_sector += sectors
+
+    size_before = target.stat().st_size if target.exists() else 0
+    data = bytes(offsets + timestamps + body)
+
+    temporary = ensure_writable(target.with_name(target.name + ".mcmt-tmp"))
+    temporary.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        temporary.write_bytes(data)
+        os.replace(temporary, target)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+    return RegionWriteReport(
+        path=target,
+        chunks_written=len(ordered),
+        modified_count=sum(1 for c in ordered if c.modified),
+        size_before=size_before,
+        size_after=len(data),
+    )
 
 
 def region_files(world: ReadOnlyPath) -> list[ReadOnlyPath]:

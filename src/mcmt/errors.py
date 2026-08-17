@@ -163,6 +163,22 @@ class ExternalChunkError(FormatError):
         )
 
 
+class ChunkTooLargeError(FormatError):
+    """chunk 大到一個 region 槽放不下（超過 255 個磁區）。
+
+    Minecraft 遇到這種情況會把 chunk 外置成 `.mcc`——而那條寫入路徑 v1 不支援，
+    在語料 16.2 萬 chunk 裡也有 0 個樣本。寧可拒絕，不寫一條沒測過的路徑。
+    """
+
+    def __init__(self, *, chunk_index: int, sectors: int) -> None:
+        self.chunk_index = chunk_index
+        self.sectors = sectors
+        super().__init__(
+            f"chunk index {chunk_index} 需要 {sectors} 個磁區，超過欄位上限 255。"
+            f"Minecraft 會把它外置成 .mcc，但 v1 不支援那條寫入路徑。"
+        )
+
+
 class UnsupportedWorldStructureError(FormatError):
     """世界的 chunk 結構不是 1.21 的形狀（多半是 1.12）。v1 拒絕處理整個世界。
 
