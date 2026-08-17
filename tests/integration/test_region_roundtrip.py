@@ -5,8 +5,11 @@
 再寫回去，是不是一模一樣。SPIKE_RESULT 的 L3（原始壓縮位元組直接複製）恆為一致
 是「定義如此」——但那是在說**設計**，這裡驗的是**實作真的照設計做了**。
 
-fixture 是 `100 Ways To Die` 的 `r.-1.-1.mca` 前 30 個 chunk（131 KB），由
-`tools/make_fixture_region.py` 切出來。
+fixture 是 **`TT_WORLD_NAME_PROBE`（本專案自己建的探測世界）** 的 `r.0.0.mca` 前
+30 個 chunk（131 KB），由 `tools/make_fixture_region.py` 切出來。
+
+**為什麼不用語料地圖切**：那些是別人做的冒險地圖，把它們的 chunk 放進一個要公開
+發布的 GPLv3 repo 等於在重新散布別人的作品。自己建的探測世界沒有這個問題。
 """
 
 import zlib
@@ -20,7 +23,12 @@ from mcmt.nbtio.region import ChunkWrite, read_region, write_region
 from mcmt.nbtio.structure import ensure_supported_structure, load_chunk_root
 from mcmt.safety.paths import ensure_readable
 
-FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "regions" / "r.-1.-1.slice.mca"
+FIXTURE = (
+    Path(__file__).resolve().parents[1]
+    / "fixtures"
+    / "regions"
+    / "tt-probe.r.0.0.slice.mca"
+)
 
 
 @pytest.fixture
@@ -39,12 +47,12 @@ def test_the_fixture_is_real_data(original) -> None:
         ensure_supported_structure(load_chunk_root(chunk), chunk_index=chunk.index)
         for chunk in original
     }
-    assert versions == {4325}
+    assert versions == {4671}  # 1.21.11
 
 
 def test_reading_and_writing_back_changes_nothing(project, original) -> None:
     """一個位元都不能變——包含 payload、壓縮類型、timestamp。"""
-    target = project / "sandbox" / "r.-1.-1.mca"
+    target = project / "sandbox" / "r.0.0.mca"
 
     write_region(target, [ChunkWrite.unchanged(c) for c in original], now=9_999_999)
 
@@ -61,7 +69,7 @@ def test_reading_and_writing_back_changes_nothing(project, original) -> None:
 
 def test_the_rewritten_file_is_byte_identical_to_the_fixture(project, original) -> None:
     """fixture 本身沒有磁區空隙，所以連檔案位元組都該一致。"""
-    target = project / "sandbox" / "r.-1.-1.mca"
+    target = project / "sandbox" / "r.0.0.mca"
 
     write_region(target, [ChunkWrite.unchanged(c) for c in original])
 
@@ -76,7 +84,7 @@ def test_editing_one_chunk_leaves_the_other_29_untouched(project, original) -> N
     new_payload = zlib.compress(
         amulet_nbt.NamedTag(root, "").save_to(compressed=False)
     )
-    target = project / "sandbox" / "r.-1.-1.mca"
+    target = project / "sandbox" / "r.0.0.mca"
 
     report = write_region(
         target,
@@ -107,7 +115,7 @@ def test_the_edited_chunk_still_parses_as_a_chunk(project, original) -> None:
     root = load_chunk_root(victim)
     root["mcmtRoundTripMarker"] = amulet_nbt.StringTag("M3.1")
     payload = zlib.compress(amulet_nbt.NamedTag(root, "").save_to(compressed=False))
-    target = project / "sandbox" / "r.-1.-1.mca"
+    target = project / "sandbox" / "r.0.0.mca"
     write_region(
         target,
         [
@@ -124,4 +132,4 @@ def test_the_edited_chunk_still_parses_as_a_chunk(project, original) -> None:
     ).compound
 
     assert str(reloaded["mcmtRoundTripMarker"]) == "M3.1"
-    assert ensure_supported_structure(reloaded, chunk_index=edited.index) == 4325
+    assert ensure_supported_structure(reloaded, chunk_index=edited.index) == 4671
