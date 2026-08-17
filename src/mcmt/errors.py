@@ -40,6 +40,37 @@ class MinecraftSavesPathError(SafetyError):
         )
 
 
+class BackupFailedError(SafetyError):
+    """備份不成功。**中止**——絕不允許「備份失敗但繼續寫」。"""
+
+    def __init__(self, *, path, directory, detail: str) -> None:
+        self.path = path
+        self.directory = directory
+        self.detail = detail
+        super().__init__(
+            f"無法備份 {path}：{detail}。已中止，沒有任何檔案被修改。"
+            f"（備份目錄：{directory}）"
+        )
+
+
+class BackupRestoreFailedError(SafetyError):
+    """回滾時有檔案還原失敗。訊息必須含備份目錄的絕對路徑。
+
+    使用者永遠要有一條救回來的路——即使我們的還原壞了，備份還在那裡。
+    """
+
+    def __init__(self, *, directory, failures) -> None:
+        self.directory = directory
+        self.failures = failures
+        listed = "\n".join(f"  {path}：{detail}" for path, detail in failures)
+        super().__init__(
+            f"回滾失敗，有 {len(failures)} 個檔案沒能還原。\n"
+            f"**備份完整地放在這裡，可以手動複製回去：**\n"
+            f"  {directory}\n"
+            f"沒能還原的檔案：\n{listed}"
+        )
+
+
 class SandboxTargetExistsError(SafetyError):
     """`sandbox import` 的目標已經存在。覆蓋要明講（`--replace`）。"""
 
