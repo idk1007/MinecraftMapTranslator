@@ -110,9 +110,26 @@ def test_file_shorter_than_the_two_tables_is_truncated(tmp_path) -> None:
         list(read_region(ensure_readable(path)))
 
 
-def test_empty_file_is_truncated_not_an_empty_region(tmp_path) -> None:
-    """0 bytes 的 .mca 是壞檔，不是「這個 region 沒有 chunk」。"""
+def test_a_zero_byte_file_is_an_empty_region(tmp_path) -> None:
+    """0 bytes 的 `.mca` 是「這個 region 沒有 chunk」，不是壞檔。
+
+    **這條原本的斷言是反過來的**（「0 bytes 是壞檔」），被真實資料推翻：20 個世界
+    的 1,608 個 region 檔裡有 **203 個（12.6%）正好是 0 bytes**，分佈在 6 個世界，
+    其中一個世界的 28 個 region 檔**全部**是 0 bytes。同一批檔案裡介於 1..8191
+    bytes 的有 **0 個**——也就是說「寫到一半的 header」在真實世界不存在，而 0 bytes
+    是普遍的慣例。
+
+    照原本的判斷，那 6 個世界會被 `doctor` 整個拒絕處理，理由是一個根本不是損壞的
+    現象。0 bytes 裡沒有任何資料，當成空 region 讀不會失去任何東西。
+    """
     path = write_region_file(tmp_path, b"")
+
+    assert list(read_region(ensure_readable(path))) == []
+
+
+def test_a_partially_written_header_is_still_truncated(tmp_path) -> None:
+    """1..8191 bytes 才是真的寫到一半——那個仍然要報錯。"""
+    path = write_region_file(tmp_path, bytes(SECTOR_SIZE))
 
     with pytest.raises(TruncatedRegionError):
         list(read_region(ensure_readable(path)))

@@ -259,10 +259,17 @@ def read_region(path: ReadOnlyPath) -> Iterator[RawChunk]:
             f"請先過 ensure_readable(...)。"
         )
     size = path.size()
+    if size == 0:
+        # 0 bytes 是「這個 region 沒有 chunk」的普遍慣例，不是損壞。
+        # [實測] 20 個世界的 1,608 個 region 檔裡有 203 個（12.6%）正好 0 bytes，
+        # 分佈在 6 個世界，其中一個世界全部 28 個都是。而介於 1..8191 bytes 的有
+        # 0 個——「寫到一半的 header」在真實世界不存在。
+        return
     if size < _HEADER_SECTORS * SECTOR_SIZE:
         raise TruncatedRegionError(
             path=path,
-            detail=f"只有 {size} bytes，連 8192 bytes 的兩張表都放不下",
+            detail=f"只有 {size} bytes，連 8192 bytes 的兩張表都放不下"
+            f"（0 bytes 會被當成空 region，這個大小是真的寫到一半）",
         )
 
     with path.open_binary() as handle:
