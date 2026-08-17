@@ -34,6 +34,7 @@ from mcmt.errors import (
 )
 from mcmt.nbtio.region import read_region, region_files
 from mcmt.nbtio.structure import ensure_supported_structure, load_chunk_root
+from mcmt.safety.paths import ensure_readable
 
 __all__ = ["CorruptChunk", "WorldNotFoundError", "WorldSurvey", "survey_world"]
 
@@ -51,7 +52,7 @@ class CorruptChunk:
 @dataclass
 class WorldSurvey:
     world: Path
-    region_dirs: list[Path] = field(default_factory=list)
+    region_dirs: list[str] = field(default_factory=list)  # 相對於世界根，用於報告
     region_files: int = 0
     chunks: int = 0
     data_versions: Counter = field(default_factory=Counter)
@@ -77,20 +78,23 @@ def survey_world(world: Path | str) -> WorldSurvey:
     if not world.is_dir():
         raise WorldNotFoundError(f"找不到世界資料夾：{world}")
 
-    region_dirs = [d for d in sorted(world.rglob("region")) if d.is_dir()]
+    readable = ensure_readable(world)
+    region_dirs = sorted(
+        d.relative_to(readable) for d in readable.rglob("region") if d.is_dir()
+    )
     if not region_dirs:
         raise WorldNotFoundError(
             f"{world} 底下找不到任何 region 目錄——這看起來不是一個世界資料夾"
         )
 
     survey = WorldSurvey(world=world, region_dirs=region_dirs)
-    for path in region_files(world):
+    for path in region_files(readable):
         survey.region_files += 1
         _survey_region(path, survey)
     return survey
 
 
-def _survey_region(path: Path, survey: WorldSurvey) -> None:
+def _survey_region(path, survey: WorldSurvey) -> None:
     try:
         for raw in read_region(path):
             survey.chunks += 1
@@ -111,7 +115,7 @@ def _survey_region(path: Path, survey: WorldSurvey) -> None:
         )
 
 
-def _survey_chunk(path: Path, raw, survey: WorldSurvey) -> None:
+def _survey_chunk(path, raw, survey: WorldSurvey) -> None:
     try:
         root = load_chunk_root(raw)
         data_version = ensure_supported_structure(root, chunk_index=raw.index)

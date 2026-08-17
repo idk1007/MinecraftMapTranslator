@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """`mcmt doctor` — 把 `mcmt.doctor` 的統計印成人看得懂的報告。"""
 
-from pathlib import Path
-
 from mcmt.doctor import WorldSurvey
 from mcmt.nbtio.compression import COMPRESSION_NAMES
 
@@ -17,7 +15,7 @@ def format_survey(survey: WorldSurvey) -> str:
     lines = [
         f"世界：{survey.world}",
         f"維度：{len(survey.region_dirs)} 個 region 目錄"
-        f"（{'、'.join(_relative(d, survey.world) for d in survey.region_dirs)}）",
+        f"（{'、'.join(survey.region_dirs)}）",
         f"region 檔：{survey.region_files} 個 · chunk：{survey.chunks:,} 個",
         "",
         "DataVersion 直方圖",
@@ -70,10 +68,3 @@ def _histogram(counter, total: int, label) -> list[str]:
         share = f"{count / total:6.1%}" if total else "     -"
         lines.append(f"  {label(key):<{width}}  {count:>9,}  {share}")
     return lines
-
-
-def _relative(path: Path, root: Path) -> str:
-    try:
-        return str(path.relative_to(root))
-    except ValueError:
-        return str(path)

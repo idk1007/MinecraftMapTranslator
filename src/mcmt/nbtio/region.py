@@ -26,6 +26,7 @@ from typing import Iterator
 
 from mcmt.errors import MalformedRegionError, TruncatedRegionError
 from mcmt.nbtio.compression import parse_compression_byte
+from mcmt.safety.paths import ReadOnlyPath
 
 __all__ = [
     "CHUNKS_PER_REGION",
@@ -62,7 +63,7 @@ class RawChunk:
         return self.index // 32
 
 
-def region_files(world: Path | str) -> list[Path]:
+def region_files(world: ReadOnlyPath) -> list[ReadOnlyPath]:
     """世界底下所有的方塊 region 檔，依路徑排序。
 
     「所有名為 `region` 的目錄」涵蓋 `region/`、`DIM-1/region/`、`DIM1/region/`
@@ -72,26 +73,36 @@ def region_files(world: Path | str) -> list[Path]:
     擴大到 entities 時（M13），**世界指紋的定義要一起重新考慮**，因為那會改變
     「什麼算這個世界的內容」。
     """
-    world = Path(world)
     return sorted(
-        path
-        for directory in world.rglob("region")
-        if directory.is_dir()
-        for path in directory.glob("*.mca")
+        (
+            path
+            for directory in world.rglob("region")
+            if directory.is_dir()
+            for path in directory.glob("*.mca")
+        ),
+        key=str,
     )
 
 
-def read_region(path: Path | str) -> Iterator[RawChunk]:
-    """依 slot 順序逐一 yield region 裡實際存在的 chunk。"""
-    path = Path(path)
-    size = path.stat().st_size
+def read_region(path: ReadOnlyPath) -> Iterator[RawChunk]:
+    """依 slot 順序逐一 yield region 裡實際存在的 chunk。
+
+    **只收 `ReadOnlyPath`。** 裸 `Path` 進不來，所以「忘了過 `ensure_readable`」
+    在型別層就會被擋下，不是靠呼叫端自律（CLAUDE.md §1.1）。
+    """
+    if not isinstance(path, ReadOnlyPath):
+        raise TypeError(
+            f"read_region 只收 ReadOnlyPath，收到 {type(path).__name__}。"
+            f"請先過 ensure_readable(...)。"
+        )
+    size = path.size()
     if size < _HEADER_SECTORS * SECTOR_SIZE:
         raise TruncatedRegionError(
             path=path,
             detail=f"只有 {size} bytes，連 8192 bytes 的兩張表都放不下",
         )
 
-    with path.open("rb") as handle:
+    with path.open_binary() as handle:
         offsets = handle.read(SECTOR_SIZE)
         timestamps = handle.read(SECTOR_SIZE)
 
@@ -118,7 +129,7 @@ def read_region(path: Path | str) -> Iterator[RawChunk]:
 def _read_chunk(
     handle,
     *,
-    path: Path,
+    path: ReadOnlyPath,
     size: int,
     index: int,
     sector_offset: int,

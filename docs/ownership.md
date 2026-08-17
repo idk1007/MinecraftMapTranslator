@@ -26,6 +26,8 @@
 
 **相依只能往下。** `nbtio/` 不得 import `rules/`；`translate/` 不得 import `nbtio/`；`backends/` 不得 import `write/`（它只產 editplan，由 `cli/apply` 交給 writer）。
 
+**例外（2026-08-17，M2.5）**：`nbtio/` **可以** import `safety/paths.py`。`read_region` 只收 `ReadOnlyPath`，讓「忘了過 `ensure_readable`」在型別層就被擋下，而不是靠呼叫端自律。方向上沒有環——`safety/` 只 import `errors`，永遠不會 import `nbtio/`。上圖把 `safety/` 畫在 `write/` 旁邊是因為它最初只服務寫入路徑；實際上它是所有層都能倚賴的底層設施。
+
 `model/` 被所有層 import，因此它**不得 import 任何其他 mcmt 模組**。
 
 ## 高風險目錄

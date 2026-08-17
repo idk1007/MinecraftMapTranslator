@@ -27,6 +27,7 @@ from mcmt.errors import (
     UnknownCompressionError,
 )
 from mcmt.nbtio.region import SECTOR_SIZE, read_region
+from mcmt.safety.paths import ensure_readable
 
 
 # --- 正常讀取 -------------------------------------------------------------
@@ -38,7 +39,7 @@ def test_payload_is_the_raw_compressed_bytes_and_is_not_decompressed(tmp_path) -
     compressed = zlib.compress(nbt)
     path = write_region_file(tmp_path, RegionBuilder().add(0, compressed).build())
 
-    (chunk,) = read_region(path)
+    (chunk,) = read_region(ensure_readable(path))
 
     assert chunk.payload == compressed
     assert chunk.payload != nbt
@@ -50,7 +51,7 @@ def test_chunk_header_fields_are_surfaced(tmp_path) -> None:
         RegionBuilder().add(0, zlib.compress(b"x"), timestamp=1_234_567).build(),
     )
 
-    (chunk,) = read_region(path)
+    (chunk,) = read_region(ensure_readable(path))
 
     assert chunk.index == 0
     assert chunk.compression_type == 2
@@ -63,13 +64,13 @@ def test_empty_slots_are_skipped(tmp_path) -> None:
     builder = RegionBuilder().add(3, zlib.compress(b"a")).add(1023, zlib.compress(b"b"))
     path = write_region_file(tmp_path, builder.build())
 
-    assert [c.index for c in read_region(path)] == [3, 1023]
+    assert [c.index for c in read_region(ensure_readable(path))] == [3, 1023]
 
 
 def test_local_coordinates_come_from_the_slot_index(tmp_path) -> None:
     path = write_region_file(tmp_path, RegionBuilder().add(33, zlib.compress(b"a")).build())
 
-    (chunk,) = read_region(path)
+    (chunk,) = read_region(ensure_readable(path))
 
     assert (chunk.local_x, chunk.local_z) == (1, 1)
 
@@ -83,7 +84,7 @@ def test_external_flag_is_reported_without_being_treated_as_a_type(tmp_path) -> 
         tmp_path, RegionBuilder().add(0, b"", compression_byte=0x82).build()
     )
 
-    (chunk,) = read_region(path)
+    (chunk,) = read_region(ensure_readable(path))
 
     assert (chunk.compression_type, chunk.is_external) == (2, True)
     assert chunk.payload == b""
@@ -95,7 +96,7 @@ def test_unknown_compression_byte_names_the_chunk(tmp_path) -> None:
     )
 
     with pytest.raises(UnknownCompressionError) as exc:
-        list(read_region(path))
+        list(read_region(ensure_readable(path)))
     assert exc.value.chunk_index == 7
 
 
@@ -106,7 +107,7 @@ def test_file_shorter_than_the_two_tables_is_truncated(tmp_path) -> None:
     path = write_region_file(tmp_path, bytes(SECTOR_SIZE * 2 - 1))
 
     with pytest.raises(TruncatedRegionError):
-        list(read_region(path))
+        list(read_region(ensure_readable(path)))
 
 
 def test_empty_file_is_truncated_not_an_empty_region(tmp_path) -> None:
@@ -114,7 +115,7 @@ def test_empty_file_is_truncated_not_an_empty_region(tmp_path) -> None:
     path = write_region_file(tmp_path, b"")
 
     with pytest.raises(TruncatedRegionError):
-        list(read_region(path))
+        list(read_region(ensure_readable(path)))
 
 
 def test_payload_running_past_the_end_of_file_is_truncated(tmp_path) -> None:
@@ -124,7 +125,7 @@ def test_payload_running_past_the_end_of_file_is_truncated(tmp_path) -> None:
     path = write_region_file(tmp_path, data[: len(data) - SECTOR_SIZE])
 
     with pytest.raises(TruncatedRegionError) as exc:
-        list(read_region(path))
+        list(read_region(ensure_readable(path)))
     assert exc.value.chunk_index == 0
 
 
@@ -134,7 +135,7 @@ def test_chunk_header_running_past_the_end_of_file_is_truncated(tmp_path) -> Non
     path = write_region_file(tmp_path, data)
 
     with pytest.raises(TruncatedRegionError):
-        list(read_region(path))
+        list(read_region(ensure_readable(path)))
 
 
 def test_offset_pointing_into_the_tables_is_malformed(tmp_path) -> None:
@@ -143,7 +144,7 @@ def test_offset_pointing_into_the_tables_is_malformed(tmp_path) -> None:
     path = write_region_file(tmp_path, data)
 
     with pytest.raises(MalformedRegionError):
-        list(read_region(path))
+        list(read_region(ensure_readable(path)))
 
 
 def test_sector_count_of_zero_with_a_real_offset_is_malformed(tmp_path) -> None:
@@ -152,7 +153,7 @@ def test_sector_count_of_zero_with_a_real_offset_is_malformed(tmp_path) -> None:
     path = write_region_file(tmp_path, data)
 
     with pytest.raises(MalformedRegionError):
-        list(read_region(path))
+        list(read_region(ensure_readable(path)))
 
 
 def test_declared_length_overflowing_its_sectors_is_malformed(tmp_path) -> None:
@@ -161,7 +162,7 @@ def test_declared_length_overflowing_its_sectors_is_malformed(tmp_path) -> None:
     path = write_region_file(tmp_path, data)
 
     with pytest.raises(MalformedRegionError):
-        list(read_region(path))
+        list(read_region(ensure_readable(path)))
 
 
 def test_declared_length_of_zero_is_malformed(tmp_path) -> None:
@@ -171,7 +172,7 @@ def test_declared_length_of_zero_is_malformed(tmp_path) -> None:
     path = write_region_file(tmp_path, data)
 
     with pytest.raises(MalformedRegionError):
-        list(read_region(path))
+        list(read_region(ensure_readable(path)))
 
 
 def test_empty_payload_without_the_external_flag_is_malformed(tmp_path) -> None:
@@ -179,7 +180,7 @@ def test_empty_payload_without_the_external_flag_is_malformed(tmp_path) -> None:
     path = write_region_file(tmp_path, data)
 
     with pytest.raises(MalformedRegionError):
-        list(read_region(path))
+        list(read_region(ensure_readable(path)))
 
 
 # --- 串流 -----------------------------------------------------------------
@@ -193,7 +194,7 @@ def test_chunks_are_yielded_before_a_later_chunk_fails(tmp_path) -> None:
 
     seen = []
     with pytest.raises(MalformedRegionError):
-        for chunk in read_region(path):
+        for chunk in read_region(ensure_readable(path)):
             seen.append(chunk.index)
 
     assert seen == [0]

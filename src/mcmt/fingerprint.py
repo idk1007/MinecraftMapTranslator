@@ -30,6 +30,7 @@ from pathlib import Path
 
 from mcmt.errors import FormatError
 from mcmt.nbtio.region import read_region, region_files
+from mcmt.safety.paths import ensure_readable
 
 __all__ = ["world_fingerprint"]
 
@@ -39,11 +40,12 @@ _SEP = b"\x1f"
 
 def world_fingerprint(world: Path | str) -> str:
     """回傳 `blake2b:<32 hex>` 形式的世界內容身分。"""
-    world = Path(world)
+    readable = ensure_readable(Path(world))
     digest = blake2b(digest_size=_DIGEST_SIZE)
 
-    for path in region_files(world):
-        name = path.relative_to(world).as_posix().encode("utf-8")
+    for path in region_files(readable):
+        # 一律用 / 分隔：同一個世界在 Windows 與 Linux 上必須算出同一個指紋。
+        name = path.relative_to(readable).replace("\\", "/").encode("utf-8")
         try:
             for chunk in read_region(path):
                 digest.update(name)
