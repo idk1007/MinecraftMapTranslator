@@ -100,5 +100,9 @@ class UnsupportedWorldStructureError(FormatError):
         )
 
 
+class WorldNotFoundError(McmtError):
+    """給定的路徑不存在，或裡面找不到任何 `region` 目錄。"""
+
+
 class MissingDependencyError(McmtError):
     """需要一個可選相依，但它沒被安裝。訊息必須告訴使用者裝什麼。"""

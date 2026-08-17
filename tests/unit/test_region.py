@@ -14,6 +14,12 @@ import os
 import zlib
 
 import pytest
+from conftest import (
+    RegionBuilder,
+    set_declared_length,
+    set_offset_entry,
+    write_region_file,
+)
 
 from mcmt.errors import (
     MalformedRegionError,
@@ -21,62 +27,6 @@ from mcmt.errors import (
     UnknownCompressionError,
 )
 from mcmt.nbtio.region import SECTOR_SIZE, read_region
-
-# --- 合成 region 的工具 ---------------------------------------------------
-
-
-class RegionBuilder:
-    """組出一個結構正確的 region，畸形的情況再事後改位元組。"""
-
-    def __init__(self) -> None:
-        self._slots: dict[int, tuple[int, bytes, int]] = {}
-
-    def add(
-        self,
-        index: int,
-        payload: bytes,
-        *,
-        compression_byte: int = 2,
-        timestamp: int = 1_700_000_000,
-    ) -> "RegionBuilder":
-        self._slots[index] = (compression_byte, payload, timestamp)
-        return self
-
-    def build(self) -> bytearray:
-        offsets = bytearray(SECTOR_SIZE)
-        timestamps = bytearray(SECTOR_SIZE)
-        body = bytearray()
-        next_sector = 2
-        for index in sorted(self._slots):
-            compression_byte, payload, timestamp = self._slots[index]
-            block = bytearray()
-            block += (len(payload) + 1).to_bytes(4, "big")
-            block += bytes([compression_byte])
-            block += payload
-            sectors = (len(block) + SECTOR_SIZE - 1) // SECTOR_SIZE
-            block += bytes(sectors * SECTOR_SIZE - len(block))
-            offsets[index * 4 : index * 4 + 4] = next_sector.to_bytes(3, "big") + bytes(
-                [sectors]
-            )
-            timestamps[index * 4 : index * 4 + 4] = timestamp.to_bytes(4, "big")
-            body += block
-            next_sector += sectors
-        return offsets + timestamps + body
-
-
-def set_offset_entry(data: bytearray, index: int, sector: int, count: int) -> None:
-    data[index * 4 : index * 4 + 4] = sector.to_bytes(3, "big") + bytes([count])
-
-
-def set_declared_length(data: bytearray, sector: int, length: int) -> None:
-    start = sector * SECTOR_SIZE
-    data[start : start + 4] = length.to_bytes(4, "big")
-
-
-def write_region_file(tmp_path, data: bytes | bytearray, name: str = "r.0.0.mca"):
-    path = tmp_path / name
-    path.write_bytes(bytes(data))
-    return path
 
 
 # --- 正常讀取 -------------------------------------------------------------
