@@ -709,24 +709,72 @@ back_text:  {has_glowing_text:0b, color:"black", messages:['{"translate":"mcmt.t
 
 v1 對策（見 CLAUDE.md 二節）：chunk DataVersion ≥ 4325 且節點為舊式 JSON 形狀 → **跳過不翻譯**，計入 `stats.skipped_legacy_json_in_native_chunk`，並在報告列出。理由與 `.mcc`、1.12 世界相同：翻了會寫回一個顯示結果同樣是亂碼的字串，等於在別人的地圖上留下我們造成的改動卻沒有任何好處。
 
-「DV < 4325 的 chunk 由 DataFixer 升級後舊式 JSON 會被正確解析」目前是 `[文件]` 級推論，未實測——已列入尚待驗證。
+「DV < 4325 的 chunk 由 DataFixer 升級後舊式 JSON 會被正確解析」目前是 `[文件]` 級推論，未實測——已列入尚待驗證。**→ 2026-08-17 由 M4 實測證實，見下節。**
+
+---
+
+## M4 遊戲實測（2026-08-17）：舊世代 chunk 的 legacy 寫入
+
+### 程序
+
+語料**不是**計畫寫的 Minecraft Party 2——全掃 207,515 個 chunk 後確認 **MP2 的 DV 3955 chunk 一面 `front_text` 告示牌都沒有**（與下方 P3/R3 一節的記載一致）。改掃 20 個世界後選用 `Arena of Darkness`（1.20.4）：**DV 3700 有 737 面告示牌**，且它們原本就在用 `json_string_scalar` 與 `'""'`。
+
+用 `tools/m4_prepare.py` 在 `sandbox` 副本裡改寫 chunk 1022（DV **3700**）中 4 面**原本空白**的告示牌，四行都寫成 `TAG_String`（舊式形狀），一面告示牌問四個問題。完整程序見 `docs/m4-checklist.md`。
+
+### 結果 [遊戲實測]
+
+| 行 | 寫進去的字面內容 | 遊戲顯示 | 存回磁碟後的形狀 |
+|---|---|---|---|
+| 1 | `{"translate":"mcmt.test.legacy"}` | **哈囉舊世代** | `CompoundTag {translate: "mcmt.test.legacy"}` |
+| 2 | `{"text":"對照組A 物件"}` | 對照組A 物件 | `CompoundTag {"": "對照組A 物件"}` |
+| 3 | `"對照組B 純量"` | 對照組B 純量 | `CompoundTag {"": "對照組B 純量"}` |
+| 4 | `""` | **完全空白** | `CompoundTag {"": ""}` |
+
+### 五項結論
+
+**① M4-1 舊世代 chunk 的 legacy 寫入路線成立。**
+在 DV 3700 的 chunk 裡以舊式 JSON 字串寫入自訂命名空間的 translate key，1.21.11 由世界 `resources.zip` 解出並顯示中文。**`write/legacy.py` 的設計前提成立**，M11 不需要為舊世代另闢蹊徑。
+
+**② M4-2 DataFixer 確實解析 DV < 4325 chunk 裡的舊式 JSON，且會就地轉成原生 compound。**
+先前只有 `[文件]` 級推論，現在是直接對照實驗。三種形式（物件 / 純量 / 空字串）全部被解析。**存回磁碟時形狀被改寫**：`{"text": …}` 與純量都變成 **`{"": …}` 空鍵形式**，只有 `translate` 保持 `{translate: …}`。這也是 `empty_key_compound` 這個「必須容忍的讀取形狀」的來源——它不是某個工具的怪癖，是 Mojang `NbtOps` 的標準輸出。
+
+**③ M4-3 分水嶺 4325 由對照實驗確立。**
+同一個字面 `'""'`：在 native chunk（M0-4）顯示為**字面的兩個引號**；在 DV 3700 chunk 顯示為**空白**（磁碟上變成 `{"": ""}`）。同一份輸入、只差 chunk 的 DataVersion，結果相反。CLAUDE.md「DataVersion 決定遊戲會不會替這個節點跑 DataFixer」由此從推論升為 `[遊戲實測]`。
+
+**④ M4-4 遊戲會升級玩家走過的 chunk，未走過的不動。**
+開一次世界後，同一張 region 的 953 個 chunk 裡 **144 個從 3700 變成 4671、809 個仍是 3700**（改動的 chunk 1022 在被升級之列）。
+
+> **對 v1 的影響**：「同一世界兩套世代並存」**不是**只有 1.12 舊地圖會發生，也不是我們造成的——**使用者開過一次世界就會發生**。工具「永不升級格式」的承諾仍然成立，但有一個前提要講清楚：**extract 當下嗅探到的 `encoding`，會因為使用者在中間玩過一次而失效**（舊式 JSON 被 DataFixer 轉成 `{"": …}`）。`world_fingerprint` 會抓到這件事（payload 變了），M11 的 `expected_encoding` 守門因此不是多餘的防呆，而是這個情境的唯一防線。
+
+**⑤ M4-5 世界資源包的 `pack_format` 有下限——修正 M0-5。**
+
+> **M0-5 原結論（保留）**：「世界資源包的 `pack_format` 過期時**不警告也不拒載**，照常生效。」那次是把 `pack_format` 從 75 下調到 **55** 並移除 `supported_formats` 測的。
+>
+> **為何要修正**：`Arena of Darkness` 自帶的 `resources.zip` 宣告 `pack_format: 22`（1.20.4），1.21.11 進世界前跳出「**無法套用伺服器資源包**」並拒絕套用，第 1 行因此顯示 key 本身而不是譯文。把同一個世界的 pack 換成 `pack_format: 75` + `supported_formats` 的最小 pack 後，同一個 chunk、同一面告示牌就正常顯示譯文。
+>
+> **修正後的說法**：`pack_format` 過期**在某個範圍內**不警告也不拒載（55 可以），但**有下限**，落在 22 與 55 之間。確切邊界 `[待驗]`。
+
+> **對 M10 的硬需求**：地圖自己帶舊 pack 時，**不能只是把 lang 檔併進去**——整個 pack 會被拒絕，我們的譯文跟著陪葬。合併時必須同時處理 `pack.mcmeta`（加 `supported_formats` 或改 `pack_format`），而那是在改地圖自己的檔案，要在報告中明確告知使用者。
+
+**排除的干擾項**：合併後的 zip 與原始在結構上等價（條目 329→331、`flag_bits` 全 0、CRC 逐項相同、`unzip -t` 通過），所以拒載不是合併造成的。
 
 ---
 
 ## 尚待驗證
 
-> 已完成：寫入端編碼對照（兩種皆有效）、Q3 五個結構推論項（全部成立）、第二輪 P1/P2/P3（extra 巢狀、filterable、空值分佈）、M0 遊戲實測（資源包路線、`'""'` 算繪、`pack_format` 過期）。
+> 已完成：寫入端編碼對照（兩種皆有效）、Q3 五個結構推論項（全部成立）、第二輪 P1/P2/P3（extra 巢狀、filterable、空值分佈）、M0 遊戲實測（資源包路線、`'""'` 算繪、`pack_format` 過期）、**M4 遊戲實測（舊世代 legacy 寫入、DataFixer 解析、世代升級、`pack_format` 下限）**。
 
 | 項目 | 驗證方法 | 重要性 |
 |---|---|---|
 | **端到端**：由**工具**產生的編輯計畫寫回存檔後遊戲正確顯示 | 用 fixture 世界跑完整流程 | **高** — M0 已證明手動注入 + 資源包這半段成立，剩下的是把 `/data modify` 換成 `write/` 的輸出 |
-| **DV < 4325 的 chunk 經 DataFixer 升級後，舊式 JSON 是否被正確解析** | 在 1.21.1（3955）chunk 保留舊式 JSON 告示牌，用 1.21.11 開啟後肉眼確認 | **高** — 決定 M0 結論 ③ 的跳過規則是否該以 4325 為界（目前為 `[文件]` 級推論） |
-| 舊世代 chunk 寫入新格式 component 後遊戲是否誤判 | 在 1.21.1（3955）chunk 寫入原生 component，用 1.21.11 開啟 | **高**，決定發現 ① 的處理策略 |
+| ~~**DV < 4325 的 chunk 經 DataFixer 升級後，舊式 JSON 是否被正確解析**~~ | ~~肉眼確認~~ | **已完成（M4-2 / M4-3）**：三種舊式形式全部被解析，且存回磁碟時轉成 `{"": …}`。4325 分水嶺由對照實驗確立 |
+| ~~舊世代 chunk 寫入 translate key 後是否正確顯示~~ | ~~在舊世代 chunk 寫入後用 1.21.11 開啟~~ | **已完成（M4-1）**：DV 3700 chunk 寫入 legacy JSON translate key，資源包解出中文。舊世代寫入**原生** component 的變體仍未測，但 M4-2 顯示遊戲自己就會把舊式轉成原生，風險已大幅降低 |
+| `pack_format` 拒載的確切下限 | 在 22 與 55 之間逐級測試 | 中 — M4-5 已證明有下限（22 被拒、55 可用），邊界值影響 M10 合併既有 pack 時該宣告什麼 |
 | **`extra` 攤平後重建是否保真** | 取 MP2 的 `{translate+extra(translate)+fallback+color}` 實例，攤平→翻譯→重建→寫回→進遊戲比對 | **高**，決定 1.1 的 schema 修正是否足夠（第二輪 R1） |
 | **`hover_event.name` 內的文字是否需翻譯** | MP2 有 331 筆；進遊戲確認滑鼠停留時是否可見 | 中，影響掃描範圍（第二輪 R1） |
 | **混合 list（compound + 裸字串）存到磁碟後是什麼形狀** | 重下 M0 的 `/data merge`，然後 `/data get block ... front_text.messages` 回讀，並用 `probe_raw_nbt.py` 看實際 tag 型別 | **高** — 直接決定「NBT list 同型」規則的邊界，也決定 `write/` 是否真的必須做 list 提升 |
 | MP2 那 585 面全 `'""'` 告示牌是否真的顯示引號 | 在 sandbox 副本裡走到現場肉眼確認 | 中 — M0-4 的直接推論，成立則證實那是地圖自身的顯示瑕疵，工具不應「順手修好」 |
-| `pack_format` 多舊才會拒載 | 逐級下調 `pack_format` 並移除 `supported_formats` | 低 — M0-5 已證明「過期不拒載」，只剩邊界未知 |
+| ~~`pack_format` 多舊才會拒載~~ | ~~逐級下調~~ | **部分完成（M4-5）**：22 會被拒（「無法套用伺服器資源包」），55 不會。M0-5 的「過期不拒載」需限縮為「在某個範圍內」。確切邊界見上一列 |
 | region 是否會出現 LZ4 (type 4) | 對更多來源的地圖跑 `probe_compression.py`，特別是伺服器匯出的 | 中 — 第二輪 5 張地圖 16.2 萬 chunk 全為 type 2，仍未見 type 4 |
 | **type 4 的實際位元組框架** | 拿到真實 type 4 chunk 後，用 `nbtio/compression.py` 的 `_decompress_lz4` 對它跑一次 | 中 — `[文件]` 級：Mojang 走 lz4-java 的 `LZ4BlockOutputStream`（`"LZ4Block"` magic + 每區塊 21 bytes 標頭），**不是**標準 LZ4 frame。M1.1 已照此格式實作並以手寫編碼器測過，但沒有任何真實樣本走過這條路徑 |
 | 外部 `.mcc` 檔 | 需要找到含 `.mcc` 的地圖 | 低 — 第二輪 5 張地圖 16.2 萬 chunk 外部 chunk 數為 **0** |

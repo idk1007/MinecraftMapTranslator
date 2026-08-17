@@ -68,10 +68,30 @@ def main() -> int:
     parser.add_argument("world", help="sandbox 底下的世界資料夾")
     parser.add_argument("--region", default="region/r.-1.-1.mca")
     parser.add_argument("--chunk", type=int, default=1022)
+    parser.add_argument(
+        "--pack-mode",
+        choices=("merge", "fresh"),
+        default="merge",
+        help="merge=併進地圖自己的 resources.zip；fresh=換成一個全新的最小 pack",
+    )
+    parser.add_argument(
+        "--pack-only",
+        action="store_true",
+        help="只換資源包，不碰告示牌（告示牌已經改過時用）",
+    )
     args = parser.parse_args()
 
     world = Path(args.world).resolve()
     region_path = world / args.region
+
+    if args.pack_only:
+        with BackupSet(world) as backup:
+            backup.protect(world / "resources.zip")
+            action = _write_pack(world / "resources.zip", fresh=args.pack_mode == "fresh")
+        print(f"世界：{world}")
+        print(f"資源包：{world / 'resources.zip'} — {action}，{TEST_KEY} → {TEST_VALUE}")
+        print(f"備份：{backup.directory}（{backup.file_count} 個檔案）")
+        return 0
 
     original = list(read_region(ensure_readable(region_path)))
     target_chunk = next((c for c in original if c.index == args.chunk), None)
@@ -116,7 +136,7 @@ def main() -> int:
             ],
         )
         backup.protect(world / "resources.zip")
-        pack_action = _write_pack(world / "resources.zip")
+        pack_action = _write_pack(world / "resources.zip", fresh=args.pack_mode == "fresh")
 
     print(f"世界：{world}")
     print(f"改動的 chunk：{args.region} 的 index {args.chunk}（DataVersion {data_version}）")
@@ -144,7 +164,7 @@ def _recompress(root: amulet_nbt.CompoundTag, compression_type: int) -> bytes:
     raise SystemExit(f"這個腳本只處理 gzip/zlib，遇到壓縮類型 {compression_type}")
 
 
-def _write_pack(path: Path) -> str:
+def _write_pack(path: Path, *, fresh: bool = False) -> str:
     """把測試用的 lang 檔放進 `resources.zip`，**保留地圖原本的內容**。
 
     [實測] `Arena of Darkness` 自己就帶了一個 **131 MB 的 `resources.zip`**。第一次
@@ -158,7 +178,7 @@ def _write_pack(path: Path) -> str:
     lang = json.dumps({TEST_KEY: TEST_VALUE}, ensure_ascii=False, indent=2)
     ours = {f"assets/mcmt/lang/{locale}.json": lang for locale in ("zh_tw", "en_us")}
 
-    if not target.exists():
+    if fresh or not target.exists():
         meta = {
             "pack": {
                 "pack_format": PACK_FORMAT,
@@ -166,11 +186,12 @@ def _write_pack(path: Path) -> str:
                 "description": "mcmt M4 legacy 寫入驗證",
             }
         }
+        existed = target.exists()
         with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("pack.mcmeta", json.dumps(meta, ensure_ascii=False, indent=2))
             for name, content in ours.items():
                 archive.writestr(name, content)
-        return "新建"
+        return "全新最小 pack（取代了地圖原本的）" if existed else "新建"
 
     # 合併：zip 沒辦法就地新增，所以整份重寫到暫存檔再換過去。
     temporary = ensure_writable(target.with_name(target.name + ".mcmt-tmp"))

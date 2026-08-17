@@ -3,13 +3,13 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-17**（M3 完成）
+最後更新：**2026-08-17**（M4 完成）
 
 ---
 
 ## 一句話現況
 
-**M0 驗證通過，M1（`doctor` 唯讀讀取鏈）、M2（安全層）、M3（nbtio 完整，含外科式寫入）完成。下一步是 M4——那是進遊戲的人工驗證，不寫程式。**
+**M0–M4 全部完成。位元組層、安全層、外科式寫入都在真實地圖上驗過，M4 證實舊世代 chunk 的 legacy 寫入路線也成立。下一步是 M5——開始碰語意。**
 
 M1 只差「節點形狀分佈」那一項驗收條件——等 M5 的嗅探器，見下方 M1.4。
 
@@ -141,29 +141,51 @@ MP2 的 DataVersion 分佈證實 **per-chunk 世代分派不是理論問題**：
 
 ---
 
-## 下一步：M4 — legacy 寫入驗證（人工，進遊戲）
+### M4 — legacy 寫入驗證（2026-08-17，`[遊戲實測]`）✅
 
-**這一項不寫程式，是進遊戲看結果。** 從 M7.4 提前到這裡的理由：legacy 佔 **43%**（51,369 chunks）、風險標記為高、讀取形狀比 native 更雜。
+**legacy 寫入路線成立**：DV **3700** 的 chunk 裡以舊式 JSON 字串寫入自訂命名空間 translate key，1.21.11 由世界 `resources.zip` 解出並顯示中文。`write/legacy.py` 的設計前提不必改。
 
-- [ ] 在 DataVersion 3955 的 chunk 寫入 legacy JSON 形式的 translate key（工具鏈已經夠用了：`sandbox import` → `read_region` → 改一個 chunk → `write_region`）
-- [ ] 用 1.21.11 開啟，確認顯示正確
-- [ ] **觀察該 chunk 的 DataVersion 是否被順手升級**——若會，「寫回原世代」的承諾就有前提條件
-- [ ] 結果寫回 `SPIKE_RESULT.md` 並標 `[遊戲實測]`
+程序與兩輪測試的細節見 `docs/m4-checklist.md`，完整記錄見 `SPIKE_RESULT.md`「M4 遊戲實測」。**四項不能重推的結論**：
 
-**若失敗**：`write/` 的設計要在寫任何實作前先改。
+1. **DataFixer 確實解析 DV < 4325 chunk 裡的舊式 JSON**，而且**存回磁碟時就地轉成原生 compound**——`{"text":…}` 與純量都變成 **`{"": …}` 空鍵形式**。`empty_key_compound` 不是某個工具的怪癖，是 Mojang `NbtOps` 的標準輸出。
+2. **4325 分水嶺由對照實驗確立**：同一個 `'""'`，native chunk 顯示字面引號（M0-4）、3700 chunk 顯示空白。同一份輸入只差 DataVersion，結果相反。
+3. **遊戲會升級玩家走過的 chunk**：開一次世界後，同一張 region 的 953 個 chunk 有 144 個 3700→4671、809 個不動。**「同一世界兩套世代並存」是使用者玩過就會發生的事**，不是 1.12 舊地圖專屬，也不是我們造成的。→ **extract 當下嗅探的 `encoding` 會因為使用者中間玩過一次而失效**；`world_fingerprint` 抓得到，M11 的 `expected_encoding` 守門是這個情境的唯一防線。
+4. **世界資源包的 `pack_format` 有下限，修正了 M0-5**：地圖自帶的 `pack_format: 22` 被 1.21.11 拒絕（「無法套用伺服器資源包」），換成 75 + `supported_formats` 就正常。→ **M10 的硬需求**：合併進地圖既有的舊 pack 時**不能只加 lang 檔**，必須同時處理 `pack.mcmeta`，否則整個 pack 被拒、譯文一起陪葬；而那是在改地圖自己的檔案，要在報告中明確告知使用者。
 
-順手可以一起補掉的 `[待驗]`：**混合 list 存到磁碟後是什麼形狀**（M11 前必補，見下節）——同一次進遊戲就能驗完。
+---
 
-之後：`M5 掃描 ─► M6 規則引擎 ─► M7 extract ─► M8 字寬校準 ─► M9 翻譯層 ─► M10 resourcepack 後端 ─► M11 寫入層 ─► M12 自動化端到端 ─► M13 掃描廣度 ─► M14 CLI/報告/文件`
+## 下一步：M5 — model + 掃描 + 建樹
+
+M1–M4 把「位元組」與「安全」兩層做完了，而且 M4 證明了兩條寫入路線都成立。M5 開始碰**語意**。
+
+| 任務 | 驗收條件 |
+|---|---|
+| M5.1 `model/component.py` | **7 種形狀的嗅探器**（`bare_string` / `empty_key_compound` / `text_compound` / 四種 `json_*`）。`occurrence.encoding` 的唯一權威。JSON 解析失敗 → 標 `unparseable_json` 跳過並計數，**絕不當裸文字** |
+| M5.2 `model/generation.py` | DataVersion → 寫回世代。**不**用於形狀判斷 |
+| M5.3 `model/segments.py` | component 樹攤平、段落切點、`[[n]]` 標記 |
+| M5.4 `model/node.py` | 節點樹與 `node_path` |
+| M5.5 掃描各來源 + 三個 codec | `scan/`、`tree/codecs/{json_component,snbt,command}.py` |
+| M5.6 **接回 doctor** | M1.4 缺的「節點形狀分佈」——嗅探器出來之後把它接進 `doctor`，這是 M5 的收尾項 |
+
+**`src/mcmt/model/` 是高風險目錄**（schema 的程式碼投影）：改動要獨立 commit、同 commit 更新 sample fixture、bump `SCHEMA_VERSION`。
+
+M4 給 M5 的兩個直接輸入：
+
+- `empty_key_compound`（`{"": …}`）是 Mojang `NbtOps` 的標準輸出，不是邊緣案例——嗅探器要把它當一等公民。
+- 使用者玩過一次世界就會讓部分 chunk 的 encoding 改變，所以**嗅探結果有時效**，這是 `expected_encoding` 守門存在的理由。
+
+開工前該補掉的 `[待驗]`：**DV < 4325 的舊式 JSON 是否被正確解析**——**M4-2 已經答完了**，M5 不再有阻塞項。
+
+之後：`M6 規則引擎 ─► M7 extract ─► M8 字寬校準 ─► M9 翻譯層 ─► M10 resourcepack 後端 ─► M11 寫入層 ─► M12 自動化端到端 ─► M13 掃描廣度 ─► M14 CLI/報告/文件`
 
 ---
 
 ## 開工前該補掉的兩件事
 
-兩項都不阻塞 M1，但**在對應里程碑開工前要補**，否則會把推論當事實用：
+**第 1 項仍待補**（M11 前必補）；第 2 項已由 M4 解決。
 
 1. **混合 list 存到磁碟後是什麼形狀**（`[待驗]`，**M11 前必補**）。M0 那次實際下的是 `/data merge` 且正面用了混合 list（第一元素 compound、其餘裸字串），指令被接受且顯示正確，但**沒做回讀取證**。`write/` 的 list 提升邏輯目前建立在推論上。補法：`/data get block ... front_text.messages` + `spike/probe_raw_nbt.py` 看實際 tag 型別。
-2. **DV < 4325 的 chunk 經 DataFixer 升級後，舊式 JSON 是否被正確解析**（目前只有 `[文件]` 級推論，**M5 前該補**）。它決定 M0 結論 ③ 的跳過規則是否真的該以 4325 為界。
+2. ~~**DV < 4325 的 chunk 經 DataFixer 升級後，舊式 JSON 是否被正確解析**~~ → **M4-2 已答**：三種舊式形式全部被解析，且存回磁碟時轉成 `{"": …}`。4325 這條界線由對照實驗確立。
 
 其餘 `[待驗]` 項見 `SPIKE_RESULT.md`「尚待驗證」表。
 
