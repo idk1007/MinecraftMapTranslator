@@ -206,6 +206,22 @@ class UnsupportedWorldStructureError(FormatError):
         )
 
 
+class WriteError(McmtError):
+    """要寫出去的東西本身有問題。**在動磁碟之前**發現的那一類。"""
+
+
+class InvalidChunkWriteError(WriteError):
+    """餵給 `write_region` 的 chunk 描述不合法。
+
+    這些都是呼叫端的錯誤（重複 index、index 超出範圍、非法壓縮類型、空 payload），
+    寫出去才發現就太晚了——那時磁碟上已經有一份我們自己讀不回來的 region。
+    """
+
+    def __init__(self, *, detail: str) -> None:
+        self.detail = detail
+        super().__init__(f"不合法的 chunk 寫入描述：{detail}")
+
+
 class WorldNotFoundError(McmtError):
     """給定的路徑不存在，或裡面找不到任何 `region` 目錄。"""
 

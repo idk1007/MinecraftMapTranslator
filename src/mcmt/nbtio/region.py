@@ -29,10 +29,11 @@ from typing import Iterable, Iterator
 from mcmt.errors import (
     ChunkTooLargeError,
     ExternalChunkError,
+    InvalidChunkWriteError,
     MalformedRegionError,
     TruncatedRegionError,
 )
-from mcmt.nbtio.compression import parse_compression_byte
+from mcmt.nbtio.compression import COMPRESSION_NAMES, parse_compression_byte
 from mcmt.safety.paths import ReadOnlyPath, ensure_writable
 
 __all__ = [
@@ -154,6 +155,7 @@ def write_region(
     target = ensure_writable(path)
     stamp = int(time.time()) if now is None else now
     ordered = sorted(chunks, key=lambda c: c.index)
+    _validate(ordered)  # 動磁碟之前先驗完
 
     offsets = bytearray(SECTOR_SIZE)
     timestamps = bytearray(SECTOR_SIZE)
@@ -198,6 +200,32 @@ def write_region(
     )
 
 
+def _validate(chunks: list[ChunkWrite]) -> None:
+    seen: set[int] = set()
+    for chunk in chunks:
+        if not 0 <= chunk.index < CHUNKS_PER_REGION:
+            raise InvalidChunkWriteError(
+                detail=f"chunk index {chunk.index} 不在 0..{CHUNKS_PER_REGION - 1} 之內"
+            )
+        if chunk.index in seen:
+            raise InvalidChunkWriteError(
+                detail=f"chunk index {chunk.index} 出現兩次——"
+                f"其中一筆會變成檔案裡指不到的孤兒磁區"
+            )
+        seen.add(chunk.index)
+        if chunk.compression_type not in COMPRESSION_NAMES:
+            raise InvalidChunkWriteError(
+                detail=f"chunk index {chunk.index} 的壓縮類型是 "
+                f"0x{chunk.compression_type:02x}，不是 1/2/3/4。"
+                f"（要寫的是已遮罩的類型，不是磁碟上那個含 0x80 的原始位元組）"
+            )
+        if not chunk.payload:
+            raise InvalidChunkWriteError(
+                detail=f"chunk index {chunk.index} 的 payload 是空的——"
+                f"寫出去之後我們自己會讀不回來"
+            )
+
+
 def region_files(world: ReadOnlyPath) -> list[ReadOnlyPath]:
     """世界底下所有的方塊 region 檔，依路徑排序。
 
@@ -240,6 +268,7 @@ def read_region(path: ReadOnlyPath) -> Iterator[RawChunk]:
     with path.open_binary() as handle:
         offsets = handle.read(SECTOR_SIZE)
         timestamps = handle.read(SECTOR_SIZE)
+        _check_for_overlaps(offsets, path)
 
         for index in range(CHUNKS_PER_REGION):
             entry = offsets[index * 4 : index * 4 + 4]
@@ -258,6 +287,32 @@ def read_region(path: ReadOnlyPath) -> Iterator[RawChunk]:
                 sector_offset=sector_offset,
                 sector_count=sector_count,
                 timestamp=timestamp,
+            )
+
+
+def _check_for_overlaps(offsets: bytes, path: ReadOnlyPath) -> None:
+    """兩個 chunk 宣告的磁區範圍交疊 = 這張 region 壞了。
+
+    兩邊都「讀得出東西」，所以不檢查就會安靜地讀到垃圾——是最難查的那種。整張表
+    在這裡已經讀完了，所以這個檢查不影響串流。
+    """
+    spans = []
+    for index in range(CHUNKS_PER_REGION):
+        entry = offsets[index * 4 : index * 4 + 4]
+        start = int.from_bytes(entry[:3], "big")
+        count = entry[3]
+        if start == 0 or count == 0:
+            continue
+        spans.append((start, start + count, index))
+
+    spans.sort()
+    for (_, previous_end, previous_index), (start, _, index) in zip(spans, spans[1:]):
+        if start < previous_end:
+            raise MalformedRegionError(
+                path=path,
+                chunk_index=index,
+                detail=f"磁區範圍與 chunk index {previous_index} 交疊"
+                f"（前者在磁區 {previous_end} 之前結束，這個從 {start} 開始）",
             )
 
 
