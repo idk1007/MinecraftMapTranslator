@@ -760,6 +760,47 @@ v1 對策（見 CLAUDE.md 二節）：chunk DataVersion ≥ 4325 且節點為舊
 
 ---
 
+## 嗅探器對照實測（2026-08-17，M5.1）
+
+`model/component.py` 寫完後拿它去跑三張真實地圖的告示牌 `messages[]`（`front_text`
+與 `back_text` 都算），一方面驗嗅探器，一方面得到第一份**節點形狀分佈**。
+
+| encoding | Minecraft Party 2 | 100 Ways To Die | Arena of Darkness |
+|---|---:|---:|---:|
+| `bare_string` | 44,550 | 5,700 | **0** |
+| （其中 0 字元） | 41,119 | 4,839 | 0 |
+| `compound_tree` | 5,234 | 2,396 | 0 |
+| `empty_key_compound` | 2,734 | 0 | 0 |
+| `json_empty_quoted` | **2,340** | 0 | 5,062 |
+| `json_string_object` | **110** | 0 | 100 |
+| `json_string_scalar` | 0 | 0 | 822 |
+| **解析失敗** | 0 | 0 | 0 |
+
+**與第二輪 probe 的數字逐項吻合**：MP2 的 `json_empty_quoted` 2,340 與
+`json_string_object` 110，且都落在 DV 4556——嗅探器重現了獨立實作量到的結果。
+
+三個新觀察：
+
+1. **`empty_key_compound` 在 MP2 有 2,734 筆。** M4-2 證明它是 Mojang `NbtOps` 的
+   標準輸出，這裡看到它在真實資料裡的規模——它不是邊緣案例。
+2. **`Arena of Darkness`（DV 3700/3465）的 5,984 個節點全部是舊式 JSON 形狀**，
+   一個 `bare_string` 都沒有。舊世代地圖與新世代地圖的形狀分佈是兩個世界。
+3. **5.9 萬個節點、解析失敗 0。** 「JSON 解析失敗就跳過」這條保守規則在真實資料上
+   幾乎不觸發，不會安靜地吃掉大量內容。
+
+### 啟發式修正：前導引號不算 JSON 證據 [實測]
+
+`100 Ways To Die` 有一行告示牌是 `"looks like you`——一句跨行的英文引述，收尾引號
+在下一行。初版嗅探器把「前導 `"`」當成 JSON 純量的證據，於是判成解析失敗，那一行
+就會被跳過不翻。
+
+**修正後的規則**：前導引號**必須解析成功**才算 `json_string_scalar`；失敗就是
+`bare_string`。理由是不對稱的——真的是 JSON 純量的話它會解析成功（`'"Queue Refight"'`
+就成功了），而散文以引號開頭太常見。`{` 與 `[` 開頭**維持保守**（解析失敗仍標
+`unparseable_json` 並跳過），因為散文極少那樣開頭。
+
+---
+
 ## 尚待驗證
 
 > 已完成：寫入端編碼對照（兩種皆有效）、Q3 五個結構推論項（全部成立）、第二輪 P1/P2/P3（extra 巢狀、filterable、空值分佈）、M0 遊戲實測（資源包路線、`'""'` 算繪、`pack_format` 過期）、**M4 遊戲實測（舊世代 legacy 寫入、DataFixer 解析、世代升級、`pack_format` 下限）**。
