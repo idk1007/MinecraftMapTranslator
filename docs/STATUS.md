@@ -3,13 +3,15 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-17**（M1 完成，除了 doctor 的節點形狀分佈）
+最後更新：**2026-08-17**（M2 完成）
 
 ---
 
 ## 一句話現況
 
-**M0 端到端驗證通過，M1（`doctor` 唯讀讀取鏈）完成並在三張真實地圖上跑過——只差節點形狀分佈那一項（等 M5 的嗅探器）。下一步是 M2 安全層。**
+**M0 驗證通過，M1（`doctor` 唯讀讀取鏈）與 M2（安全層）完成。`mcmt doctor` 與 `mcmt sandbox import` 都在真實地圖上跑過。下一步是 M3 nbtio 完整（region 寫入）。**
+
+M1 只差「節點形狀分佈」那一項驗收條件——等 M5 的嗅探器，見下方 M1.4。
 
 ## 該讀哪幾份（依序）
 
@@ -98,20 +100,43 @@
 MP2 的 DataVersion 分佈證實 **per-chunk 世代分派不是理論問題**：兩個世代各佔 43%。
 93 秒的瓶頸是「每個 chunk 都完整解析 NBT」——目前只為了讀 `DataVersion` 與結構檢查。真要加速就是寫一個只挖需要欄位的淺解析器，但那是最佳化，不是現在該做的事。
 
+### M2 — 安全層（2026-08-17）✅
+
+五個任務五個 commit，其中兩個是 `safety/` 的獨立 commit。共 127 個測試通過。
+
+**M2.1 路徑圍籬** `safety/paths.py`
+- sandbox 根 = `<專案根>/sandbox`（往上找 `.git`/`pyproject.toml`），找不到才退回 `<CWD>/sandbox`。從 `src/` 或 `tests/` 底下跑都指向同一個沙箱。
+- `.minecraft` 檢查**優先於** sandbox 檢查。比對的不是字面 `.minecraft/saves`，而是「有 `.minecraft` 成分且其後有 `saves` 成分」——語料就在 `.minecraft\versions\1.21.10\saves`。
+- `ReadOnlyPath` **刻意不實作 `__fspath__`**：`open(p,"w")` 會 TypeError，`shutil.copy` 也拿不到它。
+- **連結逃逸是真的走得通的**：這台機器不給建 symlink（WinError 1314），但 `mklink /J` 的目錄連接點不需要管理員權限，`resolve()` 一樣穿過去。測試 symlink 失敗就退回 junction，不整條跳過。
+
+**M2.2 世界指紋** `fingerprint.py` — blake2b 掃「region 相對路徑 + chunk index + 原始壓縮 payload」。不餵磁區排列、chunk 時間戳、mtime/大小（合約明文禁止 mtime）。壞掉的 region 折成穩定標記而不拋錯——指紋負責身分，健檢是 doctor 的事。
+
+**M2.3 `mcmt sandbox import`** `sandbox.py` — 逐檔 `ensure_readable` 讀 → 逐檔 `ensure_writable` 寫，不是 `shutil.copytree`：**每一個寫入都經過圍籬**。`.mcmt-origin.json` 記來源絕對路徑、匯入時間、**來源的**指紋。目標已存在要 `--replace`；目標落在來源底下直接拒絕。
+
+**M2.4 `BackupSet`** `safety/backup.py` — 備份放 `sandbox/.mcmt-backups/<世界>/<時間戳>/`，與世界資料夾**平行**，世界資料夾不會多出任何檔案。重複 `protect` 不重複備份（重複備份會用已改壞的內容蓋掉原始備份，那比沒有備份更糟）。protect 一個還不存在的檔案是合法的，回滾時刪掉它。還原逐檔進行、失敗的收集起來繼續，訊息含備份目錄絕對路徑並 `from` 原始例外。
+
+**M2.5 讀取入口接上圍籬** — **高階函式收使用者路徑**（`survey_world`/`world_fingerprint`，入口呼叫一次 `ensure_readable`）；**低階只收 `ReadOnlyPath`**（`read_region`，裸 `Path` 直接 TypeError）。`nbtio/` 因此 import `safety/paths.py`——沒有環，例外與理由記在 `docs/ownership.md`。
+
+真實資料驗證（工具第一次真的寫東西）：`sandbox import` 「100 Ways To Die」95 MB / 1,775 檔 / 12 秒，逐位元組比對 **1,775/1,775 相同**，副本只多出 `.mcmt-origin.json`，副本指紋與 origin 記的來源指紋一致。
+
+> `sandbox/100 Ways To Die/` 現在有一份 95 MB 的真實世界副本（已 gitignore），M3/M4 要驗證 region 寫入時可以直接用。不需要了就整個資料夾刪掉。
+
 ---
 
-## 下一步：M2 安全層
+## 下一步：M3 — nbtio 完整
 
-`ensure_writable` / `ensure_readable` / `mcmt sandbox import` / `BackupSet`。驗收條件見 `CLAUDE.md` §1，每一條都要有對應測試（包含 `BackupSet` 收到 `.minecraft/saves` 路徑時拋 `MinecraftSavesPathError`）。
+region **寫入**（外科式 + timestamp 表規則）、`datfile.py`、損壞防禦四種畸形檔。
 
-**注意**：`src/mcmt/safety/` 是高風險目錄——修改必須是獨立 commit 並說明理由，不得夾帶在其他任務裡。
+| 任務 | 驗收條件 |
+|---|---|
+| M3.1 region 寫入 | 未修改的 chunk **原封複製原始壓縮位元組**；未改的 timestamp 原樣搬運、改過的更新為當下時間；磁區重整記進 `warnings` 的 `sector_realignment` |
+| M3.2 `datfile.py` | `level.dat` 的 gzip NBT 讀寫 |
+| M3.3 損壞防禦 | 四種畸形檔（截斷、offset 指向檔外、長度為 0 的空槽、磁區數溢位）——M1.2 已擋下前三種，補齊並確認寫入端同樣防禦 |
 
-接安全層時的兩個既有缺口：
+**寫入層的兩個前提已經就位**：`BackupSet`（M2.4）與 `ensure_writable`（M2.1）。順序不能反——「先寫入再備份」是 CLAUDE.md 明列的反模式。
 
-1. `nbtio/region.py` 的 `open` 還沒過 `ensure_readable`（檔頭已註明）。
-2. `doctor.py` 的 `survey_world` 同理——它會讀 `.minecraft/saves`，正是 `ensure_readable` 要記錄「本次執行讀了哪些路徑」的對象。
-
-之後：`M3 nbtio 完整 ─► M4 legacy 寫入驗證 ─► M5 掃描 ─► M6 規則引擎 ─► M7 extract ─► M8 字寬校準 ─► M9 翻譯層 ─► M10 resourcepack 後端 ─► M11 寫入層 ─► M12 自動化端到端 ─► M13 掃描廣度 ─► M14 CLI/報告/文件`
+之後：`M4 legacy 寫入驗證 ─► M5 掃描 ─► M6 規則引擎 ─► M7 extract ─► M8 字寬校準 ─► M9 翻譯層 ─► M10 resourcepack 後端 ─► M11 寫入層 ─► M12 自動化端到端 ─► M13 掃描廣度 ─► M14 CLI/報告/文件`
 
 ---
 
@@ -132,5 +157,6 @@ MP2 的 DataVersion 分佈證實 **per-chunk 世代分派不是理論問題**：
 - `spike/.venv` 與 `spike/.venv_alt` 共 134 MB，已 gitignore。
 - `claude-code-stats/` 是**放在同一個資料夾裡的第三方工具**，與 mcmt 無關，已 gitignore。
 - 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 44 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
-- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 62 passed）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
-- 跑 doctor：`.venv\Scripts\python -X utf8 -m mcmt.cli doctor "<世界資料夾>"`。**`-X utf8` 是必要的**，Windows 終端機的預設編碼會把中文報告印成亂碼。
+- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 127 passed）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
+- 跑 CLI：`.venv\Scripts\python -X utf8 -m mcmt.cli doctor "<世界資料夾>"`、`... -m mcmt.cli sandbox import "<來源世界>"`。**`-X utf8` 是必要的**，Windows 終端機的預設編碼會把中文報告印成亂碼。
+- `sandbox/` 已有一份 95 MB 的「100 Ways To Die」副本供 M3/M4 用（gitignore）。
