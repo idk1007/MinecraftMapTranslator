@@ -3,13 +3,13 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-17**（M1.2 完成）
+最後更新：**2026-08-17**（M1 完成，除了 doctor 的節點形狀分佈）
 
 ---
 
 ## 一句話現況
 
-**規劃與合約已定稿，M0 端到端驗證已通過，M1.1 壓縮分派與 M1.2 region 讀取已完成。下一步是 M1.3 世界結構偵測。**
+**M0 端到端驗證通過，M1（`doctor` 唯讀讀取鏈）完成並在三張真實地圖上跑過——只差節點形狀分佈那一項（等 M5 的嗅探器）。下一步是 M2 安全層。**
 
 ## 該讀哪幾份（依序）
 
@@ -67,20 +67,51 @@
 - **路徑還沒過 `ensure_readable`**（M2 才有）。接安全層時唯一要改的是 `region.py` 的 `open`，已在檔頭註明。
 - 真實資料健檢（唯讀）：MP2 的 3 個 region、2,952 chunk，全 type 2、外部 0、解壓後都是 TAG_Compound、DataVersion 4556 — 與 `SPIKE_RESULT.md` 一致。
 
+### M1.3 — 世界結構偵測（2026-08-17）✅
+
+`src/mcmt/nbtio/structure.py`（`load_chunk_root` + `ensure_supported_structure`）+ 9 個測試。
+
+- `UnsupportedWorldStructureError` 帶**機器可讀的 `reason`**（`level_wrapper` / `legacy_sign_text` / `missing_data_version`），所以 `doctor` 能 catch 起來統計症狀分佈，不必為了「能報數字」就把閘門做成不拋錯的版本。
+- `ensure_supported_structure` 回傳 chunk 自己的 DataVersion，但那只是順路讀到——**形狀一律逐節點嗅探**。
+- 放在 `nbtio/` 而不是計畫的 `scan/`：這裡只判斷位元組是什麼形狀、不碰語意，錯誤也都是 `FormatError` 家族；`scan/` 要到 M5 才存在。
+
+**真實資料推翻了一個說法，已寫回 `SPIKE_RESULT.md`：** 「同一世界兩套結構」**不是 1.12 專屬**，而 `Text1..Text4` 是「1.20 之前的告示牌格式」**不是「1.12 結構」**。證據：`Find The Button No Cakewalk`（1.18.2）有 852 個帶 `Level` 包裝的 chunk（抽驗 DataVersion 1963）與 15 個 DataVersion 2975、容器是現代 `block_entities` 但告示牌用 `Text1..Text4` 的 chunk。
+
+### M1.4 — `mcmt doctor`（2026-08-17）⚠️ 一項驗收條件未做
+
+`src/mcmt/doctor.py`（統計）+ `src/mcmt/cli/`（組裝與格式化）+ 12 個測試。指令：`mcmt doctor <世界資料夾>`，離開碼 0 可處理 / 1 拒絕 / 2 路徑有問題。
+
+- 逐 region 檔、逐 chunk 串流，峰值記憶體是單一 chunk。region header 壞掉時記錄並中止那一張，**掃描繼續**。
+- **「唯讀」有測試擋著**：比對掃描前後世界資料夾內每個檔案的 mtime 與大小。
+- 掃描範圍是所有名為 `region` 的目錄（含 `DIM-1`/`DIM1`/datapack 自訂維度）。`entities/` 與 `poi/` 不算方塊 chunk，v1 不看。
+
+**未做：節點形狀分佈。** 那需要 7 種形狀的嗅探器，而 `occurrence.encoding` 的唯一權威只能有一份——現在另寫一份等於製造兩個會漂移的判斷邏輯。**等 M5 的 `model/component.py` 出來後接進 doctor**，這是 M5 的收尾項，別忘了。
+
+真實世界實跑：
+
+| 世界 | 規模 | 時間 | 結果 |
+|---|---|---|---|
+| 100 Ways To Die | 13 region / 6,465 chunk | 2 秒 | 通過（DV 4325 佔 96.9%） |
+| Minecraft Party 2 | 5 維度 / 406 region / **207,515 chunk** | **93 秒** | 通過（DV 3955 43.5% · 4438 43.1% · 4556 13.3%） |
+| Find The Button No Cakewalk | 142 region / 36,459 chunk | 未計時 | **拒絕**（852 `level_wrapper` + 15 `legacy_sign_text`） |
+
+MP2 的 DataVersion 分佈證實 **per-chunk 世代分派不是理論問題**：兩個世代各佔 43%。
+93 秒的瓶頸是「每個 chunk 都完整解析 NBT」——目前只為了讀 `DataVersion` 與結構檢查。真要加速就是寫一個只挖需要欄位的淺解析器，但那是最佳化，不是現在該做的事。
+
 ---
 
-## 下一步：M1.3 世界結構偵測
+## 下一步：M2 安全層
 
-| 任務 | 驗收條件 |
-|---|---|
-| ~~M1.1 壓縮分派~~ | ✅ 完成 |
-| ~~M1.2 region 讀取~~ | ✅ 完成 |
-| M1.3 世界結構偵測 | `Level.TileEntities` / `Text1..Text4` / `data_version` 為 null → `UnsupportedWorldStructureError`；`0x80` → `ExternalChunkError` |
-| M1.4 `doctor` CLI | DataVersion 直方圖、壓縮分佈、`.mcc` 數、節點形狀分佈、疑似損壞 chunk。**per-region 串流**，峰值記憶體為單一 chunk。唯讀 |
+`ensure_writable` / `ensure_readable` / `mcmt sandbox import` / `BackupSet`。驗收條件見 `CLAUDE.md` §1，每一條都要有對應測試（包含 `BackupSet` 收到 `.minecraft/saves` 路徑時拋 `MinecraftSavesPathError`）。
 
-走 TDD：先寫失敗的測試 → 確認失敗 → 最小實作 → 確認通過 → 一個任務一個 commit。
+**注意**：`src/mcmt/safety/` 是高風險目錄——修改必須是獨立 commit 並說明理由，不得夾帶在其他任務裡。
 
-之後：`M2 安全層 ─► M3 nbtio ─► M4 legacy 寫入驗證 ─► M5 掃描 ─► M6 規則引擎 ─► M7 extract ─► M8 字寬校準 ─► M9 翻譯層 ─► M10 resourcepack 後端 ─► M11 寫入層 ─► M12 自動化端到端 ─► M13 掃描廣度 ─► M14 CLI/報告/文件`
+接安全層時的兩個既有缺口：
+
+1. `nbtio/region.py` 的 `open` 還沒過 `ensure_readable`（檔頭已註明）。
+2. `doctor.py` 的 `survey_world` 同理——它會讀 `.minecraft/saves`，正是 `ensure_readable` 要記錄「本次執行讀了哪些路徑」的對象。
+
+之後：`M3 nbtio 完整 ─► M4 legacy 寫入驗證 ─► M5 掃描 ─► M6 規則引擎 ─► M7 extract ─► M8 字寬校準 ─► M9 翻譯層 ─► M10 resourcepack 後端 ─► M11 寫入層 ─► M12 自動化端到端 ─► M13 掃描廣度 ─► M14 CLI/報告/文件`
 
 ---
 
@@ -101,4 +132,5 @@
 - `spike/.venv` 與 `spike/.venv_alt` 共 134 MB，已 gitignore。
 - `claude-code-stats/` 是**放在同一個資料夾裡的第三方工具**，與 mcmt 無關，已 gitignore。
 - 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 44 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
-- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 38 passed）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
+- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 62 passed）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
+- 跑 doctor：`.venv\Scripts\python -X utf8 -m mcmt.cli doctor "<世界資料夾>"`。**`-X utf8` 是必要的**，Windows 終端機的預設編碼會把中文報告印成亂碼。
