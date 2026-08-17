@@ -66,7 +66,7 @@ M1 只差「節點形狀分佈」那一項驗收條件——等 M5 的嗅探器�
 - **payload 是磁碟上的原始壓縮位元組，這層不解壓。** 讀取層若順手解壓，外科式寫入的保證就只剩呼叫端的自律。
 - 畸形檔分兩類，因為對 `doctor` 意義不同：`TruncatedRegionError`（檔案比宣告的短）vs `MalformedRegionError`（header 自相矛盾：偏移指進前兩磁區、磁區數 0、長度溢出磁區、非外部 chunk 卻空 payload）。
 - `0x80` 只報 `is_external`，**不夾帶政策**——拒絕處理外部 chunk 是 M1.3 的事。
-- **路徑還沒過 `ensure_readable`**（M2 才有）。接安全層時唯一要改的是 `region.py` 的 `open`，已在檔頭註明。
+- ~~路徑還沒過 `ensure_readable`~~ → **M2.5 已接上**：`read_region` 現在只收 `ReadOnlyPath`。
 - 真實資料健檢（唯讀）：MP2 的 3 個 region、2,952 chunk，全 type 2、外部 0、解壓後都是 TAG_Compound、DataVersion 4556 — 與 `SPIKE_RESULT.md` 一致。
 
 ### M1.3 — 世界結構偵測（2026-08-17）✅
