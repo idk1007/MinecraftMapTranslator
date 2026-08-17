@@ -3,7 +3,7 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-17**（M4 完成）
+最後更新：**2026-08-17**（M5 進行中：5.1/5.3/5.4/5.5/5.6 完成）
 
 ---
 
@@ -11,7 +11,7 @@
 
 **M0–M4 全部完成。位元組層、安全層、外科式寫入都在真實地圖上驗過，M4 證實舊世代 chunk 的 legacy 寫入路線也成立。下一步是 M5——開始碰語意。**
 
-M1 只差「節點形狀分佈」那一項驗收條件——等 M5 的嗅探器，見下方 M1.4。
+~~M1 只差「節點形狀分佈」~~ → **M5.6 已補上**，`doctor` 現在會報形狀分佈與「有多少節點會被跳過不翻」。
 
 ## 該讀哪幾份（依序）
 
@@ -79,7 +79,7 @@ M1 只差「節點形狀分佈」那一項驗收條件——等 M5 的嗅探器�
 
 **真實資料推翻了一個說法，已寫回 `SPIKE_RESULT.md`：** 「同一世界兩套結構」**不是 1.12 專屬**，而 `Text1..Text4` 是「1.20 之前的告示牌格式」**不是「1.12 結構」**。證據：`Find The Button No Cakewalk`（1.18.2）有 852 個帶 `Level` 包裝的 chunk（抽驗 DataVersion 1963）與 15 個 DataVersion 2975、容器是現代 `block_entities` 但告示牌用 `Text1..Text4` 的 chunk。
 
-### M1.4 — `mcmt doctor`（2026-08-17）⚠️ 一項驗收條件未做
+### M1.4 — `mcmt doctor`（2026-08-17）✅（形狀分佈由 M5.6 補齊）
 
 `src/mcmt/doctor.py`（統計）+ `src/mcmt/cli/`（組裝與格式化）+ 12 個測試。指令：`mcmt doctor <世界資料夾>`，離開碼 0 可處理 / 1 拒絕 / 2 路徑有問題。
 
@@ -87,7 +87,7 @@ M1 只差「節點形狀分佈」那一項驗收條件——等 M5 的嗅探器�
 - **「唯讀」有測試擋著**：比對掃描前後世界資料夾內每個檔案的 mtime 與大小。
 - 掃描範圍是所有名為 `region` 的目錄（含 `DIM-1`/`DIM1`/datapack 自訂維度）。`entities/` 與 `poi/` 不算方塊 chunk，v1 不看。
 
-**未做：節點形狀分佈。** 那需要 7 種形狀的嗅探器，而 `occurrence.encoding` 的唯一權威只能有一份——現在另寫一份等於製造兩個會漂移的判斷邏輯。**等 M5 的 `model/component.py` 出來後接進 doctor**，這是 M5 的收尾項，別忘了。
+~~未做：節點形狀分佈~~ → **M5.6 已補上**。doctor 自己不判斷形狀，只把嗅探器與掃描層的答案數起來。
 
 真實世界實跑：
 
@@ -154,27 +154,59 @@ MP2 的 DataVersion 分佈證實 **per-chunk 世代分派不是理論問題**：
 
 ---
 
-## 下一步：M5 — model + 掃描 + 建樹
+### M5 — model + 掃描 + 建樹（進行中）
 
-M1–M4 把「位元組」與「安全」兩層做完了，而且 M4 證明了兩條寫入路線都成立。M5 開始碰**語意**。
+| 任務 | 狀態 |
+|---|---|
+| M5.1 `model/component.py` 形狀嗅探 | ✅ |
+| M5.2 `model/generation.py` | 未做 |
+| M5.3 `model/segments.py` 攤平與段落 | ✅ |
+| M5.4 `model/node.py` 節點路徑 | ✅ |
+| M5.5 `scan/sources/region.py` | ✅（告示牌 + CustomName；廣度留給 M13） |
+| M5.6 doctor 接上形狀分佈 | ✅ |
+| M5.7 三個 codec（`tree/codecs/`） | 未做 |
+
+**與合約綁死的做法**：`model/` 的三個模組都有一條測試**直接讀 `docs/contracts/*.json`**
+比對 enum（`Encoding`、`Codec`）與 `SCHEMA_VERSION`。所以這幾個 commit **沒有 bump
+`SCHEMA_VERSION`**——沒有任何合約欄位被新增、移除或重新定義，而版本號 +1 只會讓現有
+產物作廢卻不告訴任何人哪裡不一樣。要漂移得同時改兩邊，那正是合約改動流程想擋的事。
+
+**真實資料驗證**（每一項都在跑完之後才算完成）：
+
+- 嗅探器**重現了第二輪 probe 的數字**：MP2 的 `json_empty_quoted` 2,340、
+  `json_string_object` 110，且都在 DV 4556。
+- 攤平器跑 MP2 的 5,344 棵樹，**失敗 0**，最大巢狀深度 3（與 probe 一致）。
+- `doctor` 現在會報：MP2 57,192 個文字節點，其中 **4,473 個是「新世代 chunk 裡的
+  舊式 JSON」會被跳過不翻**，並在報告裡說明理由。
+
+**兩個真實資料抓到的修正**（都寫回 `SPIKE_RESULT.md`）：
+
+1. **前導引號不算 JSON 證據**。`100 Ways To Die` 有一行告示牌是 `"looks like you`
+   ——跨行的英文引述。原本會被判成解析失敗而跳過。改成「前導引號必須解析成功才算
+   `json_string_scalar`」；`{` 與 `[` 維持保守。
+2. **`with` 不攤平、只原樣帶走**。MP2 的節點有 translate 參數，內容是玩家名與分數
+   這類執行期產物——翻它沒意義，弄丟它會讓重建時整個參數消失。
+
+**兩件留給後面里程碑的判斷**：
+
+- **可塌縮只有 20%**（MP2 5,344 棵樹裡 1,066 棵）。不可塌縮的主因是 `click_event`
+  （1,694 個互動告示牌，§ 碼表達不了，非塌縮不可）與 `translate`（2,045 個）。
+  後者是**合約的規範文字與它自己的 sample 互相矛盾**的地方：規範說 false 只給
+  「nested translate」，sample 卻把根節點標 false、巢狀標 true。目前採**保守解讀**
+  （任何 translate 都不可塌縮），代價是「重建整棵樹」變成常態路徑。M10/M11 開工前
+  要定案。
+- **MP2 有自己的中文化系統**（5 個語言檔 + `mcp.*` key）。翻它的 `{translate:"mcp.X"}`
+  節點等於覆蓋地圖作者自己的在地化；更合理的可能是翻它的 lang 檔。M6 denylist 或
+  M13 要處理。
+
+---
+
+## 下一步：M5 剩下的部分
 
 | 任務 | 驗收條件 |
 |---|---|
-| M5.1 `model/component.py` | **7 種形狀的嗅探器**（`bare_string` / `empty_key_compound` / `text_compound` / 四種 `json_*`）。`occurrence.encoding` 的唯一權威。JSON 解析失敗 → 標 `unparseable_json` 跳過並計數，**絕不當裸文字** |
 | M5.2 `model/generation.py` | DataVersion → 寫回世代。**不**用於形狀判斷 |
-| M5.3 `model/segments.py` | component 樹攤平、段落切點、`[[n]]` 標記 |
-| M5.4 `model/node.py` | 節點樹與 `node_path` |
-| M5.5 掃描各來源 + 三個 codec | `scan/`、`tree/codecs/{json_component,snbt,command}.py` |
-| M5.6 **接回 doctor** | M1.4 缺的「節點形狀分佈」——嗅探器出來之後把它接進 `doctor`，這是 M5 的收尾項 |
-
-**`src/mcmt/model/` 是高風險目錄**（schema 的程式碼投影）：改動要獨立 commit、同 commit 更新 sample fixture、bump `SCHEMA_VERSION`。
-
-M4 給 M5 的兩個直接輸入：
-
-- `empty_key_compound`（`{"": …}`）是 Mojang `NbtOps` 的標準輸出，不是邊緣案例——嗅探器要把它當一等公民。
-- 使用者玩過一次世界就會讓部分 chunk 的 encoding 改變，所以**嗅探結果有時效**，這是 `expected_encoding` 守門存在的理由。
-
-開工前該補掉的 `[待驗]`：**DV < 4325 的舊式 JSON 是否被正確解析**——**M4-2 已經答完了**，M5 不再有阻塞項。
+| M5.7 三個 codec | `tree/codecs/{json_component,snbt,command}.py`。`decode` 步驟的實際解碼器 |
 
 之後：`M6 規則引擎 ─► M7 extract ─► M8 字寬校準 ─► M9 翻譯層 ─► M10 resourcepack 後端 ─► M11 寫入層 ─► M12 自動化端到端 ─► M13 掃描廣度 ─► M14 CLI/報告/文件`
 
@@ -197,7 +229,7 @@ M4 給 M5 的兩個直接輸入：
 - `spike/.venv` 與 `spike/.venv_alt` 共 134 MB，已 gitignore。
 - `claude-code-stats/` 是**放在同一個資料夾裡的第三方工具**，與 mcmt 無關，已 gitignore。
 - 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 44 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
-- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 178 passed，含 9 個碰真實檔案的整合測試）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
+- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 265 passed，含 9 個碰真實檔案的整合測試）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
 - 跑 CLI：`.venv\Scripts\python -X utf8 -m mcmt.cli doctor "<世界資料夾>"`、`... -m mcmt.cli sandbox import "<來源世界>"`。**`-X utf8` 是必要的**，Windows 終端機的預設編碼會把中文報告印成亂碼。
 - `sandbox/` 已有一份 95 MB 的「100 Ways To Die」副本（gitignore）。M4 要的是 DataVersion 3955 的 chunk，那在 Minecraft Party 2；這份是 4325，可以留著當寫入測試的對象。
 - 測試 fixture 一律取自自建的 `TT_WORLD_NAME_PROBE`，不放語料地圖的內容（授權考量，見 M3 那節）。
