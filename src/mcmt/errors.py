@@ -10,6 +10,36 @@ class McmtError(Exception):
     """所有 mcmt 例外的根。"""
 
 
+class SafetyError(McmtError):
+    """有人要碰不該碰的東西。這一族的例外一律中止，沒有 flag 可以關掉。"""
+
+
+class PathOutsideSandboxError(SafetyError):
+    """寫入目標不在 `sandbox/` 底下。"""
+
+    def __init__(self, *, path, sandbox) -> None:
+        self.path = path
+        self.sandbox = sandbox
+        super().__init__(
+            f"拒絕寫入 sandbox 之外的路徑：{path}（sandbox 是 {sandbox}）。"
+            f"要處理一個世界，先用 `mcmt sandbox import <來源世界>` 把它複製進來。"
+        )
+
+
+class MinecraftSavesPathError(SafetyError):
+    """路徑指向 Minecraft 自己的存檔目錄。
+
+    這個檢查**優先於** sandbox 檢查——有人把 `.minecraft` 複製進 sandbox 也一樣擋。
+    """
+
+    def __init__(self, *, path) -> None:
+        self.path = path
+        super().__init__(
+            f"拒絕寫入 Minecraft 的存檔目錄：{path}。"
+            f"工具永不自動把結果複製回 .minecraft——那是使用者的手動決定。"
+        )
+
+
 class FormatError(McmtError):
     """磁碟上的資料不是我們認得的形狀。"""
 
