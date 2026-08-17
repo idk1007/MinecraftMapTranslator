@@ -3,13 +3,13 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-17**（M1.1 完成）
+最後更新：**2026-08-17**（M1.2 完成）
 
 ---
 
 ## 一句話現況
 
-**規劃與合約已定稿，M0 端到端驗證已通過，M1.1 壓縮分派已完成。下一步是 M1.2 region 讀取。**
+**規劃與合約已定稿，M0 端到端驗證已通過，M1.1 壓縮分派與 M1.2 region 讀取已完成。下一步是 M1.3 世界結構偵測。**
 
 ## 該讀哪幾份（依序）
 
@@ -57,14 +57,24 @@
 
 已用突變測試確認「先判型別再遮罩」會讓 4 個測試變紅——這條不變式是真的被測到的，不是寫在註解裡而已。
 
+### M1.2 — region 讀取（2026-08-17）✅
+
+`src/mcmt/nbtio/region.py`（`read_region` 產生器 + `RawChunk`）+ 16 個單元測試。
+
+- **payload 是磁碟上的原始壓縮位元組，這層不解壓。** 讀取層若順手解壓，外科式寫入的保證就只剩呼叫端的自律。
+- 畸形檔分兩類，因為對 `doctor` 意義不同：`TruncatedRegionError`（檔案比宣告的短）vs `MalformedRegionError`（header 自相矛盾：偏移指進前兩磁區、磁區數 0、長度溢出磁區、非外部 chunk 卻空 payload）。
+- `0x80` 只報 `is_external`，**不夾帶政策**——拒絕處理外部 chunk 是 M1.3 的事。
+- **路徑還沒過 `ensure_readable`**（M2 才有）。接安全層時唯一要改的是 `region.py` 的 `open`，已在檔頭註明。
+- 真實資料健檢（唯讀）：MP2 的 3 個 region、2,952 chunk，全 type 2、外部 0、解壓後都是 TAG_Compound、DataVersion 4556 — 與 `SPIKE_RESULT.md` 一致。
+
 ---
 
-## 下一步：M1.2 region 讀取
+## 下一步：M1.3 世界結構偵測
 
 | 任務 | 驗收條件 |
 |---|---|
 | ~~M1.1 壓縮分派~~ | ✅ 完成 |
-| M1.2 region 讀取 | 原始壓縮位元組**不解壓**；offset/length/sector 邊界檢查；截斷檔 `TruncatedRegionError` |
+| ~~M1.2 region 讀取~~ | ✅ 完成 |
 | M1.3 世界結構偵測 | `Level.TileEntities` / `Text1..Text4` / `data_version` 為 null → `UnsupportedWorldStructureError`；`0x80` → `ExternalChunkError` |
 | M1.4 `doctor` CLI | DataVersion 直方圖、壓縮分佈、`.mcc` 數、節點形狀分佈、疑似損壞 chunk。**per-region 串流**，峰值記憶體為單一 chunk。唯讀 |
 
@@ -91,4 +101,4 @@
 - `spike/.venv` 與 `spike/.venv_alt` 共 134 MB，已 gitignore。
 - `claude-code-stats/` 是**放在同一個資料夾裡的第三方工具**，與 mcmt 無關，已 gitignore。
 - 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 44 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
-- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 22 passed）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
+- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venvScriptspython -m pytest`（目前 38 passed）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
