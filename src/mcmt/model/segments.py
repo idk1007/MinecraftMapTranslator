@@ -128,6 +128,9 @@ def _walk(node: Any, out: Flattened, *, inherited_sigma: bool) -> dict[str, Any]
         _NON_SIGMA_FIELDS & set(style)
         # lang 檔的值裡沒辦法再放一個 translate，所以巢狀 translate 也不行。
         or "translate" in style
+        # § 碼只能「開啟」樣式，沒有「關閉」的碼。`italic: false` 是用來壓掉物品名
+        # 預設斜體的慣用法——塌縮成 lang 值時那個 false 就沒了，物品名變回斜體。
+        or any(value is False for value in style.values())
     )
 
     if "translate" in node:

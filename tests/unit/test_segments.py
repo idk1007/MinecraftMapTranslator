@@ -200,10 +200,14 @@ def test_these_fields_make_a_segment_non_sigma_expressible(field: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "style", [{"color": "gold"}, {"bold": True}, {"italic": False}, {"obfuscated": True}]
+    "style", [{"color": "gold"}, {"bold": True}, {"italic": True}, {"obfuscated": True}]
 )
 def test_plain_formatting_stays_collapsible(style: dict) -> None:
-    """顏色與粗斜體都寫得成 § 碼，所以塌縮後樣式進 lang 檔的值。"""
+    """顏色與粗斜體都寫得成 § 碼，所以塌縮後樣式進 lang 檔的值。
+
+    注意這裡全部是**開啟**樣式。`{"italic": False}` 原本也在這份清單裡，那是錯的
+    ——§ 碼沒有「關閉」的方向，見下面 test_a_disabled_format_flag_is_not_sigma_expressible。
+    """
     result = flatten({"text": "文字", **style})
 
     assert result.segments[0].sigma_expressible is True
@@ -318,3 +322,33 @@ def test_an_escaped_literal_survives_even_with_no_segments_marked() -> None:
 
     assert result.text == r"按 [[\0]] 繼續"
     assert result.escaped_literals == ["[[0]]"]
+
+
+# --- § 碼表達不了「關閉格式」-----------------------------------------------
+
+
+def test_a_disabled_format_flag_is_not_sigma_expressible() -> None:
+    """`italic: false` 沒有對應的 § 碼。
+
+    §碼只能「開啟」樣式（§o 是斜體），沒有「關閉斜體」這個碼。`§r` 是全部重設，
+    重設之後物品名回到它的預設——而物品名的預設**就是斜體**。
+
+    這正是 CLAUDE.md 特別點名的慣用法：
+    `{"text":"","extra":[{"text":"X","italic":false}]}` 是用來壓掉物品名預設斜體的。
+    把它塌縮成一個 lang 值，那個 `italic:false` 就沒了，物品名變回斜體。
+    """
+    result = flatten({"text": "寶劍", "italic": False})
+
+    assert result.segments[0].sigma_expressible is False
+    assert result.collapsible is False
+
+
+def test_an_enabled_format_flag_is_still_expressible() -> None:
+    """`bold: true` 就是 §l，塌縮沒問題。"""
+    assert flatten({"text": "粗體", "bold": True}).collapsible is True
+
+
+def test_the_italic_suppression_idiom_forces_a_rebuild() -> None:
+    tree = {"text": "", "extra": [{"text": "寶劍", "italic": False}]}
+
+    assert flatten(tree).collapsible is False
