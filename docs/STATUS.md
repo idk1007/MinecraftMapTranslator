@@ -3,7 +3,7 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-17**（M5 進行中：5.1/5.3/5.4/5.5/5.6 完成）
+最後更新：**2026-08-21**（M5 完成）
 
 ---
 
@@ -154,17 +154,17 @@ MP2 的 DataVersion 分佈證實 **per-chunk 世代分派不是理論問題**：
 
 ---
 
-### M5 — model + 掃描 + 建樹（進行中）
+### M5 — model + 掃描 + 建樹（2026-08-21）✅
 
 | 任務 | 狀態 |
 |---|---|
 | M5.1 `model/component.py` 形狀嗅探 | ✅ |
-| M5.2 `model/generation.py` | 未做 |
+| M5.2 `model/generation.py` | ✅ |
 | M5.3 `model/segments.py` 攤平與段落 | ✅ |
 | M5.4 `model/node.py` 節點路徑 | ✅ |
 | M5.5 `scan/sources/region.py` | ✅（告示牌 + CustomName；廣度留給 M13） |
 | M5.6 doctor 接上形狀分佈 | ✅ |
-| M5.7 三個 codec（`tree/codecs/`） | 未做 |
+| M5.7 四個 codec（`tree/codecs/`） | ✅ |
 
 **與合約綁死的做法**：`model/` 的三個模組都有一條測試**直接讀 `docs/contracts/*.json`**
 比對 enum（`Encoding`、`Codec`）與 `SCHEMA_VERSION`。所以這幾個 commit **沒有 bump
@@ -187,6 +187,13 @@ MP2 的 DataVersion 分佈證實 **per-chunk 世代分派不是理論問題**：
 2. **`with` 不攤平、只原樣帶走**。MP2 的節點有 translate 參數，內容是玩家名與分數
    這類執行期產物——翻它沒意義，弄丟它會讓重建時整個參數消失。
 
+**M5.2 與 M5.7 的重點**：
+
+- `generation.py` **刻意不提供任何形狀相關的函式**，而且有測試守著（掃過公開名稱，出現含 encoding/shape 的名字就失敗）。`write_back_version()` 回傳它收到的版本號——「永不升級」寫成函式而不是註解。
+- **每個 codec 都要回答 `faithful_round_trip`**。`json_component` 忠實（真實資料 78/78，compact 形式）；**`snbt` 不忠實**——`to_snbt()` 會把鍵排序，所以 SNBT 不能整份重編，只能用 `span` 位移替換。那正是合約裡 `decode.span` 與「由後往前」存在的理由。
+- `command` codec **明確拒絕**（`NotImplementedError`）：指令語法解析是最難估的一項，而掃描層根本還不去找 `Command` 欄位，留一個猜著做的實作等於等著某天寫壞別人的指令方塊。
+- `lang_json` 的「寬容」被真實資料打了一次臉：初版用正則，MP2 的 5 個語言檔 **0/5** 通過（註解裡有雙引號、BOM、註解裡有冒號逗號）。改成會追蹤字串狀態的掃描器後 **5/5，讀出 50,959 個 key**。
+
 **兩件留給後面里程碑的判斷**：
 
 - **可塌縮只有 20%**（MP2 5,344 棵樹裡 1,066 棵）。不可塌縮的主因是 `click_event`
@@ -201,14 +208,22 @@ MP2 的 DataVersion 分佈證實 **per-chunk 世代分派不是理論問題**：
 
 ---
 
-## 下一步：M5 剩下的部分
+## 下一步：M6 — 規則引擎
 
-| 任務 | 驗收條件 |
-|---|---|
-| M5.2 `model/generation.py` | DataVersion → 寫回世代。**不**用於形狀判斷 |
-| M5.7 三個 codec | `tree/codecs/{json_component,snbt,command}.py`。`decode` 步驟的實際解碼器 |
+決定「什麼該翻、什麼絕對不能翻」。
 
-之後：`M6 規則引擎 ─► M7 extract ─► M8 字寬校準 ─► M9 翻譯層 ─► M10 resourcepack 後端 ─► M11 寫入層 ─► M12 自動化端到端 ─► M13 掃描廣度 ─► M14 CLI/報告/文件`
+| 驗收條件 |
+|---|
+| 不動點迭代，**上限 32**，超限拋 `RuleEngineDidNotConvergeError` 並列出最後一輪新增的標籤 |
+| 相同輸入的標記結果穩定（規則套用順序不得影響最終標籤集合） |
+| denylist 回歸測試對 MP2 全掃，斷言 `LastOutput`（[實測] 719 筆）、`profile.properties[].value`、`palette[].Name` 一個都沒進 units |
+
+M5 給 M6 的兩個直接輸入：
+
+- **掃描層目前根本不去找那些 denylist 欄位**，所以 M6 的 denylist 是第二道防線而不是唯一一道。回歸測試仍要寫——掃描廣度（M13）補齊時第一道會消失。
+- **MP2 有自己的中文化系統**（`mcp.*` key + 5 個語言檔 / 50,959 個 key）。翻它的 `{translate:"mcp.X"}` 節點等於覆蓋地圖作者的在地化。M6 要決定這是 denylist 的一條，還是另一種來源（翻它的 lang 檔）。
+
+之後：`M7 extract ─► M8 字寬校準 ─► M9 翻譯層 ─► M10 resourcepack 後端 ─► M11 寫入層 ─► M12 自動化端到端 ─► M13 掃描廣度 ─► M14 CLI/報告/文件`
 
 ---
 
@@ -229,7 +244,7 @@ MP2 的 DataVersion 分佈證實 **per-chunk 世代分派不是理論問題**：
 - `spike/.venv` 與 `spike/.venv_alt` 共 134 MB，已 gitignore。
 - `claude-code-stats/` 是**放在同一個資料夾裡的第三方工具**，與 mcmt 無關，已 gitignore。
 - 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 44 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
-- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 265 passed，含 9 個碰真實檔案的整合測試）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
+- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 308 passed，含 9 個碰真實檔案的整合測試）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
 - 跑 CLI：`.venv\Scripts\python -X utf8 -m mcmt.cli doctor "<世界資料夾>"`、`... -m mcmt.cli sandbox import "<來源世界>"`。**`-X utf8` 是必要的**，Windows 終端機的預設編碼會把中文報告印成亂碼。
 - `sandbox/` 已有一份 95 MB 的「100 Ways To Die」副本（gitignore）。M4 要的是 DataVersion 3955 的 chunk，那在 Minecraft Party 2；這份是 4325，可以留著當寫入測試的對象。
 - 測試 fixture 一律取自自建的 `TT_WORLD_NAME_PROBE`，不放語料地圖的內容（授權考量，見 M3 那節）。
