@@ -219,6 +219,29 @@ class UnsupportedWorldStructureError(FormatError):
         )
 
 
+class RuleError(McmtError):
+    """規則引擎出了問題。"""
+
+
+class RuleEngineDidNotConvergeError(RuleError):
+    """不動點迭代跑到上限還在長新標籤——多半是兩條規則在互相餵。
+
+    **不可靜默停止。** 停下來回傳「現有結果」會產生「有時候少抽幾個節點」這種最難
+    查的 bug：同一個世界跑兩次結果不同，而且沒有任何跡象。
+    """
+
+    def __init__(self, *, iterations: int, added: dict) -> None:
+        self.iterations = iterations
+        self.added = added
+        listed = "\n".join(
+            f"  {name}：{sorted(labels)}" for name, labels in sorted(added.items())
+        )
+        super().__init__(
+            f"規則引擎跑了 {iterations} 輪仍未收斂。最後一輪新增的標籤：\n{listed}\n"
+            f"通常是兩條規則在互相餵標籤——從上面這幾條開始查。"
+        )
+
+
 class WriteError(McmtError):
     """要寫出去的東西本身有問題。**在動磁碟之前**發現的那一類。"""
 
