@@ -3,7 +3,7 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-21**（M5 完成）
+最後更新：**2026-08-21**（M5 完成，架構調整：取消內建 LLM 翻譯）
 
 ---
 
@@ -13,6 +13,26 @@
 
 ~~M1 只差「節點形狀分佈」~~ → **M5.6 已補上**，`doctor` 現在會報形狀分佈與「有多少節點會被跳過不翻」。
 
+## 架構調整（2026-08-21）：取消內建 LLM 翻譯
+
+**核心工作流是純檔案解耦**，工具不做機器翻譯、不呼叫任何 API、執行期沒有網路相依：
+
+```
+mcmt extract → translations.<lang>.json（人直接編輯）→ mcmt apply
+```
+
+三處落地，都已完成：
+
+1. **合約 `SCHEMA_VERSION` 3 → 4**。`translations` 的 entry 從 `{text, status}` 變成 `{source, target, note, where}`——舊形狀只有 unit_id 當鍵，人打開檔案看不到自己在翻什麼。`apply` **只讀 `target`**；`source` 不拿去比對（翻譯途中改短它是常見的事），綁定靠 `extract_fingerprint`。空 `target` = 未翻譯，`status: skip` = 刻意不翻，報告分得開。
+2. **單一段落不再插 `[[0]]`**。純文字就是純文字；每行都掛無意義前綴，譯者容易順手刪掉，而刪掉之後佔位符驗證會硬失敗、錯卻是我們造成的。
+3. **M9 移出 v1**，`pyproject` 拿掉 `[llm]` extra。原本屬於 M9 的兩件事沒有消失：佔位符驗證 → M11 守門 + `mcmt check`；寬度量測 → M8 的表。
+
+**M8 的定位因此變重要**：寬度預算要**寫進待翻檔的 `note` 給人看**，譯者得先知道「這行只放得下十個字」才有辦法斟酌用詞。事後才報超寬對人沒有幫助。
+
+**沒有放寬的一條**：`[[n]]` 驗證仍是 hard fail。人會犯的錯和機器一樣多，§ 碼染到行尾的後果一樣。
+
+---
+
 ## 該讀哪幾份（依序）
 
 | 檔案 | 是什麼 | 什麼時候讀 |
@@ -21,7 +41,7 @@
 | `docs/STATUS.md` | 本檔。進度與交接 | 每次開新對話 |
 | `SPIKE_RESULT.md` | **事實依據**。所有實測結論與證據等級（四級制） | 要引用「為什麼這樣設計」時 |
 | `docs/superpowers/plans/2026-08-15-mcmt-architecture.md` | 架構計畫 rev.2。目錄結構、四份合約、A/B/C 題、M0–M14 | 排下一步工作時 |
-| `docs/contracts/*.json` | 四份 JSON Schema（`SCHEMA_VERSION = 3`） | 寫任何跨層資料時 |
+| `docs/contracts/*.json` | 四份 JSON Schema（`SCHEMA_VERSION = 4`） | 寫任何跨層資料時 |
 | `docs/ownership.md` | 模組邊界與三個整合檢查點 | 決定某段程式該放哪裡時 |
 | `docs/adr/0007-prior-art-and-licensing.md` | 為何不得對照 maptranslator 原始碼 | 想參考既有實作時 |
 | `docs/m0-checklist.md` | M0 可重跑程序（換版本時用） | 要重驗遊戲行為時 |
@@ -223,7 +243,7 @@ M5 給 M6 的兩個直接輸入：
 - **掃描層目前根本不去找那些 denylist 欄位**，所以 M6 的 denylist 是第二道防線而不是唯一一道。回歸測試仍要寫——掃描廣度（M13）補齊時第一道會消失。
 - **MP2 有自己的中文化系統**（`mcp.*` key + 5 個語言檔 / 50,959 個 key）。翻它的 `{translate:"mcp.X"}` 節點等於覆蓋地圖作者的在地化。M6 要決定這是 denylist 的一條，還是另一種來源（翻它的 lang 檔）。
 
-之後：`M7 extract ─► M8 字寬校準 ─► M9 翻譯層 ─► M10 resourcepack 後端 ─► M11 寫入層 ─► M12 自動化端到端 ─► M13 掃描廣度 ─► M14 CLI/報告/文件`
+之後：`M7 mcmt extract ─► M8 字寬校準 ─► M10 resourcepack 後端 ─► M11 mcmt apply ─► M12 自動化端到端 ─► M13 掃描廣度 ─► M14 CLI/報告/文件`（~~M9 翻譯層~~ 已移出）
 
 ---
 
@@ -243,8 +263,8 @@ M5 給 M6 的兩個直接輸入：
 - **語料地圖在版本隔離的資料夾**：`%APPDATA%\.minecraft\versions\1.21.10\saves`，不是 `%APPDATA%\.minecraft\saves`。找不到 Minecraft Party 2 就是找錯地方了。
 - `spike/.venv` 與 `spike/.venv_alt` 共 134 MB，已 gitignore。
 - `claude-code-stats/` 是**放在同一個資料夾裡的第三方工具**，與 mcmt 無關，已 gitignore。
-- 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 44 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
-- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 308 passed，含 9 個碰真實檔案的整合測試）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
+- 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 46 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
+- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 312 passed，含 9 個碰真實檔案的整合測試）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
 - 跑 CLI：`.venv\Scripts\python -X utf8 -m mcmt.cli doctor "<世界資料夾>"`、`... -m mcmt.cli sandbox import "<來源世界>"`。**`-X utf8` 是必要的**，Windows 終端機的預設編碼會把中文報告印成亂碼。
 - `sandbox/` 已有一份 95 MB 的「100 Ways To Die」副本（gitignore）。M4 要的是 DataVersion 3955 的 chunk，那在 Minecraft Party 2；這份是 4325，可以留著當寫入測試的對象。
 - 測試 fixture 一律取自自建的 `TT_WORLD_NAME_PROBE`，不放語料地圖的內容（授權考量，見 M3 那節）。
