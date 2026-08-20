@@ -20,7 +20,7 @@ from mcmt.model.segments import flatten
 def test_a_plain_string_is_one_unstyled_segment() -> None:
     result = flatten("歡迎光臨")
 
-    assert result.text == "[[0]]歡迎光臨"
+    assert result.text == "歡迎光臨"
     assert result.plain == "歡迎光臨"
     assert [s.kind for s in result.segments] == ["none"]
     assert result.collapsible is True
@@ -31,7 +31,7 @@ def test_plain_keeps_the_text_exactly_including_whitespace() -> None:
     result = flatten("  歡迎  ")
 
     assert result.plain == "  歡迎  "
-    assert result.text == "[[0]]  歡迎  "
+    assert result.text == "  歡迎  "
 
 
 def test_a_text_compound_flattens_like_a_string() -> None:
@@ -67,7 +67,7 @@ def test_consecutive_sigma_codes_open_a_single_segment() -> None:
     """`§c§l` 是一段紅色粗體，不是兩段。"""
     result = flatten("§c§l紅色粗體")
 
-    assert result.text == "[[0]]紅色粗體"
+    assert result.text == "紅色粗體"  # 只有一段就不插標記
     assert result.styles == [{"codes": "§c§l"}]
 
 
@@ -279,3 +279,42 @@ def test_a_click_event_sign_is_not_collapsible() -> None:
     tree = {"click_event": {"action": "run_command", "command": "/function mcp:x"}, "text": " "}
 
     assert flatten(tree).collapsible is False
+
+
+# --- 單一段落不插標記（M7 的人工編輯需求）--------------------------------
+
+
+def test_a_single_segment_carries_no_placeholder_at_all() -> None:
+    """純文字就是純文字。
+
+    待翻檔是人直接編輯的，每一行都掛一個無意義的 `[[0]]` 前綴是雜訊，而且很容易
+    被順手刪掉——刪掉之後佔位符驗證會硬失敗，卻是我們自己造成的。
+    [實測] MP2 的 5,344 棵樹裡有 4,871 棵只有一個段落。
+    """
+    result = flatten("歡迎光臨")
+
+    assert result.text == "歡迎光臨"
+    assert result.text == result.plain
+    assert len(result.segments) == 1
+
+
+def test_a_single_styled_segment_also_carries_no_placeholder() -> None:
+    """整串都是同一個樣式時也不需要標記——樣式的範圍就是整串。"""
+    result = flatten({"text": "紅色的字", "color": "red"})
+
+    assert result.text == "紅色的字"
+    assert result.styles == [{"color": "red"}]
+
+
+def test_two_segments_bring_the_placeholders_back() -> None:
+    result = flatten({"text": "價格：", "extra": [{"text": "5 金幣", "color": "gold"}]})
+
+    assert result.text == "[[0]]價格：[[1]]5 金幣"
+
+
+def test_an_escaped_literal_survives_even_with_no_segments_marked() -> None:
+    """單段落不插標記，但原文自己含的 `[[0]]` 還是要轉義。"""
+    result = flatten("按 [[0]] 繼續")
+
+    assert result.text == r"按 [[\0]] 繼續"
+    assert result.escaped_literals == ["[[0]]"]
