@@ -246,6 +246,22 @@ class WriteError(McmtError):
     """要寫出去的東西本身有問題。**在動磁碟之前**發現的那一類。"""
 
 
+class PlaceholderResidueError(WriteError):
+    """要寫出去的字面文字裡還有 `[[n]]`。**拒絕整份 plan，不是跳過這一筆。**
+
+    殘留代表上游（後端或驗證）算錯了，而算錯的東西不會只錯一筆。寫出去玩家會看到
+    那串記號。
+    """
+
+    def __init__(self, *, text: str, tokens: list) -> None:
+        self.text = text
+        self.tokens = tokens
+        super().__init__(
+            f"要寫入的文字殘留佔位符 {' '.join(tokens)}：{text!r}。"
+            f"拒絕整份 plan——殘留代表上游算錯了，不會只錯這一筆。"
+        )
+
+
 class InvalidChunkWriteError(WriteError):
     """餵給 `write_region` 的 chunk 描述不合法。
 
