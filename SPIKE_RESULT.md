@@ -907,13 +907,66 @@ amulet-nbt 會先擋下來。
 
 ---
 
+## M11 遊戲實測（2026-08-21）：完整來回 + CustomName 的形狀
+
+工具第一次自己走完 `sandbox import → extract → 人工翻譯 → apply`，把翻好的探測世界
+拿進 1.21.11。
+
+### ① 工具產出的譯文正確顯示 —— **整條鏈成立** [遊戲實測]
+
+告示牌全部顯示中文。這是「端到端：由**工具**產生的編輯計畫寫回存檔後遊戲正確顯示」
+那一項——尚待驗證表的首列、標為**高**的那個——**現在成立**。
+
+M0 證明的是「手動注入 + 資源包」這半段；這次是工具自己算出 key、自己產 lang 檔、
+自己外科式寫回。中間沒有人手動下過任何一個 `/data` 指令。
+
+同一個 chunk 裡本來就有的 `block.minecraft.diamond_block`（原版 key）照常顯示，
+**沒有被誤傷**。
+
+### ② 吊掛告示牌的寬度比一般告示牌窄很多 [遊戲實測]
+
+`吊牌正面第一行`（7 個 CJK 字）在吊掛告示牌上**超出範圍被截掉**，正反面都是。
+一般告示牌上同樣長度的中文完全正常。
+
+目前 `constraints` 給吊掛告示牌的預算是 **60px**（`[待驗]` 的猜測值），一般告示牌是
+90px。這次證實**兩者確實不同、而且 60px 的猜測仍然偏寬**——7 個 CJK 字放不下。
+
+> **這是 M8 字寬校準的第一個真實資料點**，也證明那個里程碑不是可有可無：待翻檔的
+> `note` 現在寫「寬度上限 60px（未校準，僅供參考）」，譯者照著翻就會超出。
+> 校準前**不要**把 `enforcement` 從 `warn` 升成 `error`，但 `note` 的措辭應該更強硬。
+
+### ③ CustomName 在 native chunk **不解析任何形狀**，只吃字面文字 [遊戲實測]
+
+箱子的 GUI 標題顯示**字面的** `{translate:"mcmt.test.customname"}`。
+
+寫進去的是 SNBT 形式（`{translate:"…"}`）。它是合法的 SNBT，若 `CustomName` 真的是
+「component 的 SNBT」就會顯示譯文——**沒有**。
+
+> **原本的假設（保留）**：探測世界的箱子存的是裸字串 `TT_CHEST_CUSTOM_NAME`，那既是
+> 合法 SNBT 也是合法的折疊文字 component，所以推測 `CustomName` 是 component 的 SNBT。
+>
+> **為何被推翻**：SNBT 形式顯示為字面文字。`CustomName` 在 native chunk 的行為與
+> [遊戲實測 M0-3] 的告示牌 `messages` **完全一致**——`TAG_String` 就是字面文字，
+> 遊戲不做任何解析。
+
+**因此 native chunk 的 `block_entity_name` 不能走 translate key 路線。** 它屬於
+「必須直接替換原文」那一類，和 `LevelName` / 書名 / 作者 / 草稿書頁同組——合約的
+`strategy: in_place` 正是為這種欄位存在的。
+
+**legacy chunk（DV < 4325）的 CustomName 仍未測**：那裡 DataFixer 會解析 JSON，
+[遊戲實測 M4-1] 已證明告示牌的 `messages` 在 DV 3700 吃 JSON 字串的 translate key。
+`Arena of Darkness` 的 9,579 個 CustomName 全部是 DV 3700 的 `'"@"'`，所以那條路
+**可能**通——但那是推論，仍列尚待驗證。
+
+---
+
 ## 尚待驗證
 
 > 已完成：寫入端編碼對照（兩種皆有效）、Q3 五個結構推論項（全部成立）、第二輪 P1/P2/P3（extra 巢狀、filterable、空值分佈）、M0 遊戲實測（資源包路線、`'""'` 算繪、`pack_format` 過期）、**M4 遊戲實測（舊世代 legacy 寫入、DataFixer 解析、世代升級、`pack_format` 下限）**。
 
 | 項目 | 驗證方法 | 重要性 |
 |---|---|---|
-| **端到端**：由**工具**產生的編輯計畫寫回存檔後遊戲正確顯示 | 用 fixture 世界跑完整流程 | **高** — M0 已證明手動注入 + 資源包這半段成立，剩下的是把 `/data modify` 換成 `write/` 的輸出 |
+| ~~**端到端**：由**工具**產生的編輯計畫寫回存檔後遊戲正確顯示~~ | ~~跑完整流程~~ | **已完成（2026-08-21，M11）**：`extract → 人工翻譯 → apply` 全程由工具完成，告示牌全部正確顯示中文，同 chunk 的原版 key 節點沒被誤傷 |
 | ~~**DV < 4325 的 chunk 經 DataFixer 升級後，舊式 JSON 是否被正確解析**~~ | ~~肉眼確認~~ | **已完成（M4-2 / M4-3）**：三種舊式形式全部被解析，且存回磁碟時轉成 `{"": …}`。4325 分水嶺由對照實驗確立 |
 | ~~舊世代 chunk 寫入 translate key 後是否正確顯示~~ | ~~在舊世代 chunk 寫入後用 1.21.11 開啟~~ | **已完成（M4-1）**：DV 3700 chunk 寫入 legacy JSON translate key，資源包解出中文。舊世代寫入**原生** component 的變體仍未測，但 M4-2 顯示遊戲自己就會把舊式轉成原生，風險已大幅降低 |
 | `pack_format` 拒載的確切下限 | 在 22 與 55 之間逐級測試 | 中 — M4-5 已證明有下限（22 被拒、55 可用），邊界值影響 M10 合併既有 pack 時該宣告什麼 |
@@ -922,7 +975,9 @@ amulet-nbt 會先擋下來。
 | ~~**混合 list 存到磁碟後是什麼形狀**~~ | ~~回讀取證~~ | **已完成（2026-08-21）**：那種 list **不可能存在**——`TAG_List` 在格式層就帶單一元素型別。四行全部改寫是格式強制的，不是設計選擇。見上一節 |
 | MP2 那 585 面全 `'""'` 告示牌是否真的顯示引號 | 在 sandbox 副本裡走到現場肉眼確認 | 中 — M0-4 的直接推論，成立則證實那是地圖自身的顯示瑕疵，工具不應「順手修好」 |
 | ~~`pack_format` 多舊才會拒載~~ | ~~逐級下調~~ | **部分完成（M4-5）**：22 會被拒（「無法套用伺服器資源包」），55 不會。M0-5 的「過期不拒載」需限縮為「在某個範圍內」。確切邊界見上一列 |
-| **方塊實體 `CustomName` 該寫成什麼形狀** | 在 sandbox 副本裡把一個箱子的 CustomName 改成 `{translate:…}` 的各種形狀，進 1.21.11 看哪一種顯示得出譯文 | **高** — v1 目前**拒寫**這個欄位。[實測] 它在兩個世代都是 String 節點：native（DV 4671）是裸字串、legacy（DV 3700）是 JSON 純量 `'"@"'`。寫 compound 會改掉欄位的 NBT 型別；寫 JSON 字串在 native chunk 踩到 M0-3（不解析）。**`Arena of Darkness` 有 9,579 個這種節點**，不解決等於漏掉一大類 |
+| ~~**方塊實體 `CustomName` 在 native chunk 該寫成什麼形狀**~~ | ~~進遊戲測~~ | **已完成（2026-08-21）**：**不解析任何形狀**，SNBT 顯示為字面文字。native 的 `block_entity_name` 只能走 `in_place`（直接替換原文） |
+| **legacy chunk 的 `CustomName` 吃不吃 JSON 的 translate key** | 在 DV 3700 的 chunk 把箱子 CustomName 寫成 `'{"translate":…}'`，進 1.21.11 開箱子看標題 | **高** — `Arena of Darkness` 有 **9,579 個** DV 3700 的 CustomName。M4-1 已證明告示牌 `messages` 在 DV 3700 吃這個形狀，但那是另一個欄位，仍是推論 |
+| **吊掛告示牌的實際寬度上限** | M8 字寬校準 | 中 — [遊戲實測] 7 個 CJK 字會被截掉，目前 60px 的猜測仍偏寬 |
 | region 是否會出現 LZ4 (type 4) | 對更多來源的地圖跑 `probe_compression.py`，特別是伺服器匯出的 | 中 — 第二輪 5 張地圖 16.2 萬 chunk 全為 type 2，仍未見 type 4 |
 | **type 4 的實際位元組框架** | 拿到真實 type 4 chunk 後，用 `nbtio/compression.py` 的 `_decompress_lz4` 對它跑一次 | 中 — `[文件]` 級：Mojang 走 lz4-java 的 `LZ4BlockOutputStream`（`"LZ4Block"` magic + 每區塊 21 bytes 標頭），**不是**標準 LZ4 frame。M1.1 已照此格式實作並以手寫編碼器測過，但沒有任何真實樣本走過這條路徑 |
 | 外部 `.mcc` 檔 | 需要找到含 `.mcc` 的地圖 | 低 — 第二輪 5 張地圖 16.2 萬 chunk 外部 chunk 數為 **0** |
