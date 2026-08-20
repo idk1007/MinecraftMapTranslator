@@ -1,0 +1,264 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""M10.3 editplan 產出（`backends/resourcepack/backend.py`）。
+
+後端決定**值是什麼**，寫入層決定**怎麼安全地放進去**。editplan 是兩者之間那份
+**可以檢查的中間產物**——`--dry-run` 靠它印出「打算改哪些節點、改成什麼」。
+"""
+
+import json
+from pathlib import Path
+
+import amulet_nbt
+import pytest
+from conftest import RegionBuilder, modern_chunk, write_region_file
+from jsonschema import Draft202012Validator
+from referencing import Registry, Resource
+
+from mcmt.backends.resourcepack.backend import build_editplan
+from mcmt.extract.build import build_units
+from mcmt.extract.emit import build_extract_document, build_translations_document
+
+CONTRACTS = Path(__file__).resolve().parents[2] / "docs" / "contracts"
+
+
+@pytest.fixture(scope="module")
+def editplan_validator():
+    registry = Registry()
+    schemas = {}
+    for path in CONTRACTS.glob("*.schema.json"):
+        schema = json.loads(path.read_text("utf-8"))
+        registry = registry.with_resource(schema["$id"], Resource.from_contents(schema))
+        schemas[path.name.split(".")[0]] = schema
+    return Draft202012Validator(schemas["editplan"], registry=registry)
+
+
+def sign(*lines, x=1, y=2, z=3):
+    tag = amulet_nbt.CompoundTag()
+    tag["id"] = amulet_nbt.StringTag("minecraft:oak_sign")
+    for name, value in (("x", x), ("y", y), ("z", z)):
+        tag[name] = amulet_nbt.IntTag(value)
+    face = amulet_nbt.CompoundTag()
+    face["messages"] = amulet_nbt.ListTag([amulet_nbt.StringTag(l) for l in lines])
+    tag["front_text"] = face
+    return tag
+
+
+def prepare(tmp_path, *entities, data_version=4671):
+    world = tmp_path / "world"
+    root = modern_chunk(data_version=data_version)
+    root["block_entities"] = amulet_nbt.ListTag(list(entities))
+    write_region_file(world / "region", RegionBuilder().add_chunk_nbt(0, root).build())
+
+    result = build_units(world)
+    extract = build_extract_document(
+        result,
+        world_name="world",
+        world_fingerprint="blake2b:0011223344556677",
+        level_data_version=4671,
+        namespace="mcmt",
+        target_languages=["zh_tw"],
+    )
+    translations = build_translations_document(
+        result, language="zh_tw", extract_document=extract
+    )
+    return extract, translations
+
+
+def translate(translations, mapping):
+    """把 `原文 → 譯文` 填進待翻檔，模擬使用者編輯。"""
+    for entry in translations["entries"].values():
+        if entry["source"] in mapping:
+            entry["target"] = mapping[entry["source"]]
+    return translations
+
+
+# --- 合約驗證 -------------------------------------------------------------
+
+
+def test_the_editplan_validates_against_the_schema(tmp_path, editplan_validator) -> None:
+    extract, translations = prepare(tmp_path, sign("歡迎光臨", "", "", ""))
+    translate(translations, {"歡迎光臨": "Welcome"})
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    errors = sorted(editplan_validator.iter_errors(plan.document), key=str)
+    assert errors == [], [f"{list(e.path)}: {e.message}" for e in errors[:5]]
+
+
+# --- 三種值 ---------------------------------------------------------------
+
+
+def test_a_collapsible_unit_becomes_a_translate_value(tmp_path) -> None:
+    extract, translations = prepare(tmp_path, sign("歡迎光臨", "", "", ""))
+    translate(translations, {"歡迎光臨": "Welcome"})
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    (edit,) = plan.document["edits"]
+    assert edit["value"]["kind"] == "translate"
+    assert edit["value"]["key"] == extract["units"][0]["key"]
+
+
+def test_the_lang_entry_carries_the_translation(tmp_path) -> None:
+    extract, translations = prepare(tmp_path, sign("歡迎光臨", "", "", ""))
+    translate(translations, {"歡迎光臨": "Welcome"})
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    assert list(plan.lang["zh_tw"].values()) == ["Welcome"]
+
+
+def test_a_non_collapsible_unit_becomes_a_rebuilt_tree(tmp_path) -> None:
+    """[實測] 84% 的 extra 子元素自帶格式——**不是原封搬運**，要照骨架長回去。"""
+    entity = sign("", "", "", "")
+    entity["front_text"]["messages"] = amulet_nbt.ListTag(
+        [
+            amulet_nbt.CompoundTag(
+                {
+                    "text": amulet_nbt.StringTag("點我"),
+                    "click_event": amulet_nbt.CompoundTag(
+                        {"action": amulet_nbt.StringTag("run_command")}
+                    ),
+                }
+            )
+        ]
+    )
+    extract, translations = prepare(tmp_path, entity)
+    translate(translations, {"點我": "Click me"})
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    (edit,) = plan.document["edits"]
+    assert edit["value"]["kind"] == "component"
+    tree = edit["value"]["tree"]
+    assert tree["translate"].endswith(".0")
+    # 樣式要跟著長回去，不然點擊就沒了
+    assert "click_event" in tree
+
+
+def test_a_rebuilt_tree_keeps_the_nesting(tmp_path) -> None:
+    entity = sign("", "", "", "")
+    entity["front_text"]["messages"] = amulet_nbt.ListTag(
+        [
+            amulet_nbt.CompoundTag(
+                {
+                    "text": amulet_nbt.StringTag("父"),
+                    "font": amulet_nbt.StringTag("minecraft:alt"),
+                    "extra": amulet_nbt.ListTag(
+                        [amulet_nbt.CompoundTag({"text": amulet_nbt.StringTag("子")})]
+                    ),
+                }
+            )
+        ]
+    )
+    extract, translations = prepare(tmp_path, entity)
+    translate(translations, {"[[0]]父[[1]]子": "[[0]]parent[[1]]child"})
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    tree = plan.document["edits"][0]["value"]["tree"]
+    assert tree["extra"][0]["translate"].endswith(".1")
+
+
+def test_each_segment_of_a_rebuilt_tree_has_its_own_lang_key(tmp_path) -> None:
+    entity = sign("", "", "", "")
+    entity["front_text"]["messages"] = amulet_nbt.ListTag(
+        [
+            amulet_nbt.CompoundTag(
+                {
+                    "text": amulet_nbt.StringTag("父"),
+                    "font": amulet_nbt.StringTag("minecraft:alt"),
+                    "extra": amulet_nbt.ListTag(
+                        [amulet_nbt.CompoundTag({"text": amulet_nbt.StringTag("子")})]
+                    ),
+                }
+            )
+        ]
+    )
+    extract, translations = prepare(tmp_path, entity)
+    translate(translations, {"[[0]]父[[1]]子": "[[0]]parent[[1]]child"})
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    keys = sorted(plan.lang["zh_tw"])
+    assert keys[0].endswith(".0") and keys[1].endswith(".1")
+
+
+# --- 守門 -----------------------------------------------------------------
+
+
+def test_every_edit_carries_the_expected_encoding(tmp_path) -> None:
+    """寫入層拿它比對節點現在的形狀。使用者中間玩過一次遊戲，形狀就可能變了。"""
+    extract, translations = prepare(tmp_path, sign("歡迎光臨", "", "", ""))
+    translate(translations, {"歡迎光臨": "Welcome"})
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    assert plan.document["edits"][0]["expected_encoding"] == "bare_string"
+
+
+def test_an_untranslated_unit_produces_no_edit(tmp_path) -> None:
+    extract, translations = prepare(tmp_path, sign("歡迎光臨", "", "", ""))
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    assert plan.document["edits"] == []
+    assert plan.document["unwritten"][0]["reason"] == "untranslated"
+
+
+def test_a_skipped_unit_is_recorded_as_skipped_not_untranslated(tmp_path) -> None:
+    """「刻意不翻」與「忘了翻」在報告裡要分得開。"""
+    extract, translations = prepare(tmp_path, sign("歡迎光臨", "", "", ""))
+    for entry in translations["entries"].values():
+        entry["status"] = "skip"
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    assert plan.document["unwritten"][0]["reason"] == "skipped"
+
+
+def test_a_placeholder_mismatch_is_refused_not_written(tmp_path) -> None:
+    """**hard fail。** 少一個標記就是 § 格式碼染到整行結尾。"""
+    entity = sign("§a綠色§c紅色", "", "", "")
+    extract, translations = prepare(tmp_path, entity)
+    translate(translations, {"[[0]]綠色[[1]]紅色": "少了一個標記的譯文[[0]]"})
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    assert plan.document["edits"] == []
+    assert plan.document["unwritten"][0]["reason"] == "placeholder_mismatch"
+    assert plan.rejected
+
+
+def test_a_stale_translation_file_is_refused(tmp_path) -> None:
+    """世界或規則集變了就要重新 extract，硬套會安靜地對錯節點。"""
+    extract, translations = prepare(tmp_path, sign("歡迎光臨", "", "", ""))
+    translations["extract_ref"]["extract_fingerprint"] = "blake2b:deadbeefdeadbeef"
+
+    with pytest.raises(ValueError) as exc:
+        build_editplan(extract, translations, language="zh_tw")
+
+    assert "extract" in str(exc.value)
+
+
+def test_a_schema_version_mismatch_is_refused(tmp_path) -> None:
+    extract, translations = prepare(tmp_path, sign("歡迎光臨", "", "", ""))
+    translations["schema_version"] = 999
+
+    with pytest.raises(ValueError) as exc:
+        build_editplan(extract, translations, language="zh_tw")
+
+    assert "重新產生" in str(exc.value)
+
+
+def test_one_unit_in_two_places_produces_two_edits(tmp_path) -> None:
+    """翻一次，寫回每一個出現的地方。"""
+    extract, translations = prepare(
+        tmp_path, sign("歡迎光臨", "", "", ""), sign("歡迎光臨", "", "", "", x=9)
+    )
+    translate(translations, {"歡迎光臨": "Welcome"})
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    assert len(plan.document["edits"]) == 2
+    assert len({e["occurrence_id"] for e in plan.document["edits"]}) == 2
