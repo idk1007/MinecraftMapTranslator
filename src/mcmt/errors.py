@@ -163,6 +163,19 @@ class ExternalChunkError(FormatError):
         )
 
 
+class CodecError(FormatError):
+    """`decode` 步驟裡那份巢狀文件解不開。
+
+    不是「當作純文字算了」——那份文件解不開就代表我們讀不懂這個節點，讀不懂的
+    節點不該被翻譯，更不該被寫回去。
+    """
+
+    def __init__(self, *, codec: str, detail: str) -> None:
+        self.codec = codec
+        self.detail = detail
+        super().__init__(f"{codec} 解碼失敗：{detail}")
+
+
 class DatFormatError(FormatError):
     """`.dat` 檔既不是 gzip、也不是 zlib、也不是裸 NBT，或者解析不出來。"""
 
