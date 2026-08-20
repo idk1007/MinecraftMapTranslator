@@ -922,6 +922,7 @@ amulet-nbt 會先擋下來。
 | ~~**混合 list 存到磁碟後是什麼形狀**~~ | ~~回讀取證~~ | **已完成（2026-08-21）**：那種 list **不可能存在**——`TAG_List` 在格式層就帶單一元素型別。四行全部改寫是格式強制的，不是設計選擇。見上一節 |
 | MP2 那 585 面全 `'""'` 告示牌是否真的顯示引號 | 在 sandbox 副本裡走到現場肉眼確認 | 中 — M0-4 的直接推論，成立則證實那是地圖自身的顯示瑕疵，工具不應「順手修好」 |
 | ~~`pack_format` 多舊才會拒載~~ | ~~逐級下調~~ | **部分完成（M4-5）**：22 會被拒（「無法套用伺服器資源包」），55 不會。M0-5 的「過期不拒載」需限縮為「在某個範圍內」。確切邊界見上一列 |
+| **方塊實體 `CustomName` 該寫成什麼形狀** | 在 sandbox 副本裡把一個箱子的 CustomName 改成 `{translate:…}` 的各種形狀，進 1.21.11 看哪一種顯示得出譯文 | **高** — v1 目前**拒寫**這個欄位。[實測] 它在兩個世代都是 String 節點：native（DV 4671）是裸字串、legacy（DV 3700）是 JSON 純量 `'"@"'`。寫 compound 會改掉欄位的 NBT 型別；寫 JSON 字串在 native chunk 踩到 M0-3（不解析）。**`Arena of Darkness` 有 9,579 個這種節點**，不解決等於漏掉一大類 |
 | region 是否會出現 LZ4 (type 4) | 對更多來源的地圖跑 `probe_compression.py`，特別是伺服器匯出的 | 中 — 第二輪 5 張地圖 16.2 萬 chunk 全為 type 2，仍未見 type 4 |
 | **type 4 的實際位元組框架** | 拿到真實 type 4 chunk 後，用 `nbtio/compression.py` 的 `_decompress_lz4` 對它跑一次 | 中 — `[文件]` 級：Mojang 走 lz4-java 的 `LZ4BlockOutputStream`（`"LZ4Block"` magic + 每區塊 21 bytes 標頭），**不是**標準 LZ4 frame。M1.1 已照此格式實作並以手寫編碼器測過，但沒有任何真實樣本走過這條路徑 |
 | 外部 `.mcc` 檔 | 需要找到含 `.mcc` 的地圖 | 低 — 第二輪 5 張地圖 16.2 萬 chunk 外部 chunk 數為 **0** |

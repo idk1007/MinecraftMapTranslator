@@ -7,6 +7,7 @@
 import argparse
 import sys
 
+from mcmt.cli.apply import format_apply, run_apply
 from mcmt.cli.doctor import format_survey
 from mcmt.cli.extract import format_result, run_extract
 from mcmt.cli.sandbox import format_import
@@ -44,6 +45,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--replace", action="store_true", help="覆蓋既有的待翻檔（會蓋掉已填的譯文）"
     )
 
+    apply = sub.add_parser("apply", help="讀翻好的檔案，產出資源包並寫回世界")
+    apply.add_argument("world", help="世界資料夾（必須在 sandbox 底下）")
+    apply.add_argument(
+        "--translations", required=True, help="翻好的 translations.<lang>.json"
+    )
+    apply.add_argument("--extract", default=None, help="對應的 extract.json，預設同目錄")
+    apply.add_argument(
+        "--dry-run", action="store_true", help="完全不碰存檔，只印出打算改什麼"
+    )
+
     return parser
 
 
@@ -77,6 +88,19 @@ def main(argv: list[str] | None = None) -> int:
         except (WorldNotFoundError, SafetyError, FileNotFoundError, OSError) as exc:
             return _user_error(exc)
         print(format_result(summary))
+        return 0
+
+    if args.command == "apply":
+        try:
+            summary = run_apply(
+                args.world,
+                args.translations,
+                extract_path=args.extract,
+                dry_run=args.dry_run,
+            )
+        except (WorldNotFoundError, SafetyError, FileNotFoundError, ValueError) as exc:
+            return _user_error(exc)
+        print(format_apply(summary))
         return 0
 
     if args.command == "sandbox" and args.sandbox_command == "import":

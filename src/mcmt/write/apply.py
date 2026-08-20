@@ -197,8 +197,21 @@ def _apply_edit(root, edit: dict, outcome: ApplyOutcome) -> bool:
     path = NodePath.from_json(edit["node_path"])
     steps = list(path)
     if not steps or steps[-1].t != "index":
-        # v1 只寫 list 元素（告示牌四行）。其餘形狀還沒有寫入路徑。
-        _refuse(outcome, edit, "unsupported_encoding", "只支援 list 元素的寫入")
+        # **v1 只寫 list 元素（告示牌四行）。**
+        #
+        # 主要卡在 `CustomName`：[實測] 它在兩個世代都是 String 節點——native
+        # （DV 4671）裡是裸字串 `TT_CHEST_CUSTOM_NAME`，legacy（DV 3700）裡是 JSON
+        # 純量 `'"@"'`。要放 translate key 進去，native 那邊該寫什麼形狀**沒有實測
+        # 依據**：寫 compound 會改掉那個欄位的 NBT 型別，寫 JSON 字串又踩到 M0-3
+        # （native chunk 的 TAG_String 是字面文字，不解析）。
+        #
+        # 未測過的寫入路徑比拒絕處理危險。已列入 SPIKE_RESULT 的尚待驗證。
+        _refuse(
+            outcome,
+            edit,
+            "unsupported_encoding",
+            "v1 只寫 list 元素；CustomField 這類 String 節點的寫入形狀尚未實測",
+        )
         return False
 
     index = steps[-1].i
