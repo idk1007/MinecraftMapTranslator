@@ -3,7 +3,7 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-21**（M10 + M11 完成，`extract → 翻譯 → apply` 完整來回接通）
+最後更新：**2026-08-21**（M11 完成並**經遊戲實測**：整條鏈成立）
 
 ---
 
@@ -12,6 +12,27 @@
 **M0–M4 全部完成。位元組層、安全層、外科式寫入都在真實地圖上驗過，M4 證實舊世代 chunk 的 legacy 寫入路線也成立。下一步是 M5——開始碰語意。**
 
 ~~M1 只差「節點形狀分佈」~~ → **M5.6 已補上**，`doctor` 現在會報形狀分佈與「有多少節點會被跳過不翻」。
+
+## 現在這個工具能做什麼
+
+四個指令，全部在真實地圖上跑過：
+
+```
+mcmt doctor <世界>                     健檢（唯讀）：DataVersion 分佈、節點形狀分佈、
+                                       有多少節點會被跳過不翻、可不可以處理
+mcmt sandbox import <來源世界>          唯一合法的把世界帶進 sandbox 的入口
+mcmt extract <sandbox 世界>            → translations.<lang>.json（**人編輯這個**）
+mcmt apply <sandbox 世界> --translations …   → resources.zip + 外科式寫回
+                                       （--dry-run 完全不碰存檔，只產 editplan.json）
+```
+
+實跑數字：`Arena of Darkness`（88,969 chunk）extract 出 **607 個翻譯單位**（涵蓋
+10,421 次出現，94% 是重複的）。apply 在探測世界上改動 1 個 chunk、**原封複製 929 個**。
+
+`sandbox/` 現有三份副本可用：`100 Ways To Die`(95M)、`Arena of Darkness`(378M)、
+`roundtrip`(18M，**已翻好且驗證過的探測世界**)。不需要就整個資料夾刪掉。
+
+---
 
 ## 架構調整（2026-08-21）：取消內建 LLM 翻譯
 
@@ -330,6 +351,25 @@ NBT list 提升 2 次
 timestamp 都一樣**、探測世界原本就有的 `block.minecraft.diamond_block` 節點沒被碰、
 `resources.zip` 有 lang 檔。`--dry-run` 完全不碰存檔並產出 `editplan.json`。
 
+### M11 遊戲實測（2026-08-21）：**整條鏈成立** ✅
+
+把翻好的 `sandbox/roundtrip` 拿進 1.21.11，三項 `[遊戲實測]`：
+
+**① 端到端成立。** 告示牌全部顯示中文。這是「尚待驗證」表首列、標為**高**的那一項
+——M0 證明的是「手動注入 + 資源包」那半段，這次**中間沒有人下過任何一個 `/data` 指令**。
+同 chunk 裡本來就有的 `block.minecraft.diamond_block` 照常顯示，**沒有誤傷**。
+
+**② 吊掛告示牌比一般告示牌窄很多。** 7 個 CJK 字（`吊牌正面第一行`）被截掉，同樣長度
+在一般告示牌上完全正常。目前給它的 60px 預算**仍偏寬**。→ 這是 M8 的第一個真實資料點。
+
+**③ `CustomName` 在 native chunk 不解析任何形狀。** 寫 SNBT（`{translate:"…"}`）進去，
+GUI 標題顯示**字面文字**。行為與 M0-3 的告示牌 `messages` 完全一致。
+→ **native 的 `block_entity_name` 只能走 `in_place`**（直接把譯文寫進節點），和
+`LevelName`、書名、作者、草稿書頁同組。
+
+> 原本的推測（探測世界的裸字串既是合法 SNBT 也是合法折疊 component，所以 CustomName
+> 應該是 component 的 SNBT）**被推翻**，理由記在 `SPIKE_RESULT.md`。
+
 > **一個誠實的缺口：`CustomName` 目前拒寫。** [實測] 它在兩個世代都是 String 節點
 > ——native（DV 4671）是裸字串、legacy（DV 3700）是 JSON 純量 `'"@"'`。要放
 > translate key 進去，native 那邊該寫什麼形狀**沒有實測依據**：寫 compound 會改掉
@@ -338,20 +378,48 @@ timestamp 都一樣**、探測世界原本就有的 `block.minecraft.diamond_blo
 
 ---
 
-## 下一步：進遊戲驗收
+## 下一步（依建議順序）
 
-工具鏈已經完整，**下一件該做的是把翻好的世界拿進遊戲看**——那是唯一能證明整條鏈
-真的成立的事（M0/M4 的模式）。`sandbox/roundtrip` 就是一份翻好的探測世界副本。
+### 1. `CustomName` 改走 `in_place`（有實測依據，可以直接做）
 
-之後：
+[遊戲實測 ③] 已經給出答案：native chunk 的 `CustomName` 只吃字面文字。所以
+`block_entity_name` 這一類要從 `strategy: translate_key` 改成 `in_place`——把譯文
+**直接寫進節點**，不經過 lang 檔。
 
-| 里程碑 | 內容 |
-|---|---|
-| `CustomName` 寫入形狀 | 進遊戲測，解掉之後 M11 才算完整 |
-| M8 字寬校準 | 目前待翻檔的 note 寫「未校準，僅供參考」，校準後才有意義 |
-| M12 自動化端到端 | 把這次手動跑的來回變成測試 |
-| M13 掃描廣度 | 容器物品、書本、實體、記分板、hover_event、datapack |
-| M14 | CLI/報告/文件 |
+要動的地方：
+
+* `extract/build.py`：`block_entity_name` 的 `strategy` 標成 `in_place`
+* `backends/…/backend.py`：in_place 的 value 已經支援（`kind: literal`）
+* `write/apply.py`：**目前只寫 list 元素**，要加上「最後一步是 `key`」的直接指派路徑
+* 合約已經有一條 `if/then`：`plain_string` encoding ⇒ `strategy` 必須是 `in_place`。
+  注意 `CustomName` 現在嗅探出來是 `bare_string` 不是 `plain_string`——**要先想清楚
+  這兩者的界線**，可能要改 schema（那就要 bump SCHEMA_VERSION 並更新 sample）。
+
+> **legacy chunk 的 CustomName 是另一回事**：那裡 DataFixer 會解析 JSON，可能可以走
+> translate key。`Arena of Darkness` 的 **9,579 個** CustomName 全是 DV 3700。
+> **未測**，列在 `SPIKE_RESULT.md` 尚待驗證。
+
+### 2. M8 字寬校準（需要進遊戲量測）
+
+`tools/calibrate_font_widths.py`（**尚未寫**）產生測試告示牌 → 進遊戲截圖 → 回填量測表。
+ASCII 與 CJK 分開量，**一般告示牌與吊掛告示牌分開量**（實測證明差很多）。
+
+校準完成前 `enforcement` 一律 `warn`；完成後 `sign` 才能升成 `error`。
+
+### 3. M12 自動化端到端
+
+把這次手動跑的來回變成測試：`sandbox import → extract → 填譯文 → apply`，斷言
+chunk 位元組層級的變化只發生在該變的地方。fixture 用自建探測世界的切片。
+
+### 4. M13 掃描廣度
+
+容器裡的物品（`Items[]` 的 `custom_name`/`lore`/書本）、實體（在 `entities/` 而非
+`region/`）、`level.dat`、記分板、進度、指令方塊、datapack、`hover_event` 內的文字。
+
+**M13 開工時要重新問一次「不翻術語」那個決定**——那時待翻項會含 `%1$s` 格式參數
+（[實測] MP2 的 lang 值 37% 有），那是機器驗得出來的另一類（見下方「決定」那節）。
+
+### 5. M14 CLI／報告／文件
 
 ---
 
@@ -373,6 +441,9 @@ timestamp 都一樣**、探測世界原本就有的 `block.minecraft.diamond_blo
 - `claude-code-stats/` 是**放在同一個資料夾裡的第三方工具**，與 mcmt 無關，已 gitignore。
 - 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 46 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
 - 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 502 passed）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
-- 跑 CLI：`.venv\Scripts\python -X utf8 -m mcmt.cli {doctor|sandbox import|extract|apply} …`。**`-X utf8` 是必要的**，Windows 終端機的預設編碼會把中文報告印成亂碼。
+- 跑 CLI：`.venv\Scripts\python -X utf8 -m mcmt.cli {doctor|sandbox import|extract|apply} …`。
+- **heredoc 會吃掉反斜線**：用 `bash << 'PY'` 寫含 `
+`、``、` ` 的 Python 原始碼會被破壞（曾寫出 NUL byte 讓檔案無法解析）。含跳脫序列的檔案改用 Write 工具，或用 `chr(92)` 組出反斜線。
+- 真實地圖的路徑：MP2 在 `versions.21.10\saves`、`Arena of Darkness` 在 `versions.20.4\saves`、`100 Ways To Die` 在桌面、自建探測世界 `TT_WORLD_NAME_PROBE` 在 `.minecraft\saves`。**`-X utf8` 是必要的**，Windows 終端機的預設編碼會把中文報告印成亂碼。
 - `sandbox/` 已有一份 95 MB 的「100 Ways To Die」副本（gitignore）。M4 要的是 DataVersion 3955 的 chunk，那在 Minecraft Party 2；這份是 4325，可以留著當寫入測試的對象。
 - 測試 fixture 一律取自自建的 `TT_WORLD_NAME_PROBE`，不放語料地圖的內容（授權考量，見 M3 那節）。
