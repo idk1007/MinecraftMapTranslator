@@ -1,0 +1,272 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""產出 `extract.json` 與**人直接編輯的**待翻檔（M7.3）。
+
+待翻檔的形狀是這次架構調整的重點：每筆自帶 `source`、`note`、`where`，`target` 留空。
+人不該為了知道自己在翻什麼而回頭開 `extract.json`（CLAUDE.md 零之二）。
+
+`extract_fingerprint` 是這份 extract 的身分：世界指紋 + 規則集版本 + 命名空間 +
+排序過的 unit_id 清單。**同一個世界用不同規則集重跑，world_fingerprint 不變而
+unit_id 會變**——只綁世界指紋的話，過期的譯文會通過檢查然後安靜地退化成大量未翻譯。
+"""
+
+import json
+from datetime import datetime, timezone
+from hashlib import blake2b
+from typing import Any
+
+from mcmt.extract.build import ExtractResult, Unit
+from mcmt.model import SCHEMA_VERSION
+
+__all__ = [
+    "RULE_SET_VERSION",
+    "build_extract_document",
+    "build_translations_document",
+    "dump_json",
+]
+
+RULE_SET_VERSION = "1.21.11-r1"
+_TOOL_VERSION = "0.1.0.dev0"
+
+# 校準前一律 warn（CLAUDE.md C 題）。這些數字全部是 [待驗]。
+_WIDTH_BUDGET = {
+    "sign": {"max_width_px": 90, "max_lines": 1, "wrap": "none"},
+    "hanging_sign": {"max_width_px": 60, "max_lines": 1, "wrap": "none"},
+    "book_page": {"max_width_px": 114, "max_lines": 14, "wrap": "soft"},
+}
+
+
+def build_extract_document(
+    result: ExtractResult,
+    *,
+    world_name: str,
+    world_fingerprint: str,
+    level_data_version: int,
+    namespace: str,
+    target_languages: list[str],
+    source_language: str = "en_us",
+) -> dict[str, Any]:
+    units = [_unit_json(unit) for unit in result.units]
+    fingerprint = _extract_fingerprint(
+        world_fingerprint, namespace, [u["unit_id"] for u in units]
+    )
+    return {
+        "format": "mcmt-extract",
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": _now(),
+        "generator": {
+            "tool": "mcmt",
+            "version": _TOOL_VERSION,
+            "rule_set_version": RULE_SET_VERSION,
+        },
+        "project": {
+            "namespace": namespace,
+            "source_language": source_language,
+            "target_languages": target_languages,
+        },
+        "world": {
+            "name": world_name,
+            "level_data_version": level_data_version,
+            "world_fingerprint": world_fingerprint,
+            "extract_fingerprint": fingerprint,
+        },
+        "stats": {
+            "unit_count": len(units),
+            "occurrence_count": result.stats["occurrence_count"],
+            "deduped_count": result.stats["deduped_count"],
+            "skipped_unparseable": result.stats["skipped_unparseable"],
+            "skipped_legacy_json_in_native_chunk": result.stats[
+                "skipped_legacy_json_in_native_chunk"
+            ],
+            "by_category": _by_category(result.units),
+        },
+        "units": units,
+    }
+
+
+def build_translations_document(
+    result: ExtractResult,
+    *,
+    language: str,
+    extract_document: dict[str, Any],
+) -> dict[str, Any]:
+    """**這是人要打開來編輯的檔案。**"""
+    entries = {}
+    for unit in result.units:
+        entry = {
+            "source": unit.text,
+            "target": "",
+            "note": _note_for(unit),
+        }
+        where = _where_for(unit)
+        if where:
+            entry["where"] = where
+        entries[unit.unit_id] = entry
+
+    world = extract_document["world"]
+    return {
+        "format": "mcmt-translations",
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": _now(),
+        "language": language,
+        "extract_ref": {
+            "extract_fingerprint": world["extract_fingerprint"],
+            "world_fingerprint": world["world_fingerprint"],
+            "rule_set_version": RULE_SET_VERSION,
+            "unit_count": len(entries),
+            "namespace": extract_document["project"]["namespace"],
+            "generated_at": extract_document["generated_at"],
+        },
+        "entries": entries,
+        "stats": {
+            "total": len(entries),
+            "translated": 0,
+            "untranslated": len(entries),
+            "skipped": 0,
+            "rejected": 0,
+        },
+    }
+
+
+def dump_json(document: dict[str, Any]) -> str:
+    """嚴格 JSON：無註解、無尾逗號、UTF-8、`ensure_ascii=False`。"""
+    return json.dumps(document, ensure_ascii=False, indent=2) + "\n"
+
+
+# --- 內部 -----------------------------------------------------------------
+
+
+def _unit_json(unit: Unit) -> dict[str, Any]:
+    source: dict[str, Any] = {
+        "text": unit.text,
+        "plain": unit.plain,
+        "segments": unit.segments,
+    }
+    if unit.escaped_literals:
+        source["escaped_literals"] = unit.escaped_literals
+
+    flags = set(unit.flags)
+    if unit.escaped_literals:
+        flags.add("contains_placeholder_like_text")
+    if not unit.collapsible:
+        flags.add("non_collapsible_tree")
+
+    document = {
+        "unit_id": unit.unit_id,
+        "key": unit.key,
+        "category": unit.category,
+        "strategy": "translate_key",
+        "collapsible": unit.collapsible,
+        "source": source,
+        "constraints": _constraints_for(unit),
+        "context": _context_for(unit),
+        "occurrences": [_occurrence_json(o) for o in unit.occurrences],
+    }
+    if flags:
+        document["flags"] = sorted(flags)
+    return document
+
+
+def _occurrence_json(occurrence) -> dict[str, Any]:
+    document = {
+        "occurrence_id": occurrence.occurrence_id,
+        "container": occurrence.container,
+        "anchor": occurrence.anchor,
+        "node_path": occurrence.node_path,
+        "encoding": occurrence.encoding,
+        "segment_styles": occurrence.segment_styles,
+        "skeleton": occurrence.skeleton,
+        "raw_snapshot": None,
+    }
+    if occurrence.list_context:
+        document["list_context"] = occurrence.list_context
+    if occurrence.excluded:
+        document["excluded"] = occurrence.excluded
+    return document
+
+
+def _constraints_for(unit: Unit) -> dict[str, Any]:
+    budget = _WIDTH_BUDGET.get(unit.category, {})
+    return {
+        "max_width_px": budget.get("max_width_px"),
+        "max_lines": budget.get("max_lines"),
+        "max_chars": None,
+        "wrap": budget.get("wrap", "none"),
+        # **校準完成前一律 warn。** 那些像素數字目前全部是 [待驗]。
+        "enforcement": "warn",
+        "measurement": "vanilla_font_v1",
+    }
+
+
+def _context_for(unit: Unit) -> dict[str, Any]:
+    first = unit.occurrences[0]
+    anchor = first.anchor or {}
+    position = (
+        [anchor["x"], anchor["y"], anchor["z"]]
+        if anchor.get("x") is not None
+        else None
+    )
+    return {
+        "hint": _hint_for(unit),
+        "dimension": first.container.get("dimension"),
+        "position": position,
+    }
+
+
+def _hint_for(unit: Unit) -> str:
+    count = len(unit.occurrences)
+    where = "、".join(sorted({o.container.get("dimension", "") for o in unit.occurrences}))
+    if count > 1:
+        return f"{unit.category}；這段文字在世界裡出現 {count} 次（{where}）"
+    return f"{unit.category}（{where}）"
+
+
+def _note_for(unit: Unit) -> str:
+    """給人看的提示。寬度預算要在人開始翻之前就看得到。"""
+    bits = [unit.category]
+    budget = _WIDTH_BUDGET.get(unit.category)
+    if budget:
+        bits.append(f"寬度上限 {budget['max_width_px']}px（未校準，僅供參考）")
+    if len(unit.occurrences) > 1:
+        bits.append(f"出現 {len(unit.occurrences)} 次")
+    if len(unit.segments) > 1:
+        marks = " ".join(f"[[{i}]]" for i in range(len(unit.segments)))
+        bits.append(f"必須保留 {marks}（順序可調）")
+    if unit.escaped_literals:
+        bits.append("原文含字面 [[n]]，已轉義，請原樣保留")
+    if not unit.collapsible:
+        bits.append("樣式較複雜，寫回時會逐段重建")
+    return "・".join(bits)
+
+
+def _where_for(unit: Unit) -> str:
+    anchor = unit.occurrences[0].anchor or {}
+    dimension = unit.occurrences[0].container.get("dimension", "")
+    if anchor.get("x") is None:
+        return dimension
+    return f"{dimension} {anchor['x']},{anchor['y']},{anchor['z']}"
+
+
+def _by_category(units: list[Unit]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for unit in units:
+        counts[unit.category] = counts.get(unit.category, 0) + 1
+    return counts
+
+
+def _extract_fingerprint(
+    world_fingerprint: str, namespace: str, unit_ids: list[str]
+) -> str:
+    digest = blake2b(digest_size=8)
+    digest.update(world_fingerprint.encode("utf-8"))
+    digest.update(b"\x1f")
+    digest.update(RULE_SET_VERSION.encode("utf-8"))
+    digest.update(b"\x1f")
+    digest.update(namespace.encode("utf-8"))
+    for unit_id in sorted(unit_ids):
+        digest.update(b"\x1f")
+        digest.update(unit_id.encode("utf-8"))
+    return f"blake2b:{digest.hexdigest()}"
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")

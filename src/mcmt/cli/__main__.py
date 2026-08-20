@@ -8,6 +8,7 @@ import argparse
 import sys
 
 from mcmt.cli.doctor import format_survey
+from mcmt.cli.extract import format_result, run_extract
 from mcmt.cli.sandbox import format_import
 from mcmt.doctor import survey_world
 from mcmt.errors import SafetyError, WorldNotFoundError
@@ -32,6 +33,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--replace", action="store_true", help="目標已存在時覆蓋（會刪掉整份現有副本）"
     )
 
+    extract = sub.add_parser(
+        "extract", help="掃描世界，產出待翻檔（唯讀掃描，只寫 sandbox）"
+    )
+    extract.add_argument("world", help="世界資料夾路徑")
+    extract.add_argument("--lang", default="zh_tw", help="目標語言，預設 zh_tw")
+    extract.add_argument("--namespace", default="mcmt", help="lang key 命名空間")
+    extract.add_argument("--out", default=None, help="產出目錄，預設 sandbox/.mcmt-out/<世界名>")
+    extract.add_argument(
+        "--replace", action="store_true", help="覆蓋既有的待翻檔（會蓋掉已填的譯文）"
+    )
+
     return parser
 
 
@@ -45,6 +57,27 @@ def main(argv: list[str] | None = None) -> int:
             return _user_error(exc)
         print(format_survey(survey))
         return 0 if survey.supported else 1
+
+    if args.command == "extract":
+        try:
+            summary = run_extract(
+                args.world,
+                language=args.lang,
+                namespace=args.namespace,
+                out=args.out,
+                replace=args.replace,
+            )
+        except FileExistsError as exc:
+            print(
+                f"mcmt: {exc} 已經存在。要覆蓋請加 --replace"
+                f"（那會蓋掉你已經填進去的譯文）。",
+                file=sys.stderr,
+            )
+            return 2
+        except (WorldNotFoundError, SafetyError, FileNotFoundError, OSError) as exc:
+            return _user_error(exc)
+        print(format_result(summary))
+        return 0
 
     if args.command == "sandbox" and args.sandbox_command == "import":
         try:

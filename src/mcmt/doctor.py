@@ -41,6 +41,7 @@ from mcmt.model.generation import generation_of
 from mcmt.nbtio.region import read_region, region_files
 from mcmt.nbtio.structure import ensure_supported_structure, load_chunk_root
 from mcmt.safety.paths import ensure_readable
+from mcmt.world import open_world, region_dirs_of
 from mcmt.scan.sources.region import scan_chunk
 
 __all__ = ["CorruptChunk", "WorldNotFoundError", "WorldSurvey", "survey_world"]
@@ -87,19 +88,8 @@ class WorldSurvey:
 def survey_world(world: Path | str) -> WorldSurvey:
     """掃過世界的每一個 region 檔，回傳統計。唯讀。"""
     world = Path(world)
-    if not world.is_dir():
-        raise WorldNotFoundError(f"找不到世界資料夾：{world}")
-
-    readable = ensure_readable(world)
-    region_dirs = sorted(
-        d.relative_to(readable) for d in readable.rglob("region") if d.is_dir()
-    )
-    if not region_dirs:
-        raise WorldNotFoundError(
-            f"{world} 底下找不到任何 region 目錄——這看起來不是一個世界資料夾"
-        )
-
-    survey = WorldSurvey(world=world, region_dirs=region_dirs)
+    readable = open_world(world)
+    survey = WorldSurvey(world=world, region_dirs=region_dirs_of(readable))
     for path in region_files(readable):
         survey.region_files += 1
         _survey_region(path, survey)
