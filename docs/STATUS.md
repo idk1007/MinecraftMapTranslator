@@ -3,7 +3,7 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-21**（M6、M7 完成，`mcmt extract` 可用）
+最後更新：**2026-08-21**（M10 進行中：lang 與 pack 完成）
 
 ---
 
@@ -291,20 +291,41 @@ MP2 全掃 12,262,582 個字串節點、96% 被擋、**0 漏**。
 
 ---
 
-## 下一步：M8 字寬校準，或先做 apply
+### M10 — resourcepack 後端（進行中）
 
-兩條路都可以，取決於你想先看到什麼：
+| 任務 | 狀態 |
+|---|---|
+| M10.1 `lang.py` 譯文 → lang 條目 | ✅ |
+| M10.2 `pack.py` resources.zip 產生與合併 | ✅ |
+| M10.3 `backend.py` editplan 產出 | 未做 |
+| M10.4 非塌縮樹的重建（`write/rebuild.py`） | 未做（屬 M11） |
 
-**M8 字寬校準（進遊戲量測，人工）** — `tools/calibrate_font_widths.py` 產生測試告示牌 →
-進遊戲截圖 → 回填量測表。ASCII 與 CJK 分開量。目前待翻檔的 `note` 寫的是「寬度上限 90px
-（未校準，僅供參考）」，校準後那句話才有意義，`enforcement` 也才能從 `warn` 升成 `error`。
+**M10.1 的關鍵決定**：譯者調換語序時，**樣式跟著它那段文字走，不跟著位置走**。第一版
+照段落序號輸出，結果把譯者寫的順序改回去了。§ 的顏色碼會重設格式，所以顏色必須寫在
+格式之前（`§l§c` 的粗體會被 `§c` 洗掉）。
 
-**M10 + M11（`mcmt apply`）** — 把翻好的檔案變成 `resources.zip` 並外科式寫回世界。
-做完就是完整的來回，可以真的翻一張地圖進遊戲看。
+**M10.2 落實了 M4-5 的教訓**：合併進地圖既有的舊 pack 時，**只加 `supported_formats`
+區間、不改它宣告的 `pack_format`**——那個數字是地圖作者寫的，改它等於謊報。加區間
+表達的是「這個 pack 在這個範圍內都能用」。這仍是在改地圖自己的檔案，所以報告會講。
 
-M11 開工前原本必補的 `[待驗]`（混合 list）**已於 2026-08-21 解決**——不用進遊戲，見下節。
+寫 M10.1 時發現 `segments.py` 的一個錯誤並修掉：**§ 碼只能開啟樣式，沒有關閉的方向**。
+`{"italic": false}`（壓掉物品名預設斜體的慣用法）因此**不可塌縮**——塌縮成 lang 值那個
+false 就沒了，物品名變回斜體。原本的判定只想到「顏色與粗斜體都寫得成 § 碼」。
 
-之後：`M12 自動化端到端 ─► M13 掃描廣度 ─► M14 CLI/報告/文件`
+---
+
+## 下一步：M10.3 editplan → M11 `mcmt apply`
+
+| 任務 | 驗收條件 |
+|---|---|
+| M10.3 editplan 產出 | 每個要改的節點一筆，帶 `expected_encoding`；`--dry-run` 的可檢查中間產物 |
+| M11 寫入層 | `legacy.py` 與 `native.py` **兩份分開的實作**、`rebuild.py`、分派器、`expected_encoding` 守門、list 同型提升計數、`apply_report.json`、in_place 四欄位 |
+
+**M11 的前置 `[待驗]` 已解除**（混合 list 由格式本身回答，見下節）。
+
+寫入層的兩個前提早就就位：`BackupSet`（M2.4）與 `ensure_writable`（M2.1）。
+
+之後：`M8 字寬校準（進遊戲）─► M12 自動化端到端 ─► M13 掃描廣度 ─► M14 CLI/報告/文件`
 
 ---
 
@@ -325,7 +346,7 @@ M11 開工前原本必補的 `[待驗]`（混合 list）**已於 2026-08-21 解�
 - `spike/.venv` 與 `spike/.venv_alt` 共 134 MB，已 gitignore。
 - `claude-code-stats/` 是**放在同一個資料夾裡的第三方工具**，與 mcmt 無關，已 gitignore。
 - 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 46 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
-- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 416 passed）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
+- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 453 passed）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
 - 跑 CLI：`.venv\Scripts\python -X utf8 -m mcmt.cli doctor "<世界資料夾>"`、`... -m mcmt.cli sandbox import "<來源世界>"`。**`-X utf8` 是必要的**，Windows 終端機的預設編碼會把中文報告印成亂碼。
 - `sandbox/` 已有一份 95 MB 的「100 Ways To Die」副本（gitignore）。M4 要的是 DataVersion 3955 的 chunk，那在 Minecraft Party 2；這份是 4325，可以留著當寫入測試的對象。
 - 測試 fixture 一律取自自建的 `TT_WORLD_NAME_PROBE`，不放語料地圖的內容（授權考量，見 M3 那節）。
