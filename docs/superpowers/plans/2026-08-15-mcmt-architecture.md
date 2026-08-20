@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. **Subagent 的任務範圍不得跨越模組邊界**（見 `docs/ownership.md`），尤其不得在非 write 任務中修改 `src/mcmt/write/` 或 `src/mcmt/safety/`。
 
-**Goal:** 把 Minecraft Java 1.21.11 冒險地圖裡的可見文字抽出、交 LLM 翻譯、以資源包路線產出中文化地圖，過程中除了必須修改的節點外不動存檔任何一個位元組。
+**Goal:** 把 Minecraft Java 1.21.11 冒險地圖裡的可見文字抽成一份人類好編輯的待翻檔，翻完之後以資源包路線寫回成中文化地圖，過程中除了必須修改的節點外不動存檔任何一個位元組。**翻譯由使用者自己完成，工具不碰任何 API。**
 
-**Architecture:** 五層流水線（掃描 → 建樹 → 規則標記 → 翻譯 → 輸出後端），四份 JSON 合約作為層間介面。寫入層獨立於輸出後端，負責 per-chunk DataVersion 分派、NBT list 同型、外科式重寫與備份。
+**Architecture:** 四層流水線（掃描 → 建樹 → 規則標記 → 輸出後端），四份 JSON 合約作為層間介面；翻譯是**使用者在兩個指令之間做的事**，不是流水線的一層。寫入層獨立於輸出後端，負責 per-chunk DataVersion 分派、NBT list 同型、外科式重寫與備份。
 
-**Tech Stack:** Python 3.11+ · `amulet-nbt` 2.1.8 · 自寫 anvil 層 · `anthropic`（可選）· stdlib · `pytest` + `jsonschema`（dev）· GPLv3
+**Tech Stack:** Python 3.11+ · `amulet-nbt` 2.1.8 · 自寫 anvil 層 · stdlib · `pytest` + `jsonschema`（dev）· GPLv3。**無網路相依。**
 
 **Spec:** `SPIKE_RESULT.md`（含 2026-08-16 第二輪 probe 結果）
 
@@ -107,7 +107,7 @@ McmtError
 | 合約 | 生產者 → 消費者 | 為什麼獨立存在 |
 |---|---|---|
 | `extract.json` | 第 3 層 → 第 4/5 層 | 掃描結果與翻譯解耦；可重跑翻譯而不重掃 |
-| `translations.<lang>.json` | 第 4 層 → 第 5 層 | 與 extract **欄位重疊 0%**；是人工複審介面；每語言一份；增量翻譯需要 diff 兩份 |
+| `translations.<lang>.json` | **使用者** → 第 5 層 | 與 extract **欄位重疊 0%**；是人工複審介面；每語言一份；增量翻譯需要 diff 兩份 |
 | `editplan.json` | 第 5 層 → 寫入層 | 輸出後端可插拔（決策 7）；`--dry-run` 的可檢查中間產物 |
 | `apply_report.json` | 寫入層 → 使用者 | 寫入層的拒絕原因需要機器可讀的出口 |
 
@@ -162,7 +162,7 @@ component 樹 ──攤平──► source.text = "[[0]]Cost:[[1]] 5 Coins"
                        occurrence.skeleton = 樹骨架（文字換成段落序號）
 ```
 
-- `[[n]]` 統一代表「一段格式的開始」，不分來源。LLM 看到的是不透明記號。
+- `[[n]]` 統一代表「一段格式的開始」，不分來源。翻譯的人看到的是不透明記號。**只有一段時完全不插標記**（SCHEMA_VERSION 4）。
 - `unit.collapsible` 決定寫回方式：
   - `true` → 整棵樹塌成一個 `{translate: key}`，樣式轉 § 碼進 lang 值
   - `false` → **重建整棵樹**，每段一個 key（`<key>.0`、`<key>.1`…）
@@ -185,7 +185,7 @@ component 樹 ──攤平──► source.text = "[[0]]Cost:[[1]] 5 Coins"
 
 初始預算（**全部 [待驗]**）：`sign` 90px×1 行不換行；`book_page` 114px×14 行可換行；其餘無硬限制。
 
-**校準提前到翻譯層之前**（rev.1 排在 M4.4 收尾）。理由：這是中翻專案，Minecraft 預設字型下 CJK 遠寬於拉丁字元，90 px 換算中文大約只有十個字。**寬度預算反向決定 prompt 怎麼寫**——要不要要求精簡、允不允許縮寫、要不要提供 `alternatives`。它是翻譯層的輸入，不是收尾校驗。
+**校準提前**（rev.1 排在 M4.4 收尾）。理由：這是中翻專案，Minecraft 預設字型下 CJK 遠寬於拉丁字元，90 px 換算中文大約只有十個字。**寬度預算是給翻譯的人看的**——他要知道「這行只放得下十個字」才有辦法斟酌用詞。所以它必須在人開始翻之前就寫進待翻檔的 `note`，不是事後才報超寬。
 
 **校準完成前 `enforcement` 一律 `warn`**——這條維持不變。
 
@@ -206,9 +206,9 @@ M2  安全層 ─► M3 nbtio ─► M4 legacy 寫入驗證（提前）
  ▼
 M5  model + 掃描 + 建樹 ─► M6 規則引擎 ─► M7 extract 產出
  ▼
-M8  字寬校準（在翻譯層之前）
+M8  字寬校準（給人翻譯時的寬度預算）
  ▼
-M9  翻譯層 ─► M10 resourcepack 後端 ─► M11 寫入層
+M10 resourcepack 後端 ─► M11 寫入層
  ▼
 M12 自動化端到端 ─► M13 掃描廣度 ─► M14 CLI/報告/文件
 ```
@@ -287,9 +287,11 @@ rev.1 排在 M7.4 最後。提前的理由：legacy 佔 **43%**（51,369 chunks�
 
 不動點迭代，**上限 32、超限 `RuleEngineDidNotConvergeError` 並列出最後一輪新增的標籤**。相同輸入標記結果穩定。denylist 回歸測試對 MP2 全掃，斷言 `LastOutput`(719)、`profile.properties[].value`、`palette[].Name` 一個都沒進 units。
 
-### M7 — extract 產出
+### M7 — `mcmt extract` 產出
 
 `keys.py`（16 hex + normalize + 碰撞硬失敗 + keymap）、`placeholders.py`（遮罩／還原／轉義／驗證）、`flatten.py`（樹攤平 + skeleton + collapsible 判定）、`constraints.py`、`emit.py`（schema 驗證）。
+
+**同時產出兩份檔案**：`extract.json`（機器用）與 `translations.<lang>.json`（**人直接編輯**，每筆自帶 `source`/`note`/`where`，`target` 留空）。後者的形狀是 SCHEMA_VERSION 4 的重點改動，驗收條件包含「不開 extract.json 就能翻完整份檔案」。
 
 `already_target_language` 以 CJK 字元比例粗略偵測，讓翻譯層跳過已是目標語言的 unit。
 
@@ -297,9 +299,26 @@ rev.1 排在 M7.4 最後。提前的理由：legacy 佔 **43%**（51,369 chunks�
 
 `tools/calibrate_font_widths.py` 產生測試告示牌 → 進遊戲截圖 → 回填量測表。ASCII 與 CJK 分開量。完成後才把 `sign` 的 `enforcement` 從 `warn` 升成 `error`。
 
-### M9 — 翻譯層
+### ~~M9 — 翻譯層~~ **已移出 v1（2026-08-21 決定）**
 
-provider 介面（`echo` + `anthropic`）、批次（同 `group_id` 同批、`--batch-api` 走 Batch API 省 50%）、prompt（用 `output_config.format` 結構化輸出，不用 prefill；預設 `claude-opus-5`）、驗證與重試、增量翻譯、詞彙表、prompt caching。
+> 原本規劃：provider 介面（`echo` + `anthropic`）、批次與 Batch API、prompt 與重試、
+> 增量翻譯、詞彙表、prompt caching。
+
+**取消內建 LLM 翻譯。** 核心工作流改成純檔案解耦：
+
+```
+mcmt extract → translations.<lang>.json（人直接編輯）→ mcmt apply
+```
+
+工具不做機器翻譯、不呼叫任何 API、沒有網路相依。使用者要用什麼翻（自己翻、找譯者、
+丟給任何工具）都是他家的事，而那也表示**沒有金鑰管理、沒有速率限制、沒有供應商相依**
+這些與「安全地改別人的地圖」無關的複雜度。
+
+原本屬於 M9 的兩件事仍然需要，但搬到別處：
+
+* **佔位符驗證**（hard fail）→ M11 寫入層的守門，外加一個獨立的 `mcmt check`。
+  規則不因為「翻譯的是人」而放寬——人會犯的錯和機器一樣多。
+* **寬度量測** → M8 產出的量測表，`mcmt check` 用它報告超寬。
 
 ### M10 — resourcepack 後端
 

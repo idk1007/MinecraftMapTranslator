@@ -16,8 +16,6 @@ dependencies = [
 [project.optional-dependencies]
 # 執行期可選：讀取 LZ4 壓縮（type 4）的 chunk
 lz4 = ["lz4>=4"]
-# 執行期可選：翻譯層的 anthropic provider
-llm = ["anthropic>=0.40"]
 # dev/test 專用。jsonschema 不是執行期相依（CLAUDE.md §四）
 dev = [
     "pytest>=8",

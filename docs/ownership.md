@@ -13,10 +13,9 @@
    │                                      │
    │                                 extract.json
    │                                      ▼
-   ├── translate/                                   第 4 層：翻
-   │                                 translations.json
+   │        translations.<lang>.json  ← **使用者自己填**（工具不做機器翻譯）
    │                                      ▼
-   ├── backends/                                    第 5 層：決定寫什麼
+   ├── backends/                                    第 4 層：決定寫什麼
    │                                  editplan.json
    │                                      ▼
    └── write/  ◄── safety/                          寫入層：決定怎麼安全地寫
@@ -24,7 +23,7 @@
         └── nbtio/                                  第 0 層：位元組
 ```
 
-**相依只能往下。** `nbtio/` 不得 import `rules/`；`translate/` 不得 import `nbtio/`；`backends/` 不得 import `write/`（它只產 editplan，由 `cli/apply` 交給 writer）。
+**相依只能往下。** `nbtio/` 不得 import `rules/`；`backends/` 不得 import `write/`（它只產 editplan，由 `cli/apply` 交給 writer）。
 
 **例外（2026-08-17，M2.5）**：`nbtio/` **可以** import `safety/paths.py`。`read_region` 只收 `ReadOnlyPath`，讓「忘了過 `ensure_readable`」在型別層就被擋下，而不是靠呼叫端自律。方向上沒有環——`safety/` 只 import `errors`，永遠不會 import `nbtio/`。上圖把 `safety/` 畫在 `write/` 旁邊是因為它最初只服務寫入路徑；實際上它是所有層都能倚賴的底層設施。
 
@@ -58,7 +57,7 @@
 
 1. **合約改動** — schema 一改，上下游同時要動，且 sample fixture 必須同 commit 更新。
 2. **M4 → M7** — 寫入層的 `expected_encoding` 守門依賴 extract 的 `encoding` 判定穩定。`encoding` 現在是逐節點嗅探的結果，嗅探規則一改，所有既有 editplan 立即失效。
-3. **首次端到端** — extract → translate → apply 第一次接在真實資料上跑。前面每一層的單元測試都通過，不代表接起來會動。
+3. **首次端到端** — extract →（人翻）→ apply 第一次接在真實資料上跑。前面每一層的單元測試都通過，不代表接起來會動。
 
 ## 工作紀律
 

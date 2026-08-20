@@ -20,6 +20,29 @@ Minecraft 地圖翻譯工具。Python 3.11+ · GPLv3 · 目標版本 Java Editio
 
 ---
 
+## 零之二、核心工作流：純檔案解耦
+
+**工具不做機器翻譯，不呼叫任何 API，沒有網路相依。** 兩個指令，中間是使用者自己的時間：
+
+```
+mcmt extract <sandbox 世界>          → extract.json（機器用）
+                                     → translations.<lang>.json（**人直接編輯**）
+        ↓  使用者用任何編輯器把 target 填上
+mcmt apply <sandbox 世界> --translations translations.<lang>.json
+                                     → resources.zip + 外科式寫回 + apply_report.json
+```
+
+`translations.<lang>.json` 是**這個專案唯一給人手動編輯的檔案**，所以它的形狀有硬要求：
+
+- **每筆自帶原文**（`source`）、位置（`where`）與提示（`note`）。人不該為了知道自己在翻什麼而回頭開 `extract.json`。
+- **`apply` 只讀 `target`。** `source` 不拿去比對——翻譯途中把它改短或加註是常見的事，那不該讓整份檔案失效。與某一份 extract 的綁定靠 `extract_fingerprint`。
+- **空的 `target` = 尚未翻譯**，`apply` 保留原文並列進報告。`status: skip` 是「刻意不翻」，報告要分得開這兩件事。
+- **只有一個段落時不插 `[[n]]` 標記**——純文字就是純文字。每行都掛一個無意義的前綴，譯者很容易順手刪掉，而刪掉之後佔位符驗證會硬失敗，錯卻是我們造成的。
+
+`[[n]]` 佔位符驗證的規則不因為「翻譯的是人不是 LLM」而放寬：多一個、少一個、重複都是 hard fail（理由見三節）。人會犯的錯和機器一樣多，而 § 格式碼染到行尾的後果一樣。
+
+---
+
 ## 一、安全規則（不可協商）
 
 沒有例外、沒有 flag 可以關掉、不接受「暫時先這樣」。
@@ -190,7 +213,7 @@ CompoundTag({"text": "文字"})          # 官方文件形狀
 
 處理方式：
 
-1. **攤平**成單一字串給 LLM，每段格式的起點插一個 `[[n]]` 標記 → `source.text`。§ 舊碼與結構化格式**是同一套佔位符機制的兩種輸入**，不是兩條路。
+1. **攤平**成單一字串，每段格式的起點插一個 `[[n]]` 標記 → `source.text`（**只有一段時不插**，見下）。§ 舊碼與結構化格式**是同一套佔位符機制的兩種輸入**，不是兩條路。
 2. 段落的**樣式值**存在 `occurrence.segment_styles`（per-occurrence），**樹的骨架**存在 `occurrence.skeleton`。
 3. `unit.collapsible` 決定寫回方式：
    - `true` → 整棵樹塌成一個 `{translate: key}`，樣式轉成 § 碼進 lang 檔值。
@@ -320,7 +343,7 @@ discriminator = blake2b(hash_input.encode("utf-8"), digest_size=8).hexdigest()
 
 ### 相依
 
-執行期只允許 `amulet-nbt` + stdlib。`anthropic` 僅 `mcmt.translate` 使用且為可選（`pip install mcmt[llm]`）；`lz4` 可選。
+執行期只允許 `amulet-nbt` + stdlib；`lz4` 可選。**沒有任何網路相依**——工具不做機器翻譯，也不呼叫任何 API（見「零之二、核心工作流」）。
 
 **`jsonschema` 是 dev/test 相依，不是執行期相依。**
 - CI 對 `tests/fixtures/contracts/*.sample.json` 跑 schema 驗證。
