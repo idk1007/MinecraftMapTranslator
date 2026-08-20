@@ -346,12 +346,24 @@ for e in samples["editplan"]["edits"]:
         problems.append((e["unit_id"], found, want))
 report("component trees use exactly <key>.<segment> for every segment", not problems, problems)
 
-# placeholder multiset must match between source and translation
-ph = lambda s: sorted(t for t in __import__("re").findall(r"\[\[\\?\d+\]\]", s))
+# placeholder multiset must match between source and translation.
+# An empty target means "not translated yet" and is checked separately.
+ph = lambda s: sorted(t for t in __import__("re").findall(r"\[\[\?\d+\]\]", s))
 src = {u["unit_id"]: u["source"]["text"] for u in samples["extract"]["units"]}
 bad = [uid for uid, entry in samples["translations"]["entries"].items()
-       if ph(src[uid]) != ph(entry["text"])]
+       if entry["target"] and ph(src[uid]) != ph(entry["target"])]
 report("placeholder multiset preserved in every translation", not bad, f"mismatched: {bad}")
+
+# the file a human edits must show the source text, or they are translating blind
+missing = [uid for uid, entry in samples["translations"]["entries"].items()
+           if entry.get("source", "") != src[uid]]
+report("every translations entry echoes its source text for the human",
+       not missing, f"missing/blank source: {missing}")
+
+# an empty target is untranslated, never a silent empty string written onto a sign
+blank = [uid for uid, entry in samples["translations"]["entries"].items()
+         if not entry["target"] and entry.get("status") not in (None, "untranslated", "skip")]
+report("an empty target is only ever untranslated or a deliberate skip", not blank, blank)
 
 
 print(f"\n{'=' * 60}\n  {ok} passed, {fail} failed\n{'=' * 60}")

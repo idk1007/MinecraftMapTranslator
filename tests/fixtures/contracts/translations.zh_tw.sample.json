@@ -1,6 +1,6 @@
 {
   "format": "mcmt-translations",
-  "schema_version": 3,
+  "schema_version": 4,
   "generated_at": "2026-08-16T09:31:44Z",
   "language": "zh_tw",
   "extract_ref": {
@@ -13,80 +13,57 @@
   },
   "entries": {
     "u:sign:7f3a91c204d5e618": {
-      "text": "[[0]]警告：前方危險",
-      "status": "translated",
-      "origin": "machine",
-      "measured_width_px": 81,
-      "warnings": [],
-      "notes": ""
+      "source": "WARNING: DANGER AHEAD",
+      "target": "警告：前方危險",
+      "note": "sign・寬度上限 90px",
+      "where": "minecraft:overworld 123,64,-45",
+      "measured_width_px": 81
     },
     "u:sign:aa10bc9d31f2e470": {
-      "text": "[[0]]花費：[[1]] 5 枚金幣",
-      "status": "translated",
-      "origin": "machine",
-      "measured_width_px": 88,
-      "warnings": [],
-      "notes": "Placeholder order preserved; segment 1 keeps its own gold colour."
+      "source": "[[0]]Cost:[[1]] 5 Coins",
+      "target": "[[0]]花費：[[1]] 5 枚金幣",
+      "note": "sign・寬度上限 90px・必須保留 [[0]] [[1]]（順序可調）",
+      "where": "minecraft:overworld 123,64,-45",
+      "measured_width_px": 88
     },
     "u:sign:0e77f2a5cc31b409": {
-      "text": "按 [[\\0]] 繼續",
-      "status": "translated",
-      "origin": "machine",
-      "measured_width_px": 63,
-      "warnings": [],
-      "notes": "The escaped literal [[0]] is carried through untouched."
+      "source": "Press [[\\0]] to continue",
+      "target": "按 [[\\0]] 繼續",
+      "note": "sign・寬度上限 90px",
+      "where": "minecraft:overworld 88,70.5,12",
+      "measured_width_px": 63
     },
     "u:command_text:31c9de07aa5b1e62": {
-      "text": "盜星者",
-      "status": "needs_review",
-      "origin": "machine",
-      "measured_width_px": 27,
-      "warnings": ["low_confidence"],
-      "notes": "Proper noun; may be a minigame name that should stay in English.",
-      "alternatives": ["Star Stealer", "偷星賊"]
+      "source": "Star Stealer",
+      "target": "盜星者",
+      "note": "command_text・寬度上限 90px",
+      "where": "minecraft:overworld 88,70,12",
+      "measured_width_px": 27
     },
     "u:hover_text:5d2e88a10c47bb39": {
-      "text": "遠古祕典",
-      "status": "translated",
-      "origin": "glossary",
-      "measured_width_px": 36,
-      "warnings": [],
-      "notes": "Term fixed by glossary."
+      "source": "Ancient Tome of Secrets",
+      "target": "遠古祕典",
+      "note": "hover_text",
+      "measured_width_px": 36
     },
     "u:sign:b31f00ac5d7e2916": {
-      "text": "歡迎來到大廳",
-      "status": "translated",
-      "origin": "machine",
-      "measured_width_px": 54,
-      "warnings": [],
-      "notes": "Two occurrences share this source. Only the DV 3955 one is writable; the DV 4556 one is excluded at extract time because the game renders legacy JSON literally there."
+      "source": "Welcome to the Lobby",
+      "target": "歡迎來到大廳",
+      "note": "sign・寬度上限 90px",
+      "where": "minecraft:overworld -40,65.5,208",
+      "measured_width_px": 54
     },
     "u:level_name:c4b8210f9e3a7d51": {
-      "text": "[[0]][[1]]M [[2]]Minecraft 派對",
-      "status": "translated",
-      "origin": "machine",
-      "measured_width_px": null,
-      "warnings": [],
-      "notes": "Written into level.dat as literal text; cannot use a translate key."
-    }
-  },
-  "run": {
-    "provider": "anthropic",
-    "model": "claude-opus-5",
-    "batch_id": null,
-    "started_at": "2026-08-16T09:30:02Z",
-    "finished_at": "2026-08-16T09:31:44Z",
-    "usage": {
-      "input_tokens": 4180,
-      "output_tokens": 612,
-      "cache_read_input_tokens": 3072
+      "source": "[[0]][[1]]M [[2]]Minecraft Party",
+      "target": "[[0]][[1]]M [[2]]Minecraft 派對",
+      "note": "level_name・必須保留 [[0]] [[1]] [[2]]（順序可調）"
     }
   },
   "stats": {
-    "translated": 6,
-    "needs_review": 1,
+    "total": 7,
+    "translated": 7,
+    "untranslated": 0,
     "skipped": 0,
-    "rejected_placeholder_mismatch": 0,
-    "overflow": 0
+    "rejected": 0
   }
 }

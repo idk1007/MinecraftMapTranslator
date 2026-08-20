@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/mcmt/mcmt/schemas/translations.schema.json",
   "title": "mcmt translations document",
-  "description": "Layer 4 (translation) output, one file per target language, consumed by Layer 5 (output backends). Kept separate from extract.json: it shares zero fields with it (unit_id is a foreign key, not a copy), it is the human review surface, it is written once per target language, and incremental runs diff two of these against each other.",
+  "description": "★ THE FILE THE USER EDITS. `mcmt extract` writes one of these per target language with every `target` empty; the user fills them in with any editor; `mcmt apply` reads it back. mcmt does no machine translation and talks to no API. Self-contained on purpose: each entry carries the source text and a human-readable note so the file can be translated without cross-referencing extract.json. Kept separate from extract.json because it is written once per target language and incremental runs diff two of these against each other.",
   "type": "object",
   "required": ["format", "schema_version", "language", "extract_ref", "entries"],
   "additionalProperties": false,
@@ -10,7 +10,7 @@
     "format": { "const": "mcmt-translations" },
     "schema_version": {
       "type": "integer",
-      "const": 3,
+      "const": 4,
       "description": "Shared by all four mcmt contracts. Mismatch is fatal; there is no migration path."
     },
     "generated_at": { "type": "string", "format": "date-time" },
@@ -41,41 +41,21 @@
 
     "entries": {
       "type": "object",
-      "description": "unit_id -> entry. A unit_id present in the extract but absent here is untranslated: apply leaves the source text in place and reports it in apply_report.",
+      "description": "unit_id -> entry. A unit_id absent here, or present with an empty `target`, is untranslated: apply leaves the original text in place and reports it. Deleting entries you do not want to translate is therefore safe.",
       "propertyNames": { "pattern": "^u:[a-z0-9_]+:[0-9a-f]{16}(_[0-9]+)?$" },
       "additionalProperties": { "$ref": "#/$defs/entry" }
-    },
-
-    "run": {
-      "type": "object",
-      "additionalProperties": true,
-      "properties": {
-        "provider": { "type": "string" },
-        "model": { "type": "string" },
-        "batch_id": { "type": ["string", "null"] },
-        "started_at": { "type": "string", "format": "date-time" },
-        "finished_at": { "type": "string", "format": "date-time" },
-        "usage": {
-          "type": "object",
-          "additionalProperties": true,
-          "properties": {
-            "input_tokens": { "type": "integer" },
-            "output_tokens": { "type": "integer" },
-            "cache_read_input_tokens": { "type": "integer" }
-          }
-        }
-      }
     },
 
     "stats": {
       "type": "object",
       "additionalProperties": true,
+      "description": "Counts written by extract when it generates the skeleton, and refreshed by `mcmt check`. Purely informational -- apply recounts everything itself.",
       "properties": {
+        "total": { "type": "integer", "minimum": 0 },
         "translated": { "type": "integer", "minimum": 0 },
-        "needs_review": { "type": "integer", "minimum": 0 },
+        "untranslated": { "type": "integer", "minimum": 0 },
         "skipped": { "type": "integer", "minimum": 0 },
-        "rejected_placeholder_mismatch": { "type": "integer", "minimum": 0 },
-        "overflow": { "type": "integer", "minimum": 0 }
+        "rejected": { "type": "integer", "minimum": 0 }
       }
     }
   },
@@ -83,24 +63,35 @@
   "$defs": {
     "entry": {
       "type": "object",
-      "required": ["text", "status"],
+      "required": ["target"],
       "additionalProperties": false,
+      "description": "One translatable unit as the user sees it. Only `target` is read by apply; everything else exists so a person can translate the file without opening extract.json.",
       "properties": {
-        "text": {
+        "source": {
           "type": "string",
-          "description": "The translated string in the same [[n]] placeholder convention as source.text. The placeholder multiset MUST be identical to the source's -- not a token more, not a token fewer, no duplicates. This is a HARD failure, never a warning: § formatting runs stay in effect until §r or end of line, so one dropped token bleeds colour across the rest of the sign. Token ORDER may differ, because Chinese reorders clauses."
+          "description": "The original text, echoed here for the human. apply does NOT compare it against the extract -- a translator may shorten or annotate it while working, and that must not invalidate the file. The binding to a specific extract is extract_ref.extract_fingerprint, not this."
+        },
+        "target": {
+          "type": "string",
+          "description": "★ THE ONLY FIELD apply READS. Empty string means untranslated: apply leaves the original in place and reports it. The [[n]] placeholder multiset MUST match `source` exactly -- not a token more, not a token fewer, no duplicates. This is a HARD failure, never a warning: § formatting runs stay in effect until §r or end of line, so one dropped token bleeds colour across the rest of the sign. Token ORDER may differ, because Chinese reorders clauses. Text with no styling carries no tokens at all."
+        },
+        "note": {
+          "type": "string",
+          "description": "Human-readable guidance written by extract: what kind of text this is, its width budget, and what the [[n]] tokens mean. Free text; apply ignores it."
+        },
+        "where": {
+          "type": "string",
+          "description": "Human-readable location, e.g. 'overworld 123,64,-45 sign front line 2'. Free text; apply ignores it. The machine-readable location lives in extract.json."
         },
         "status": {
           "type": "string",
-          "enum": ["translated", "needs_review", "skipped", "unchanged", "rejected"],
-          "description": "rejected: the validator refused this translation (placeholder mismatch after retry). apply MUST NOT write a rejected entry; it goes to apply_report.unwritten instead."
+          "enum": ["untranslated", "translated", "skip", "rejected"],
+          "description": "Optional. Absent means: derive it from `target` being empty or not. `skip` records a deliberate decision not to translate this unit, which is different from having forgotten it -- the report separates the two. `rejected` is written by `mcmt check`/`apply` when validation refuses the translation; apply MUST NOT write a rejected entry, it goes to apply_report.unwritten instead."
         },
-        "origin": {
-          "type": "string",
-          "enum": ["machine", "human", "glossary", "carried_over"],
-          "default": "machine"
+        "measured_width_px": {
+          "type": ["integer", "null"],
+          "description": "Filled in by `mcmt check`, not by the user."
         },
-        "measured_width_px": { "type": ["integer", "null"] },
         "warnings": {
           "type": "array",
           "items": {
@@ -113,17 +104,10 @@
               "placeholder_front_loaded",
               "empty_translation",
               "untranslated_identical",
-              "contains_section_sign",
-              "low_confidence"
+              "contains_section_sign"
             ]
           },
-          "description": "placeholder_front_loaded: the token multiset matches but every token migrated to the head of the string, e.g. '[[0]][[1]]文字'. The set check passes while the styling is destroyed, so this is checked separately and reported as a warning for human review."
-        },
-        "notes": { "type": "string" },
-        "alternatives": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Shorter renderings offered after a width-overflow retry, best first."
+          "description": "Written by `mcmt check`, not by the user. placeholder_front_loaded: the token multiset matches but every token migrated to the head of the string, e.g. '[[0]][[1]]文字'. The set check passes while the styling is destroyed, so it is checked separately and reported for human review."
         }
       }
     }

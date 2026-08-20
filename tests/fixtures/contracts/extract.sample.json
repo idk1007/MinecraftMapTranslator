@@ -1,6 +1,6 @@
 {
   "format": "mcmt-extract",
-  "schema_version": 3,
+  "schema_version": 4,
   "generated_at": "2026-08-16T09:14:02Z",
   "generator": {
     "tool": "mcmt",
@@ -10,7 +10,9 @@
   "project": {
     "namespace": "mcmt",
     "source_language": "en_us",
-    "target_languages": ["zh_tw"],
+    "target_languages": [
+      "zh_tw"
+    ],
     "glossary_ref": null
   },
   "world": {
@@ -18,8 +20,14 @@
     "level_data_version": 4671,
     "world_fingerprint": "blake2b:9c1f0a44d2e7b381",
     "extract_fingerprint": "blake2b:41b0c7de99a2f005",
-    "dimensions": ["minecraft:overworld"],
-    "chunk_data_version_histogram": { "3955": 12, "4556": 340, "4671": 3607 }
+    "dimensions": [
+      "minecraft:overworld"
+    ],
+    "chunk_data_version_histogram": {
+      "3955": 12,
+      "4556": 340,
+      "4671": 3607
+    }
   },
   "stats": {
     "unit_count": 7,
@@ -27,7 +35,12 @@
     "deduped_count": 1,
     "skipped_unparseable": 2,
     "skipped_legacy_json_in_native_chunk": 1,
-    "by_category": { "sign": 4, "level_name": 1, "hover_text": 1, "book_title": 1 }
+    "by_category": {
+      "sign": 4,
+      "level_name": 1,
+      "hover_text": 1,
+      "book_title": 1
+    }
   },
   "units": [
     {
@@ -37,9 +50,14 @@
       "strategy": "translate_key",
       "collapsible": true,
       "source": {
-        "text": "[[0]]WARNING: DANGER AHEAD",
+        "text": "WARNING: DANGER AHEAD",
         "plain": "WARNING: DANGER AHEAD",
-        "segments": [{ "kind": "legacy", "sigma_expressible": true }]
+        "segments": [
+          {
+            "kind": "legacy",
+            "sigma_expressible": true
+          }
+        ]
       },
       "constraints": {
         "max_width_px": 90,
@@ -54,10 +72,18 @@
         "hint": "Sign at spawn plaza, front face, line 1 of 4",
         "group_id": "g:block:minecraft:overworld:123,64,-45:front_text",
         "group_index": 0,
-        "siblings": ["u:sign:aa10bc9d31f2e470"],
-        "neighbour_text": ["Do not jump"],
+        "siblings": [
+          "u:sign:aa10bc9d31f2e470"
+        ],
+        "neighbour_text": [
+          "Do not jump"
+        ],
         "dimension": "minecraft:overworld",
-        "position": [123, 64, -45]
+        "position": [
+          123,
+          64,
+          -45
+        ]
       },
       "occurrences": [
         {
@@ -66,21 +92,50 @@
             "kind": "region_chunk",
             "path": "region/r.0.0.mca",
             "dimension": "minecraft:overworld",
-            "chunk": { "cx": 7, "cz": -3 },
+            "chunk": {
+              "cx": 7,
+              "cz": -3
+            },
             "data_version": 4671,
             "compression": 2,
             "external": false
           },
-          "anchor": { "kind": "block", "id": "minecraft:sign", "x": 123, "y": 64, "z": -45, "uuid": null },
+          "anchor": {
+            "kind": "block",
+            "id": "minecraft:sign",
+            "x": 123,
+            "y": 64,
+            "z": -45,
+            "uuid": null
+          },
           "node_path": [
-            { "t": "key", "name": "block_entities" },
-            { "t": "index", "i": 3 },
-            { "t": "key", "name": "front_text" },
-            { "t": "key", "name": "messages" },
-            { "t": "index", "i": 0 }
+            {
+              "t": "key",
+              "name": "block_entities"
+            },
+            {
+              "t": "index",
+              "i": 3
+            },
+            {
+              "t": "key",
+              "name": "front_text"
+            },
+            {
+              "t": "key",
+              "name": "messages"
+            },
+            {
+              "t": "index",
+              "i": 0
+            }
           ],
           "encoding": "empty_key_compound",
-          "segment_styles": [{ "codes": "§c" }],
+          "segment_styles": [
+            {
+              "codes": "§c"
+            }
+          ],
           "skeleton": null,
           "raw_snapshot": "§cWARNING: DANGER AHEAD",
           "list_context": {
@@ -93,7 +148,6 @@
       ],
       "flags": []
     },
-
     {
       "unit_id": "u:sign:aa10bc9d31f2e470",
       "key": "mcmt.sign.aa10bc9d31f2e470",
@@ -104,8 +158,14 @@
         "text": "[[0]]Cost:[[1]] 5 Coins",
         "plain": "Cost: 5 Coins",
         "segments": [
-          { "kind": "structural", "sigma_expressible": false },
-          { "kind": "structural", "sigma_expressible": true }
+          {
+            "kind": "structural",
+            "sigma_expressible": false
+          },
+          {
+            "kind": "structural",
+            "sigma_expressible": true
+          }
         ]
       },
       "constraints": {
@@ -121,10 +181,18 @@
         "hint": "Sign on a slot machine, front face line 2. Source is a nested translate component with its own fallback text.",
         "group_id": "g:block:minecraft:overworld:123,64,-45:front_text",
         "group_index": 1,
-        "siblings": ["u:sign:7f3a91c204d5e618"],
-        "neighbour_text": ["WARNING: DANGER AHEAD"],
+        "siblings": [
+          "u:sign:7f3a91c204d5e618"
+        ],
+        "neighbour_text": [
+          "WARNING: DANGER AHEAD"
+        ],
         "dimension": "minecraft:overworld",
-        "position": [123, 64, -45]
+        "position": [
+          123,
+          64,
+          -45
+        ]
       },
       "occurrences": [
         {
@@ -133,28 +201,65 @@
             "kind": "region_chunk",
             "path": "region/r.0.0.mca",
             "dimension": "minecraft:overworld",
-            "chunk": { "cx": 7, "cz": -3 },
+            "chunk": {
+              "cx": 7,
+              "cz": -3
+            },
             "data_version": 4556,
             "compression": 2,
             "external": false
           },
-          "anchor": { "kind": "block", "id": "minecraft:sign", "x": 123, "y": 64, "z": -45, "uuid": null },
+          "anchor": {
+            "kind": "block",
+            "id": "minecraft:sign",
+            "x": 123,
+            "y": 64,
+            "z": -45,
+            "uuid": null
+          },
           "node_path": [
-            { "t": "key", "name": "block_entities" },
-            { "t": "index", "i": 3 },
-            { "t": "key", "name": "front_text" },
-            { "t": "key", "name": "messages" },
-            { "t": "index", "i": 1 }
+            {
+              "t": "key",
+              "name": "block_entities"
+            },
+            {
+              "t": "index",
+              "i": 3
+            },
+            {
+              "t": "key",
+              "name": "front_text"
+            },
+            {
+              "t": "key",
+              "name": "messages"
+            },
+            {
+              "t": "index",
+              "i": 1
+            }
           ],
           "encoding": "compound_tree",
           "segment_styles": [
-            { "translate": "mcp.Cost_", "fallback": "Cost:" },
-            { "translate": "mcp.CenterParkSlotMachineCost", "fallback": " 5 Coins", "color": "gold" }
+            {
+              "translate": "mcp.Cost_",
+              "fallback": "Cost:"
+            },
+            {
+              "translate": "mcp.CenterParkSlotMachineCost",
+              "fallback": " 5 Coins",
+              "color": "gold"
+            }
           ],
           "skeleton": {
             "type": "translate",
             "segment": 0,
-            "extra": [{ "type": "translate", "segment": 1 }]
+            "extra": [
+              {
+                "type": "translate",
+                "segment": 1
+              }
+            ]
           },
           "raw_snapshot": null,
           "list_context": {
@@ -165,9 +270,10 @@
           }
         }
       ],
-      "flags": ["non_collapsible_tree"]
+      "flags": [
+        "non_collapsible_tree"
+      ]
     },
-
     {
       "unit_id": "u:sign:0e77f2a5cc31b409",
       "key": "mcmt.sign.0e77f2a5cc31b409",
@@ -177,8 +283,15 @@
       "source": {
         "text": "Press [[\\0]] to continue",
         "plain": "Press [[0]] to continue",
-        "segments": [{ "kind": "none", "sigma_expressible": true }],
-        "escaped_literals": ["[[0]]"]
+        "segments": [
+          {
+            "kind": "none",
+            "sigma_expressible": true
+          }
+        ],
+        "escaped_literals": [
+          "[[0]]"
+        ]
       },
       "constraints": {
         "max_width_px": 90,
@@ -196,7 +309,11 @@
         "siblings": [],
         "neighbour_text": [],
         "dimension": "minecraft:overworld",
-        "position": [88, 70.5, 12]
+        "position": [
+          88,
+          70.5,
+          12
+        ]
       },
       "occurrences": [
         {
@@ -205,21 +322,48 @@
             "kind": "region_chunk",
             "path": "region/r.0.0.mca",
             "dimension": "minecraft:overworld",
-            "chunk": { "cx": 5, "cz": 0 },
+            "chunk": {
+              "cx": 5,
+              "cz": 0
+            },
             "data_version": 4556,
             "compression": 2,
             "external": false
           },
-          "anchor": { "kind": "block", "id": "minecraft:sign", "x": 88, "y": 70, "z": 12, "uuid": null },
+          "anchor": {
+            "kind": "block",
+            "id": "minecraft:sign",
+            "x": 88,
+            "y": 70,
+            "z": 12,
+            "uuid": null
+          },
           "node_path": [
-            { "t": "key", "name": "block_entities" },
-            { "t": "index", "i": 0 },
-            { "t": "key", "name": "back_text" },
-            { "t": "key", "name": "messages" },
-            { "t": "index", "i": 2 }
+            {
+              "t": "key",
+              "name": "block_entities"
+            },
+            {
+              "t": "index",
+              "i": 0
+            },
+            {
+              "t": "key",
+              "name": "back_text"
+            },
+            {
+              "t": "key",
+              "name": "messages"
+            },
+            {
+              "t": "index",
+              "i": 2
+            }
           ],
           "encoding": "bare_string",
-          "segment_styles": [{}],
+          "segment_styles": [
+            {}
+          ],
           "skeleton": null,
           "raw_snapshot": "Press [[0]] to continue",
           "list_context": {
@@ -230,9 +374,10 @@
           }
         }
       ],
-      "flags": ["contains_placeholder_like_text"]
+      "flags": [
+        "contains_placeholder_like_text"
+      ]
     },
-
     {
       "unit_id": "u:command_text:31c9de07aa5b1e62",
       "key": "mcmt.command_text.31c9de07aa5b1e62",
@@ -242,7 +387,12 @@
       "source": {
         "text": "Star Stealer",
         "plain": "Star Stealer",
-        "segments": [{ "kind": "none", "sigma_expressible": true }]
+        "segments": [
+          {
+            "kind": "none",
+            "sigma_expressible": true
+          }
+        ]
       },
       "constraints": {
         "max_width_px": 90,
@@ -260,7 +410,11 @@
         "siblings": [],
         "neighbour_text": [],
         "dimension": "minecraft:overworld",
-        "position": [88, 70, 12]
+        "position": [
+          88,
+          70,
+          12
+        ]
       },
       "occurrences": [
         {
@@ -269,24 +423,65 @@
             "kind": "region_chunk",
             "path": "region/r.0.0.mca",
             "dimension": "minecraft:overworld",
-            "chunk": { "cx": 5, "cz": 0 },
+            "chunk": {
+              "cx": 5,
+              "cz": 0
+            },
             "data_version": 4556,
             "compression": 2,
             "external": false
           },
-          "anchor": { "kind": "block", "id": "minecraft:command_block", "x": 88, "y": 70, "z": 12, "uuid": null },
+          "anchor": {
+            "kind": "block",
+            "id": "minecraft:command_block",
+            "x": 88,
+            "y": 70,
+            "z": 12,
+            "uuid": null
+          },
           "node_path": [
-            { "t": "key", "name": "block_entities" },
-            { "t": "index", "i": 0 },
-            { "t": "key", "name": "Command" },
-            { "t": "decode", "codec": "command", "arg": "nbt", "span": [31, 96] },
-            { "t": "key", "name": "front_text" },
-            { "t": "key", "name": "messages" },
-            { "t": "index", "i": 0 },
-            { "t": "key", "name": "text" }
+            {
+              "t": "key",
+              "name": "block_entities"
+            },
+            {
+              "t": "index",
+              "i": 0
+            },
+            {
+              "t": "key",
+              "name": "Command"
+            },
+            {
+              "t": "decode",
+              "codec": "command",
+              "arg": "nbt",
+              "span": [
+                31,
+                96
+              ]
+            },
+            {
+              "t": "key",
+              "name": "front_text"
+            },
+            {
+              "t": "key",
+              "name": "messages"
+            },
+            {
+              "t": "index",
+              "i": 0
+            },
+            {
+              "t": "key",
+              "name": "text"
+            }
           ],
           "encoding": "text_compound",
-          "segment_styles": [{}],
+          "segment_styles": [
+            {}
+          ],
           "skeleton": null,
           "raw_snapshot": "Star Stealer",
           "list_context": {
@@ -297,9 +492,10 @@
           }
         }
       ],
-      "flags": ["nested_in_command"]
+      "flags": [
+        "nested_in_command"
+      ]
     },
-
     {
       "unit_id": "u:hover_text:5d2e88a10c47bb39",
       "key": "mcmt.hover_text.5d2e88a10c47bb39",
@@ -309,7 +505,12 @@
       "source": {
         "text": "Ancient Tome of Secrets",
         "plain": "Ancient Tome of Secrets",
-        "segments": [{ "kind": "structural", "sigma_expressible": false }]
+        "segments": [
+          {
+            "kind": "structural",
+            "sigma_expressible": false
+          }
+        ]
       },
       "constraints": {
         "max_width_px": null,
@@ -336,36 +537,92 @@
             "kind": "region_chunk",
             "path": "region/r.0.0.mca",
             "dimension": "minecraft:overworld",
-            "chunk": { "cx": 2, "cz": 1 },
+            "chunk": {
+              "cx": 2,
+              "cz": 1
+            },
             "data_version": 4556,
             "compression": 2,
             "external": false
           },
-          "anchor": { "kind": "block", "id": "minecraft:lectern", "x": 40, "y": 65, "z": 8, "uuid": null },
+          "anchor": {
+            "kind": "block",
+            "id": "minecraft:lectern",
+            "x": 40,
+            "y": 65,
+            "z": 8,
+            "uuid": null
+          },
           "node_path": [
-            { "t": "key", "name": "block_entities" },
-            { "t": "index", "i": 1 },
-            { "t": "key", "name": "Book" },
-            { "t": "key", "name": "components" },
-            { "t": "key", "name": "minecraft:written_book_content" },
-            { "t": "key", "name": "pages" },
-            { "t": "index", "i": 0 },
-            { "t": "key", "name": "raw" },
-            { "t": "key", "name": "extra" },
-            { "t": "index", "i": 2 },
-            { "t": "key", "name": "hover_event" },
-            { "t": "key", "name": "name" }
+            {
+              "t": "key",
+              "name": "block_entities"
+            },
+            {
+              "t": "index",
+              "i": 1
+            },
+            {
+              "t": "key",
+              "name": "Book"
+            },
+            {
+              "t": "key",
+              "name": "components"
+            },
+            {
+              "t": "key",
+              "name": "minecraft:written_book_content"
+            },
+            {
+              "t": "key",
+              "name": "pages"
+            },
+            {
+              "t": "index",
+              "i": 0
+            },
+            {
+              "t": "key",
+              "name": "raw"
+            },
+            {
+              "t": "key",
+              "name": "extra"
+            },
+            {
+              "t": "index",
+              "i": 2
+            },
+            {
+              "t": "key",
+              "name": "hover_event"
+            },
+            {
+              "t": "key",
+              "name": "name"
+            }
           ],
           "encoding": "compound_tree",
-          "segment_styles": [{ "color": "light_purple", "italic": true }],
-          "skeleton": { "type": "text", "segment": 0 },
+          "segment_styles": [
+            {
+              "color": "light_purple",
+              "italic": true
+            }
+          ],
+          "skeleton": {
+            "type": "text",
+            "segment": 0
+          },
           "raw_snapshot": null,
           "list_context": null
         }
       ],
-      "flags": ["nested_in_hover_event", "non_collapsible_tree"]
+      "flags": [
+        "nested_in_hover_event",
+        "non_collapsible_tree"
+      ]
     },
-
     {
       "unit_id": "u:level_name:c4b8210f9e3a7d51",
       "key": null,
@@ -376,9 +633,18 @@
         "text": "[[0]][[1]]M [[2]]Minecraft Party",
         "plain": "M Minecraft Party",
         "segments": [
-          { "kind": "legacy", "sigma_expressible": true },
-          { "kind": "legacy", "sigma_expressible": true },
-          { "kind": "legacy", "sigma_expressible": true }
+          {
+            "kind": "legacy",
+            "sigma_expressible": true
+          },
+          {
+            "kind": "legacy",
+            "sigma_expressible": true
+          },
+          {
+            "kind": "legacy",
+            "sigma_expressible": true
+          }
         ]
       },
       "constraints": {
@@ -411,13 +677,36 @@
             "compression": null,
             "external": false
           },
-          "anchor": { "kind": "file", "id": null, "x": null, "y": null, "z": null, "uuid": null },
+          "anchor": {
+            "kind": "file",
+            "id": null,
+            "x": null,
+            "y": null,
+            "z": null,
+            "uuid": null
+          },
           "node_path": [
-            { "t": "key", "name": "Data" },
-            { "t": "key", "name": "LevelName" }
+            {
+              "t": "key",
+              "name": "Data"
+            },
+            {
+              "t": "key",
+              "name": "LevelName"
+            }
           ],
           "encoding": "plain_string",
-          "segment_styles": [{ "codes": "§l" }, { "codes": "§k" }, { "codes": "§9§l" }],
+          "segment_styles": [
+            {
+              "codes": "§l"
+            },
+            {
+              "codes": "§k"
+            },
+            {
+              "codes": "§9§l"
+            }
+          ],
           "skeleton": null,
           "raw_snapshot": "§l§kM §9§lMinecraft Party",
           "list_context": null
@@ -425,7 +714,6 @@
       ],
       "flags": []
     },
-
     {
       "unit_id": "u:sign:b31f00ac5d7e2916",
       "key": "mcmt.sign.b31f00ac5d7e2916",
@@ -435,7 +723,12 @@
       "source": {
         "text": "Welcome to the Lobby",
         "plain": "Welcome to the Lobby",
-        "segments": [{ "kind": "legacy", "sigma_expressible": true }],
+        "segments": [
+          {
+            "kind": "legacy",
+            "sigma_expressible": true
+          }
+        ],
         "escaped_literals": []
       },
       "constraints": {
@@ -454,7 +747,11 @@
         "siblings": [],
         "neighbour_text": [],
         "dimension": "minecraft:overworld",
-        "position": [-40, 65.5, 208]
+        "position": [
+          -40,
+          65.5,
+          208
+        ]
       },
       "occurrences": [
         {
@@ -463,24 +760,58 @@
             "kind": "region_chunk",
             "path": "region/r.-1.6.mca",
             "dimension": "minecraft:overworld",
-            "chunk": { "cx": -3, "cz": 13 },
+            "chunk": {
+              "cx": -3,
+              "cz": 13
+            },
             "data_version": 3955,
             "compression": 2,
             "external": false
           },
-          "anchor": { "kind": "block", "id": "minecraft:oak_sign", "x": -40, "y": 65, "z": 208, "uuid": null },
+          "anchor": {
+            "kind": "block",
+            "id": "minecraft:oak_sign",
+            "x": -40,
+            "y": 65,
+            "z": 208,
+            "uuid": null
+          },
           "node_path": [
-            { "t": "key", "name": "block_entities" },
-            { "t": "index", "i": 2 },
-            { "t": "key", "name": "front_text" },
-            { "t": "key", "name": "messages" },
-            { "t": "index", "i": 0 }
+            {
+              "t": "key",
+              "name": "block_entities"
+            },
+            {
+              "t": "index",
+              "i": 2
+            },
+            {
+              "t": "key",
+              "name": "front_text"
+            },
+            {
+              "t": "key",
+              "name": "messages"
+            },
+            {
+              "t": "index",
+              "i": 0
+            }
           ],
           "encoding": "json_string_object",
-          "segment_styles": [{ "codes": "§b" }],
+          "segment_styles": [
+            {
+              "codes": "§b"
+            }
+          ],
           "skeleton": null,
           "raw_snapshot": "{\"text\":\"Welcome to the Lobby\",\"color\":\"aqua\"}",
-          "list_context": { "list_size": 4, "index": 0, "element_type": "string", "homogeneity_required": true },
+          "list_context": {
+            "list_size": 4,
+            "index": 0,
+            "element_type": "string",
+            "homogeneity_required": true
+          },
           "excluded": null
         },
         {
@@ -489,31 +820,68 @@
             "kind": "region_chunk",
             "path": "region/r.0.0.mca",
             "dimension": "minecraft:overworld",
-            "chunk": { "cx": 9, "cz": 4 },
+            "chunk": {
+              "cx": 9,
+              "cz": 4
+            },
             "data_version": 4556,
             "compression": 2,
             "external": false
           },
-          "anchor": { "kind": "block", "id": "minecraft:oak_sign", "x": 150, "y": 71, "z": 70, "uuid": null },
+          "anchor": {
+            "kind": "block",
+            "id": "minecraft:oak_sign",
+            "x": 150,
+            "y": 71,
+            "z": 70,
+            "uuid": null
+          },
           "node_path": [
-            { "t": "key", "name": "block_entities" },
-            { "t": "index", "i": 5 },
-            { "t": "key", "name": "front_text" },
-            { "t": "key", "name": "messages" },
-            { "t": "index", "i": 0 }
+            {
+              "t": "key",
+              "name": "block_entities"
+            },
+            {
+              "t": "index",
+              "i": 5
+            },
+            {
+              "t": "key",
+              "name": "front_text"
+            },
+            {
+              "t": "key",
+              "name": "messages"
+            },
+            {
+              "t": "index",
+              "i": 0
+            }
           ],
           "encoding": "json_string_object",
-          "segment_styles": [{ "codes": "§b" }],
+          "segment_styles": [
+            {
+              "codes": "§b"
+            }
+          ],
           "skeleton": null,
           "raw_snapshot": "{\"text\":\"Welcome to the Lobby\",\"color\":\"aqua\"}",
-          "list_context": { "list_size": 4, "index": 0, "element_type": "string", "homogeneity_required": true },
+          "list_context": {
+            "list_size": 4,
+            "index": 0,
+            "element_type": "string",
+            "homogeneity_required": true
+          },
           "excluded": {
             "reason": "legacy_json_in_native_chunk",
             "detail": "data_version 4556 >= 4325, so the game does not run DataFixerUpper on this chunk and renders the string literally. [遊戲實測 M0-3]"
           }
         }
       ],
-      "flags": ["duplicate_source", "legacy_json_in_native_chunk"]
+      "flags": [
+        "duplicate_source",
+        "legacy_json_in_native_chunk"
+      ]
     }
   ]
 }

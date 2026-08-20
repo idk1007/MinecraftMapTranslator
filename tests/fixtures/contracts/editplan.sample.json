@@ -1,6 +1,6 @@
 {
   "format": "mcmt-editplan",
-  "schema_version": 3,
+  "schema_version": 4,
   "generated_at": "2026-08-16T09:35:10Z",
   "backend": "resourcepack",
   "extract_ref": {
