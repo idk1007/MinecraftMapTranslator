@@ -3,7 +3,7 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-21**（M10 進行中：lang 與 pack 完成）
+最後更新：**2026-08-21**（M10 + M11 完成，`extract → 翻譯 → apply` 完整來回接通）
 
 ---
 
@@ -291,41 +291,67 @@ MP2 全掃 12,262,582 個字串節點、96% 被擋、**0 漏**。
 
 ---
 
-### M10 — resourcepack 後端（進行中）
+### M10 — resourcepack 後端（2026-08-21）✅
 
-| 任務 | 狀態 |
+| 任務 | 重點 |
 |---|---|
-| M10.1 `lang.py` 譯文 → lang 條目 | ✅ |
-| M10.2 `pack.py` resources.zip 產生與合併 | ✅ |
-| M10.3 `backend.py` editplan 產出 | 未做 |
-| M10.4 非塌縮樹的重建（`write/rebuild.py`） | 未做（屬 M11） |
+| M10.1 `lang.py` | **樣式跟著文字走，不跟著位置走**——譯者調換語序時，第一版照段落序號輸出，把譯者寫的順序改回去了 |
+| M10.2 `pack.py` | 合併既有 pack，**只加 `supported_formats`、不改它宣告的 `pack_format`**（M4-5 的教訓） |
+| M10.3 `backend.py` | editplan：後端決定**值是什麼**，寫入層決定**怎麼安全地放進去** |
 
-**M10.1 的關鍵決定**：譯者調換語序時，**樣式跟著它那段文字走，不跟著位置走**。第一版
-照段落序號輸出，結果把譯者寫的順序改回去了。§ 的顏色碼會重設格式，所以顏色必須寫在
-格式之前（`§l§c` 的粗體會被 `§c` 洗掉）。
+另外兩個順序細節：§ 的顏色碼會重設格式，所以顏色必須寫在格式之前；轉義還原要在殘留
+檢查**之後**做。
 
-**M10.2 落實了 M4-5 的教訓**：合併進地圖既有的舊 pack 時，**只加 `supported_formats`
-區間、不改它宣告的 `pack_format`**——那個數字是地圖作者寫的，改它等於謊報。加區間
-表達的是「這個 pack 在這個範圍內都能用」。這仍是在改地圖自己的檔案，所以報告會講。
+寫 M10.1 時發現並修掉 `segments.py` 的一個錯誤：**§ 碼只能開啟樣式，沒有關閉的方向**。
+`{"italic": false}`（壓掉物品名預設斜體的慣用法）因此不可塌縮。
 
-寫 M10.1 時發現 `segments.py` 的一個錯誤並修掉：**§ 碼只能開啟樣式，沒有關閉的方向**。
-`{"italic": false}`（壓掉物品名預設斜體的慣用法）因此**不可塌縮**——塌縮成 lang 值那個
-false 就沒了，物品名變回斜體。原本的判定只想到「顏色與粗斜體都寫得成 § 碼」。
+### M11 — 寫入層（2026-08-21）✅
+
+三個 `write/` 獨立 commit。**不對稱終於可以講得很具體**：
+
+| | legacy chunk（DV < 4325） | native chunk（DV ≥ 4325） |
+|---|---|---|
+| 寫什麼 | JSON 字串（[遊戲實測 M4-1]） | NBT compound（[遊戲實測 M0-3]） |
+| list | 型別不變，**不必提升** | String list 塞不進 compound，**非提升不可** |
+
+所以「不要用一套邏輯硬套」不是風格偏好——一邊完全不必提升，另一邊非提升不可，
+用 if/else 藏起來就是等著某天套錯邊。
+
+**真實世界的完整來回**（自建探測世界，3,599 chunk）：
+
+```
+計畫 10 個節點 → 寫入 9 個
+改動 1 個 chunk，原封複製 929 個
+NBT list 提升 2 次
+磁區重整 3,821,568 → 3,817,472 bytes（有報告）
+```
+
+逐項驗證：930 個 chunk 只有 chunk 0 的 payload 變了、**929/929 未改動的 chunk 連
+timestamp 都一樣**、探測世界原本就有的 `block.minecraft.diamond_block` 節點沒被碰、
+`resources.zip` 有 lang 檔。`--dry-run` 完全不碰存檔並產出 `editplan.json`。
+
+> **一個誠實的缺口：`CustomName` 目前拒寫。** [實測] 它在兩個世代都是 String 節點
+> ——native（DV 4671）是裸字串、legacy（DV 3700）是 JSON 純量 `'"@"'`。要放
+> translate key 進去，native 那邊該寫什麼形狀**沒有實測依據**：寫 compound 會改掉
+> 欄位的 NBT 型別，寫 JSON 字串又踩到 M0-3。已列入 `SPIKE_RESULT.md` 尚待驗證，
+> 標為高——**`Arena of Darkness` 有 9,579 個這種節點**。
 
 ---
 
-## 下一步：M10.3 editplan → M11 `mcmt apply`
+## 下一步：進遊戲驗收
 
-| 任務 | 驗收條件 |
+工具鏈已經完整，**下一件該做的是把翻好的世界拿進遊戲看**——那是唯一能證明整條鏈
+真的成立的事（M0/M4 的模式）。`sandbox/roundtrip` 就是一份翻好的探測世界副本。
+
+之後：
+
+| 里程碑 | 內容 |
 |---|---|
-| M10.3 editplan 產出 | 每個要改的節點一筆，帶 `expected_encoding`；`--dry-run` 的可檢查中間產物 |
-| M11 寫入層 | `legacy.py` 與 `native.py` **兩份分開的實作**、`rebuild.py`、分派器、`expected_encoding` 守門、list 同型提升計數、`apply_report.json`、in_place 四欄位 |
-
-**M11 的前置 `[待驗]` 已解除**（混合 list 由格式本身回答，見下節）。
-
-寫入層的兩個前提早就就位：`BackupSet`（M2.4）與 `ensure_writable`（M2.1）。
-
-之後：`M8 字寬校準（進遊戲）─► M12 自動化端到端 ─► M13 掃描廣度 ─► M14 CLI/報告/文件`
+| `CustomName` 寫入形狀 | 進遊戲測，解掉之後 M11 才算完整 |
+| M8 字寬校準 | 目前待翻檔的 note 寫「未校準，僅供參考」，校準後才有意義 |
+| M12 自動化端到端 | 把這次手動跑的來回變成測試 |
+| M13 掃描廣度 | 容器物品、書本、實體、記分板、hover_event、datapack |
+| M14 | CLI/報告/文件 |
 
 ---
 
@@ -346,7 +372,7 @@ false 就沒了，物品名變回斜體。原本的判定只想到「顏色與�
 - `spike/.venv` 與 `spike/.venv_alt` 共 134 MB，已 gitignore。
 - `claude-code-stats/` 是**放在同一個資料夾裡的第三方工具**，與 mcmt 無關，已 gitignore。
 - 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 46 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
-- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 453 passed）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
-- 跑 CLI：`.venv\Scripts\python -X utf8 -m mcmt.cli doctor "<世界資料夾>"`、`... -m mcmt.cli sandbox import "<來源世界>"`。**`-X utf8` 是必要的**，Windows 終端機的預設編碼會把中文報告印成亂碼。
+- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 502 passed）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
+- 跑 CLI：`.venv\Scripts\python -X utf8 -m mcmt.cli {doctor|sandbox import|extract|apply} …`。**`-X utf8` 是必要的**，Windows 終端機的預設編碼會把中文報告印成亂碼。
 - `sandbox/` 已有一份 95 MB 的「100 Ways To Die」副本（gitignore）。M4 要的是 DataVersion 3955 的 chunk，那在 Minecraft Party 2；這份是 4325，可以留著當寫入測試的對象。
 - 測試 fixture 一律取自自建的 `TT_WORLD_NAME_PROBE`，不放語料地圖的內容（授權考量，見 M3 那節）。
