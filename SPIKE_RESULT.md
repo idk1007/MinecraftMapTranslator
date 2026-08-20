@@ -874,6 +874,39 @@ v1 對策（見 CLAUDE.md 二節）：chunk DataVersion ≥ 4325 且節點為舊
 
 ---
 
+## 混合 list 的問題由格式本身回答（2026-08-21）[實測]
+
+**尚待驗證表裡「混合 list（compound + 裸字串）存到磁碟後是什麼形狀」是個假問題——
+那種 list 不可能存在。**
+
+NBT 的 `TAG_List` 在格式層就帶著**單一元素型別 id**，整個 list 共用：
+
+```
+>>> lst = ListTag([StringTag("a"), StringTag("b")])
+>>> lst.list_data_type
+8                                    # 8 = TAG_String
+>>> lst[0] = CompoundTag({"text": StringTag("x")})
+TypeError: Invalid type CompoundTag for ListTag(list_data_type=8)
+>>> lst.append(CompoundTag())
+TypeError: Invalid type CompoundTag for ListTag(list_data_type=8)
+```
+
+唯一的做法是**整個 list 換成新的**（`list_data_type=10`）。
+
+因此 CLAUDE.md 的「list 為全 String 且要插入 Compound → **四行全部改寫**」不是設計
+選擇，是**格式強制**的——寫入層根本沒有別的選項，連「不小心只改一行」都做不到，
+amulet-nbt 會先擋下來。
+
+> **M0 那次的疑問也一併解釋了。** 當時 `/data merge` 餵進去的是「第一元素 compound、
+> 其餘裸字串」，指令被接受且顯示正確，所以留下「混合 list 到底存成什麼樣」的疑問。
+> 答案是遊戲把整個 list 正規化了——[遊戲實測 M4-2] 直接看到這件事：寫進去 4 個
+> `TAG_String`，遊戲存回磁碟時變成 4 個 `CompoundTag`。
+>
+> 原本標「M11 前必補、要進遊戲驗」的項目，實際上用一個 3 行的實驗就解掉了，而且
+> 得到的是比遊戲實測更強的保證：這是格式的性質，不是某個版本的行為。
+
+---
+
 ## 尚待驗證
 
 > 已完成：寫入端編碼對照（兩種皆有效）、Q3 五個結構推論項（全部成立）、第二輪 P1/P2/P3（extra 巢狀、filterable、空值分佈）、M0 遊戲實測（資源包路線、`'""'` 算繪、`pack_format` 過期）、**M4 遊戲實測（舊世代 legacy 寫入、DataFixer 解析、世代升級、`pack_format` 下限）**。
@@ -886,7 +919,7 @@ v1 對策（見 CLAUDE.md 二節）：chunk DataVersion ≥ 4325 且節點為舊
 | `pack_format` 拒載的確切下限 | 在 22 與 55 之間逐級測試 | 中 — M4-5 已證明有下限（22 被拒、55 可用），邊界值影響 M10 合併既有 pack 時該宣告什麼 |
 | **`extra` 攤平後重建是否保真** | 取 MP2 的 `{translate+extra(translate)+fallback+color}` 實例，攤平→翻譯→重建→寫回→進遊戲比對 | **高**，決定 1.1 的 schema 修正是否足夠（第二輪 R1） |
 | **`hover_event.name` 內的文字是否需翻譯** | MP2 有 331 筆；進遊戲確認滑鼠停留時是否可見 | 中，影響掃描範圍（第二輪 R1） |
-| **混合 list（compound + 裸字串）存到磁碟後是什麼形狀** | 重下 M0 的 `/data merge`，然後 `/data get block ... front_text.messages` 回讀，並用 `probe_raw_nbt.py` 看實際 tag 型別 | **高** — 直接決定「NBT list 同型」規則的邊界，也決定 `write/` 是否真的必須做 list 提升 |
+| ~~**混合 list 存到磁碟後是什麼形狀**~~ | ~~回讀取證~~ | **已完成（2026-08-21）**：那種 list **不可能存在**——`TAG_List` 在格式層就帶單一元素型別。四行全部改寫是格式強制的，不是設計選擇。見上一節 |
 | MP2 那 585 面全 `'""'` 告示牌是否真的顯示引號 | 在 sandbox 副本裡走到現場肉眼確認 | 中 — M0-4 的直接推論，成立則證實那是地圖自身的顯示瑕疵，工具不應「順手修好」 |
 | ~~`pack_format` 多舊才會拒載~~ | ~~逐級下調~~ | **部分完成（M4-5）**：22 會被拒（「無法套用伺服器資源包」），55 不會。M0-5 的「過期不拒載」需限縮為「在某個範圍內」。確切邊界見上一列 |
 | region 是否會出現 LZ4 (type 4) | 對更多來源的地圖跑 `probe_compression.py`，特別是伺服器匯出的 | 中 — 第二輪 5 張地圖 16.2 萬 chunk 全為 type 2，仍未見 type 4 |

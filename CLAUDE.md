@@ -200,6 +200,8 @@ CompoundTag({"text": "文字"})          # 官方文件形狀
 
 `write/legacy.py` 與 `write/native.py` 是兩份分開的實作。**不要用一套邏輯硬套**——這是規格層級的不對稱，不是可以抽象掉的重複。每次 list 提升都要計入 `apply_report.counts.list_promotions`。
 
+> **[實測 2026-08-21] 「四行全部改寫」是格式強制的，不是設計選擇。** `TAG_List` 在 NBT 格式層就帶單一元素型別 id；把 `CompoundTag` 塞進 `list_data_type=8` 的 list，amulet-nbt 直接 `TypeError`。混合 list 在磁碟上不可能存在，所以寫入層連「不小心只改一行」都做不到。
+
 ### component 樹（extra）不是「原封搬運」
 
 [實測] MP2 可翻譯路徑上有 **2,261 個帶 `extra` 的 component 樹**，最大巢狀深度 **3**，extra 元素數長尾至 **34**，其中 **84% 的子元素自帶格式屬性**。
