@@ -37,6 +37,7 @@ from mcmt.errors import (
     WorldNotFoundError,
 )
 from mcmt.model.component import sniff
+from mcmt.model.generation import generation_of
 from mcmt.nbtio.region import read_region, region_files
 from mcmt.nbtio.structure import ensure_supported_structure, load_chunk_root
 from mcmt.safety.paths import ensure_readable
@@ -147,9 +148,6 @@ def _survey_chunk(path, raw, survey: WorldSurvey) -> None:
         _survey_text_nodes(root, data_version, survey)
 
 
-# DV 這條線以上的 chunk 不跑 DataFixer，所以裡面的舊式 JSON 是字面亂碼不是內容
-# （[遊戲實測 M0-3 / M4-3]）。
-_DATAFIXER_WATERSHED = 4325
 _LEGACY_JSON_SHAPES = frozenset(
     {"json_string_object", "json_string_array", "json_string_scalar", "json_empty_quoted"}
 )
@@ -166,8 +164,10 @@ def _survey_text_nodes(root, data_version: int, survey: WorldSurvey) -> None:
         survey.categories[node.category] += 1
         if shape.problem == "unparseable_json":
             survey.unparseable += 1
+        # 「這個世代裡的舊式 JSON 是不是真內容」由 model/generation.py 回答，
+        # doctor 不自己記那條分水嶺在哪。
         if (
-            data_version >= _DATAFIXER_WATERSHED
+            not generation_of(data_version).legacy_json_is_content
             and shape.encoding.value in _LEGACY_JSON_SHAPES
         ):
             survey.legacy_json_in_native_chunk += 1
