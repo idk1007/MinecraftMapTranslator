@@ -3,7 +3,7 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-21**（M5 完成，架構調整：取消內建 LLM 翻譯）
+最後更新：**2026-08-21**（M6、M7 完成，`mcmt extract` 可用）
 
 ---
 
@@ -247,22 +247,64 @@ MP2 的 DataVersion 分佈證實 **per-chunk 世代分派不是理論問題**：
 
 ---
 
-## 下一步：M6 — 規則引擎
+### M6 — 規則引擎（2026-08-21）✅
 
-決定「什麼該翻、什麼絕對不能翻」。
+不動點迭代，上限 32、超限拋錯並列出最後一輪新增的標籤。**兩條硬性要求都不是靠自律**：
+順序無關是因為每輪跑完所有規則再取聯集（規則只加標籤、不刪標籤）；不靜默停止是因為
+「有時候少抽幾個節點」是最難查的 bug。
 
-| 驗收條件 |
-|---|
-| 不動點迭代，**上限 32**，超限拋 `RuleEngineDidNotConvergeError` 並列出最後一輪新增的標籤 |
-| 相同輸入的標記結果穩定（規則套用順序不得影響最終標籤集合） |
-| denylist 回歸測試對 MP2 全掃，斷言 `LastOutput`（[實測] 719 筆）、`profile.properties[].value`、`palette[].Name` 一個都沒進 units |
+denylist 用 `deny:<原因>` → `do_not_translate` 兩段式，結論的定義只有一處。
 
-M5 給 M6 的兩個直接輸入：
+**回歸測試刻意不走正式掃描層**——掃描層現在只找告示牌與 CustomName，拿它驗 denylist
+會通過但什麼都沒驗到。改成走過 chunk 裡每一個字串節點問規則引擎。M13 掃描廣度補齊後
+第一道防線會消失，那時這條測試已經在守著。
 
-- **掃描層目前根本不去找那些 denylist 欄位**，所以 M6 的 denylist 是第二道防線而不是唯一一道。回歸測試仍要寫——掃描廣度（M13）補齊時第一道會消失。
-- **MP2 有自己的中文化系統**（`mcp.*` key + 5 個語言檔 / 50,959 個 key）。翻它的 `{translate:"mcp.X"}` 節點等於覆蓋地圖作者的在地化。M6 要決定這是 denylist 的一條，還是另一種來源（翻它的 lang 檔）。
+**它立刻抓到兩個逐條列舉想不到的漏洞**：`biomes.palette` 是**字串 list 不是 compound**，
+所以 `("palette","Name")` 完全認不到（MP2 有 456 萬個）；`Status` 與 `id` 也是識別碼。
+因此改成「`sections` 底下整段擋掉」——**列舉已知陷阱漏掉的東西你不會知道，圈出已知
+安全區漏掉的東西會馬上炸在臉上。**
 
-之後：`M7 mcmt extract ─► M8 字寬校準 ─► M10 resourcepack 後端 ─► M11 mcmt apply ─► M12 自動化端到端 ─► M13 掃描廣度 ─► M14 CLI/報告/文件`（~~M9 翻譯層~~ 已移出）
+MP2 全掃 12,262,582 個字串節點、96% 被擋、**0 漏**。
+
+### M7 — `mcmt extract`（2026-08-21）✅
+
+`extract/keys.py` · `placeholders.py` · `build.py` · `emit.py` + `cli/extract.py`。
+
+- **key**：`discriminator` 在 `unit_id` 與 `translateKey` 裡是同一個字串，由同一個函式產生一次。三種格式都與合約的 regex 綁死。`normalize` 只做 NFC 與換行統一，**不碰空白**（告示牌用前導空白置中）。碰撞走 `_1` 並把兩邊 hash 輸入記進 `keymap.json`。
+- **佔位符**：多重集合完全一致才過，**hard fail**。順序可不同；「全數前移」單獨警告（判準是標記彼此相鄰，不是在字串開頭）。空 target 回報 `empty_translation` 而不是佔位符錯誤。
+- **`build.py` 不自己判斷任何一件事**——形狀問嗅探器、世代問 `generation`、該不該翻問規則引擎、攤平問 `segments`。
+- **最重要的測試是「產出的文件真的通過 schema 驗證」**，而且真實產出也驗過：`Arena of Darkness` 的 13 MB `extract.json` 0 錯誤。
+
+真實地圖：
+
+| 世界 | chunk | 文字節點 | 翻譯單位 | 出現次數 | 時間 |
+|---|---:|---:|---:|---:|---:|
+| 100 Ways To Die | 6,465 | 8,315 | **937** | 1,691 | 2 秒 |
+| Arena of Darkness | 88,969 | 15,563 | **607** | 10,421 | 31 秒 |
+
+**去重省下的量才是這個工作流的重點**：Arena of Darkness 的譯者要打 607 條，不是 10,421 條。
+
+> 一個真實觀察：Arena of Darkness 有一個 `block_entity_name` 是 `'@'`，**出現 9,491 次**。
+> 那多半是地圖的紅石／指令系統用來找容器的名字，翻了會壞。待翻檔的 `note` 會寫「出現
+> 9491 次」，人看到這個數字自然會停下來想一下——這正是「工具不介入、但把該看到的資訊
+> 攤在眼前」的實例（見上方「不做術語表」那節）。
+
+---
+
+## 下一步：M8 字寬校準，或先做 apply
+
+兩條路都可以，取決於你想先看到什麼：
+
+**M8 字寬校準（進遊戲量測，人工）** — `tools/calibrate_font_widths.py` 產生測試告示牌 →
+進遊戲截圖 → 回填量測表。ASCII 與 CJK 分開量。目前待翻檔的 `note` 寫的是「寬度上限 90px
+（未校準，僅供參考）」，校準後那句話才有意義，`enforcement` 也才能從 `warn` 升成 `error`。
+
+**M10 + M11（`mcmt apply`）** — 把翻好的檔案變成 `resources.zip` 並外科式寫回世界。
+做完就是完整的來回，可以真的翻一張地圖進遊戲看。
+
+M11 開工前**必須**補掉的 `[待驗]`：**混合 list 存到磁碟後是什麼形狀**（見下節）。
+
+之後：`M12 自動化端到端 ─► M13 掃描廣度 ─► M14 CLI/報告/文件`
 
 ---
 
@@ -283,7 +325,7 @@ M5 給 M6 的兩個直接輸入：
 - `spike/.venv` 與 `spike/.venv_alt` 共 134 MB，已 gitignore。
 - `claude-code-stats/` 是**放在同一個資料夾裡的第三方工具**，與 mcmt 無關，已 gitignore。
 - 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 46 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
-- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 312 passed，含 9 個碰真實檔案的整合測試）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
+- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 416 passed）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
 - 跑 CLI：`.venv\Scripts\python -X utf8 -m mcmt.cli doctor "<世界資料夾>"`、`... -m mcmt.cli sandbox import "<來源世界>"`。**`-X utf8` 是必要的**，Windows 終端機的預設編碼會把中文報告印成亂碼。
 - `sandbox/` 已有一份 95 MB 的「100 Ways To Die」副本（gitignore）。M4 要的是 DataVersion 3955 的 chunk，那在 Minecraft Party 2；這份是 4325，可以留著當寫入測試的對象。
 - 測試 fixture 一律取自自建的 `TT_WORLD_NAME_PROBE`，不放語料地圖的內容（授權考量，見 M3 那節）。
