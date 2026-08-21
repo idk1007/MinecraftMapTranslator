@@ -22,7 +22,6 @@ _PREFIX = "deny:"
 # 路徑尾巴 → 原因。比對的是**鍵名序列的尾巴**（索引已經拿掉），所以
 # `sections[3].block_states.palette[7].Name` 的尾巴就是 ("palette", "Name")。
 _DENIED_TAILS: dict[tuple[str, ...], str] = {
-    ("LastOutput",): "runtime_output",
     # [實測] 生態域調色盤是**字串 list**，不是像方塊調色盤那樣的 compound——所以
     # ("palette", "Name") 完全認不到它。自建探測世界的 30 個 chunk 裡有 720 個。
     ("biomes", "palette"): "block_id",
@@ -30,12 +29,14 @@ _DENIED_TAILS: dict[tuple[str, ...], str] = {
     # chunk 的產生狀態（minecraft:full 之類）與方塊實體型別，都是識別碼。
     ("Status",): "identifier",
     ("id",): "identifier",
-    ("profile", "properties", "value"): "skin_texture",
     ("palette", "Name"): "block_id",
     ("Objectives", "Name"): "identifier",
     ("Objectives", "CriteriaName"): "identifier",
     ("Teams", "Name"): "identifier",
     ("PlayerScores", "Name"): "identifier",
+    # 盔甲紋飾：材質與圖案都是識別碼，不是給人看的字。
+    ("Trim", "material"): "identifier",
+    ("Trim", "pattern"): "identifier",
 }
 
 # 這幾個是「出現在路徑任何位置就擋」，不看尾巴。
@@ -47,6 +48,32 @@ _DENIED_ANYWHERE: dict[str, str] = {
     # chunk 根的兄弟節點，不在這裡面。整段擋掉比逐條列舉可靠——[實測] 逐條列舉時
     # 漏掉了 biomes.palette。
     "sections": "block_id",
+    # [實測] 尾巴比對只擋得到結尾正好是 LastOutput 的節點；`LastOutput/text` 與
+    # `LastOutput/extra[]/translate` 全漏，100 Ways To Die 有 6,000 多個，而且
+    # 它們含原版 translate key。指令方塊的執行期輸出整段都不是內容。
+    "LastOutput": "runtime_output",
+    # 1.20.5+ 的鍵名帶命名空間，原本的 ("profile","properties","value") 認不到
+    # `minecraft:profile`。整段擋掉——那底下沒有任何給人看的字。
+    "profile": "skin_texture",
+    "minecraft:profile": "skin_texture",
+    "SkullOwner": "skin_texture",
+    # **容器鎖。** [實測] Arena of Darkness 有 107 個。值必須與鑰匙物品的名字
+    # 完全相同才能開箱，翻了它箱子永遠打不開，而症狀離原因很遠。
+    "Lock": "container_lock",
+    "minecraft:lock": "container_lock",
+    # 戰利品表與它的種子，是識別碼。
+    "LootTable": "identifier",
+    "LootTableSeed": "identifier",
+    "BlockStateTag": "block_id",
+    "block_state": "block_id",
+    # 藥水：舊格式是 `tag.Potion`，1.20.5+ 是
+    # `components."minecraft:potion_contents".potion`。兩個鍵名都擋。
+    "Potion": "identifier",
+    "minecraft:potion_contents": "identifier",
+    "CanDestroy": "block_id",
+    "CanPlaceOn": "block_id",
+    "can_destroy": "block_id",
+    "can_place_on": "block_id",
 }
 
 _REASON_TEXT = {
@@ -55,6 +82,7 @@ _REASON_TEXT = {
     "block_id": "方塊 ID，翻了毀掉地形",
     "custom_data": "地圖自訂資料，常放 quest id 之類的識別碼",
     "identifier": "內部識別碼，指令會引用它",
+    "container_lock": "容器鎖，值必須與鑰匙物品的名字完全相同——翻了箱子永遠打不開",
 }
 
 
