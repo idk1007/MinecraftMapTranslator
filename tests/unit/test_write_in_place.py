@@ -10,11 +10,15 @@
 * `bare_string` / `plain_string` → 寫回裸字串
 * `text_compound` → 寫回 `{"text": …}`
 * `empty_key_compound` → 寫回 `{"": …}`
+* `json_string_scalar` → 寫回 `'"譯文"'`（舊世代）
+* `json_string_object` → 寫回 `'{"text":"譯文"}'`（舊世代）
 
 兩種 compound 形式**互不正規化**——路過的 `{"": …}` 順手改成 `{"text": …}` 就是
 重新編碼一個沒被要求改的欄位（CLAUDE.md 二節）。而 `TAG_String` **不提升成
 compound**：那個提升對 `CustomName` 從未實測過，未測過的寫入路徑比拒絕處理危險。
 """
+
+import json
 
 import amulet_nbt
 import pytest
@@ -164,21 +168,6 @@ def test_a_missing_node_is_refused(project) -> None:
     assert outcome.unwritten[0]["reason"] == "node_missing"
 
 
-def test_a_shape_we_have_no_answer_for_is_refused(project) -> None:
-    """legacy chunk 的 CustomName 由 extract 排除，但寫入層是最後一道關。"""
-    world = build_world(
-        project, chest(amulet_nbt.StringTag('"Supply Crate"')), data_version=3700
-    )
-
-    outcome = apply_editplan(
-        world, plan(edit(encoding="json_string_scalar", data_version=3700))
-    )
-
-    assert outcome.counts["edits_written"] == 0
-    assert outcome.unwritten[0]["reason"] == "unsupported_encoding"
-    assert str(custom_name_of(world)) == '"Supply Crate"'
-
-
 def test_a_translate_value_on_an_in_place_node_is_refused(project) -> None:
     """[遊戲實測 M11-3] 這裡放 translate key，玩家看到的是 key 本身。
 
@@ -245,13 +234,80 @@ def test_a_plain_string_node_gets_a_bare_string() -> None:
     assert str(tag) == "我的世界"
 
 
-def test_the_supported_shapes_are_exactly_the_four_with_evidence() -> None:
-    """多一個就是猜的。這條測試讓「加一個形狀」變成一個刻意的動作。"""
+def test_the_supported_shapes_match_the_model_declaration() -> None:
+    """實作與宣告不能漂移。
+
+    `model/strategy.py` 宣告「哪些形狀有實測依據」（extract 用它決定要不要排除），
+    這裡是那些形狀的實作。少一邊就會出現「extract 說可以寫、寫入層卻拒絕」，
+    或更糟的反向——extract 放行了一個寫入層會亂寫的形狀。
+    """
+    from mcmt.model.strategy import IN_PLACE_ENCODINGS
     from mcmt.write.in_place import SUPPORTED_ENCODINGS
 
-    assert SUPPORTED_ENCODINGS == {
-        "bare_string",
-        "plain_string",
-        "text_compound",
-        "empty_key_compound",
-    }
+    assert SUPPORTED_ENCODINGS == IN_PLACE_ENCODINGS
+
+
+# --- legacy chunk 的形狀（DV < 4325，DataFixerUpper 會解析）----------------
+
+
+def test_a_legacy_json_scalar_stays_a_json_scalar(project) -> None:
+    """[遊戲實測 2026-08-21] DV 3700 的 CustomName 寫 `'"譯文"'`，容器標題顯示譯文。"""
+    world = build_world(
+        project, chest(amulet_nbt.StringTag('"Supply Crate"')), data_version=3700
+    )
+
+    outcome = apply_editplan(
+        world, plan(edit(encoding="json_string_scalar", data_version=3700))
+    )
+
+    written = custom_name_of(world)
+    assert outcome.counts["edits_written"] == 1
+    assert isinstance(written, amulet_nbt.StringTag)
+    assert str(written) == '"補給箱"'
+
+
+def test_a_legacy_json_object_stays_a_json_object(project) -> None:
+    world = build_world(
+        project,
+        chest(amulet_nbt.StringTag('{"text":"Supply Crate","color":"red"}')),
+        data_version=3465,
+    )
+
+    apply_editplan(
+        world, plan(edit(encoding="json_string_object", data_version=3465))
+    )
+
+    written = str(custom_name_of(world))
+    assert json.loads(written) == {"text": "補給箱"}
+
+
+def test_a_legacy_shape_is_never_swapped_for_a_bare_string(project) -> None:
+    """**這一條是反面實測撐起來的。**
+
+    [遊戲實測 2026-08-21] 在 DV 3700 的 CustomName 寫非 JSON 的裸字串，容器標題顯示
+    的是原版預設名——那個欄位整個被丟掉了。所以在舊世代換形狀不只是不保守，是會
+    悄無聲息地弄丟別人地圖上的名字。
+    """
+    world = build_world(
+        project, chest(amulet_nbt.StringTag('"Supply Crate"')), data_version=3700
+    )
+
+    apply_editplan(world, plan(edit(encoding="json_string_scalar", data_version=3700)))
+
+    assert str(custom_name_of(world)).startswith('"')
+
+
+def test_a_json_array_shape_is_still_refused(project) -> None:
+    """陣列形式沒測過，維持拒寫。"""
+    world = build_world(
+        project,
+        chest(amulet_nbt.StringTag('["", {"text":"Supply Crate"}]')),
+        data_version=3700,
+    )
+
+    outcome = apply_editplan(
+        world, plan(edit(encoding="json_string_array", data_version=3700))
+    )
+
+    assert outcome.counts["edits_written"] == 0
+    assert outcome.unwritten[0]["reason"] == "unsupported_encoding"

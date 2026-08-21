@@ -28,13 +28,27 @@ DV ≥ 4325 寫 NBT compound，因為遊戲會不會跑 DataFixerUpper 是世代
 的 `inline_text`），這裡收到的就是最終要顯示的那串字。所以 compound 只留文字那一個
 鍵——原本的 `color` 之類已經在那串字裡了，留著會疊第二次。
 
+## 舊世代的形狀不是「順便支援」，是必要的
+
+DV < 4325 的 chunk 裡 DataFixerUpper 會解析這個欄位，所以那裡的問題不是「它解不解析」
+而是「它接受哪一種」。[遊戲實測 2026-08-21] 在 DV 3700 的 `CustomName` 上：
+
+    '"譯文"'                  JSON 純量    → 正確顯示譯文
+    '{"translate":"…"}'       JSON 物件    → 正確解出資源包的譯文
+    '譯文'                    非 JSON 裸字串 → **顯示原版預設名，欄位整個被丟掉**
+
+第三個是反面證據，而且比前兩個重要：**在舊世代換掉節點的形狀會悄無聲息地弄丟名字。**
+所以「保留既有形狀」在這裡不是保守的選擇，是唯一不會壞事的選擇。
+
 **沒有列在下面的 encoding 一律拒絕。** 猜一個形狀寫下去，錯了就是別人的地圖壞了。
 """
 
+import json
 from typing import Any
 
 import amulet_nbt
 
+from mcmt.model.strategy import IN_PLACE_ENCODINGS
 from mcmt.write.common import refuse_residue
 
 __all__ = ["SUPPORTED_ENCODINGS", "UnsupportedInPlaceShape", "value_tag"]
@@ -56,6 +70,18 @@ def _empty_key_compound(text: str) -> amulet_nbt.CompoundTag:
     return amulet_nbt.CompoundTag({"": amulet_nbt.StringTag(text)})
 
 
+def _json_scalar(text: str) -> amulet_nbt.StringTag:
+    return amulet_nbt.StringTag(json.dumps(text, ensure_ascii=False))
+
+
+def _json_object(text: str) -> amulet_nbt.StringTag:
+    # compact 形式：[實測] 真實資料 78/78 的 JSON component 都是 compact，
+    # 加空格會讓一個只改了文字的節點看起來整個被重寫過。
+    return amulet_nbt.StringTag(
+        json.dumps({"text": text}, ensure_ascii=False, separators=(",", ":"))
+    )
+
+
 _SHAPES = {
     # 裸字串。[遊戲實測 M0-3 / M11-3] native chunk 的 TAG_String 就是字面文字。
     "bare_string": _bare,
@@ -65,9 +91,22 @@ _SHAPES = {
     "text_compound": _text_compound,
     # [遊戲實測 M4-2] Mojang NbtOps 存回磁碟時自己產生的形狀。
     "empty_key_compound": _empty_key_compound,
+    # --- 以下兩種只會出現在 DV < 4325 的 chunk，那裡 DataFixerUpper 會解析欄位。
+    # [遊戲實測 2026-08-21] 兩種都在 DV 3700 的 CustomName 上寫過並看過結果。
+    "json_string_scalar": _json_scalar,
+    "json_string_object": _json_object,
 }
 
 SUPPORTED_ENCODINGS = frozenset(_SHAPES)
+
+
+# **這裡與 `model/strategy.py` 不能漂移。** 那邊是「哪些形狀有實測依據」的宣告，
+# extract 用它決定要不要排除；這邊是那些形狀的實作。少一邊就會出現「extract 說可以
+# 寫、寫入層卻拒絕」或更糟的反向。
+assert SUPPORTED_ENCODINGS == IN_PLACE_ENCODINGS, (
+    f"寫入層與 model 的 in_place 形狀清單對不上："
+    f"{SUPPORTED_ENCODINGS ^ IN_PLACE_ENCODINGS}"
+)
 
 
 def value_tag(encoding: str, value: dict[str, Any]) -> amulet_nbt.AbstractBaseTag:
