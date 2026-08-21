@@ -361,3 +361,21 @@ def test_an_item_with_both_shapes_prefers_components():
     assert paths_and_categories(item) == {
         "Items/components/minecraft:custom_name": "custom_name"
     }
+
+
+def test_an_old_charged_crossbow_arrow_name_is_found():
+    """[規格] `docs/superpowers/specs/2026-08-22-m13-scan-breadth-design.md:88`：
+
+    弩上的箭在舊格式走 `tag.ChargedProjectiles[]`，且與 `tag.Items[]` 同形狀——
+    元素本身就是物品，不像新格式的 `container` 元素需要再取一層 `item`。
+    """
+    inner = tag_item(
+        display=amulet_nbt.CompoundTag(
+            {"Name": amulet_nbt.StringTag('{"text":"魔法箭"}')}
+        )
+    )
+    outer = tag_item(ChargedProjectiles=amulet_nbt.ListTag([inner]))
+
+    assert paths_and_categories(outer) == {
+        "Items/tag/ChargedProjectiles/[0]/tag/display/Name": "custom_name"
+    }

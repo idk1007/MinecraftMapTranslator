@@ -185,7 +185,10 @@ def _scan_pages(
 # [實測] `Arena of Darkness`（1.20.4）全是這一套，`Items[].tag.display.Name` 3,696 個。
 # 值是 JSON 字串（`{"text":"Xyphia"}`），嗅探層會判成 json_string_object。
 
-_OLD_CONTAINER_KEYS = ("Items",)  # 收納袋。潛影盒走 BlockEntityTag.Items
+_OLD_CONTAINER_KEYS = (
+    "Items",  # 收納袋。潛影盒走 BlockEntityTag.Items
+    "ChargedProjectiles",  # 弩上已裝填的箭——與 Items[] 同形狀，元素本身就是物品
+)
 
 
 def _scan_tag(
