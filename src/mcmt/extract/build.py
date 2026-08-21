@@ -25,21 +25,18 @@
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import amulet_nbt
 
-from mcmt.errors import FormatError
 from mcmt.model.component import Encoding, sniff
 from mcmt.model.generation import generation_of
 from mcmt.model.segments import flatten
 from mcmt.model.strategy import IN_PLACE_ENCODINGS, strategy_for
-from mcmt.nbtio.region import read_region, region_files
-from mcmt.nbtio.structure import ensure_supported_structure, load_chunk_root
 from mcmt.rules.engine import Subject, label
 from mcmt.rules.sets.denylist import DENY_LABEL, RULES as DENY_RULES, deny_reason
 from mcmt.safety.paths import ReadOnlyPath, ensure_readable
-from mcmt.scan.sources.region import scan_chunk
+from mcmt.scan.registry import SOURCES
 from mcmt.extract.keys import KeyRegistry, translate_key, unit_id
 
 __all__ = ["ExtractResult", "Occurrence", "Unit", "build_units"]
@@ -99,81 +96,61 @@ def build_units(
     by_unit: dict[str, Unit] = {}
     counter = 0
 
-    for path in region_files(readable):
-        for raw_chunk, root, data_version in _chunks_of(path, result):
-            for node in scan_chunk(root):
-                result.text_nodes += 1
-                built = _consider(node, data_version, result)
-                if built is None:
-                    continue
-                flattened, encoding = built
+    for source in SOURCES:
+        for scanned in source(readable, result.stats):
+            node = scanned.node
+            result.text_nodes += 1
+            built = _consider(node, scanned.container["data_version"], result)
+            if built is None:
+                continue
+            flattened, encoding = built
 
-                discriminator = registry.register(node.category, flattened.text)
-                uid = f"u:{node.category}:{discriminator}"
-                unit = by_unit.get(uid)
-                if unit is None:
-                    unit = Unit(
-                        unit_id=uid,
-                        key=translate_key(
-                            namespace, node.category, flattened.text,
-                            discriminator=discriminator,
-                        ),
-                        category=node.category,
-                        collapsible=flattened.collapsible,
-                        text=flattened.text,
-                        plain=flattened.plain,
-                        segments=[
-                            {"kind": s.kind, "sigma_expressible": s.sigma_expressible}
-                            for s in flattened.segments
-                        ],
-                        escaped_literals=list(flattened.escaped_literals),
-                        flags=set(registry.flags_for(discriminator)),
-                    )
-                    by_unit[uid] = unit
-                    result.units.append(unit)
-                else:
-                    result.stats["deduped_count"] += 1
-
-                counter += 1
-                unit.occurrences.append(
-                    Occurrence(
-                        occurrence_id=f"o:{counter:05d}",
-                        container=_container(path, raw_chunk, data_version, readable),
-                        anchor=node.anchor,
-                        node_path=node.path.to_json(),
-                        encoding=encoding.value,
-                        segment_styles=list(flattened.styles),
-                        skeleton=flattened.skeleton,
-                        list_context=node.list_context,
-                        excluded=_exclusion_for(node.category, encoding),
-                    )
+            discriminator = registry.register(node.category, flattened.text)
+            uid = f"u:{node.category}:{discriminator}"
+            unit = by_unit.get(uid)
+            if unit is None:
+                unit = Unit(
+                    unit_id=uid,
+                    key=translate_key(
+                        namespace, node.category, flattened.text,
+                        discriminator=discriminator,
+                    ),
+                    category=node.category,
+                    collapsible=flattened.collapsible,
+                    text=flattened.text,
+                    plain=flattened.plain,
+                    segments=[
+                        {"kind": s.kind, "sigma_expressible": s.sigma_expressible}
+                        for s in flattened.segments
+                    ],
+                    escaped_literals=list(flattened.escaped_literals),
+                    flags=set(registry.flags_for(discriminator)),
                 )
+                by_unit[uid] = unit
+                result.units.append(unit)
+            else:
+                result.stats["deduped_count"] += 1
+
+            counter += 1
+            unit.occurrences.append(
+                Occurrence(
+                    occurrence_id=f"o:{counter:05d}",
+                    container=scanned.container,
+                    anchor=node.anchor,
+                    node_path=node.path.to_json(),
+                    encoding=encoding.value,
+                    segment_styles=list(flattened.styles),
+                    skeleton=flattened.skeleton,
+                    list_context=node.list_context,
+                    excluded=_exclusion_for(node.category, encoding),
+                )
+            )
 
     result.keymap = registry.keymap()
     result.stats["unit_count"] = len(result.units)
     result.stats["occurrence_count"] = counter
+    result.chunks = result.stats["chunks"]
     return result
-
-
-def _chunks_of(path: ReadOnlyPath, result: ExtractResult) -> Iterator[tuple]:
-    """一張 region 讀不下去時記錄並跳過，不讓整次 extract 消失。"""
-    try:
-        for raw_chunk in read_region(path):
-            if raw_chunk.is_external:
-                result.stats["skipped_external_chunk"] += 1
-                continue
-            try:
-                root = load_chunk_root(raw_chunk)
-                data_version = ensure_supported_structure(
-                    root, chunk_index=raw_chunk.index
-                )
-            except (FormatError, amulet_nbt.NBTLoadError):
-                result.stats["skipped_chunk"] += 1
-                continue
-            result.chunks += 1
-            yield raw_chunk, root, data_version
-    except FormatError:
-        result.stats["skipped_region"] += 1
 
 
 def _consider(node, data_version: int, result: ExtractResult):
@@ -268,29 +245,3 @@ def _plain(tag):
         return int(tag)
     except Exception:
         return str(tag)
-
-
-def _container(path, raw_chunk, data_version: int, world: ReadOnlyPath) -> dict:
-    relative = path.relative_to(world).replace("\\", "/")
-    return {
-        "kind": "region_chunk",
-        "path": relative,
-        "dimension": _dimension_of(relative),
-        "chunk": {"cx": raw_chunk.local_x, "cz": raw_chunk.local_z},
-        "data_version": data_version,
-        "compression": raw_chunk.compression_type,
-        "external": raw_chunk.is_external,
-    }
-
-
-def _dimension_of(relative: str) -> str:
-    """從 region 檔的相對路徑推維度名。"""
-    if relative.startswith("DIM-1/"):
-        return "minecraft:the_nether"
-    if relative.startswith("DIM1/"):
-        return "minecraft:the_end"
-    if relative.startswith("dimensions/"):
-        parts = relative.split("/")
-        if len(parts) >= 3:
-            return f"{parts[1]}:{parts[2]}"
-    return "minecraft:overworld"

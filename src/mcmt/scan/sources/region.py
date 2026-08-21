@@ -26,28 +26,22 @@ datapack 的 `.mcfunction`、`hover_event` 內的文字。**不是忘了，是�
 它們——少一個機會出錯。
 """
 
-from dataclasses import dataclass
+from collections import Counter
 from typing import Any, Iterator
 
 import amulet_nbt
 
+from mcmt.errors import FormatError
 from mcmt.model.node import NodePath, index_step, key_step
+from mcmt.nbtio.region import read_region, region_files
+from mcmt.nbtio.structure import ensure_supported_structure, load_chunk_root
+from mcmt.safety.paths import ReadOnlyPath
+from mcmt.scan.node import ScannedNode, TextNode
 
-__all__ = ["TextNode", "scan_chunk"]
+__all__ = ["TextNode", "dimension_of", "scan", "scan_chunk"]
 
 _SIGN_FACES = ("front_text", "back_text")
 _MESSAGES = "messages"
-
-
-@dataclass(frozen=True)
-class TextNode:
-    """一個等著被判形狀的文字節點，以及它在世界裡的位置。"""
-
-    path: NodePath
-    tag: Any
-    category: str
-    anchor: dict[str, Any] | None = None
-    list_context: dict[str, Any] | None = None
 
 
 def scan_chunk(root: amulet_nbt.CompoundTag) -> Iterator[TextNode]:
@@ -130,3 +124,58 @@ def _element_type(messages: amulet_nbt.ListTag) -> str:
         if isinstance(element, amulet_nbt.StringTag):
             return "string"
     return "empty"
+
+
+def scan(world: ReadOnlyPath, stats: Counter) -> Iterator[ScannedNode]:
+    """走過世界的每一張方塊 region，yield 裡面的文字節點。
+
+    一張 region 讀不下去時記錄並跳過，不讓整次 extract 消失——壞掉的世界更需要
+    能先掃出能掃的部分。
+    """
+    for path in region_files(world):
+        try:
+            chunks = list(read_region(path))
+        except FormatError:
+            stats["skipped_region"] += 1
+            continue
+
+        for raw in chunks:
+            if raw.is_external:
+                stats["skipped_external_chunk"] += 1
+                continue
+            try:
+                root = load_chunk_root(raw)
+                data_version = ensure_supported_structure(root, chunk_index=raw.index)
+            except (FormatError, amulet_nbt.NBTLoadError):
+                stats["skipped_chunk"] += 1
+                continue
+            stats["chunks"] += 1
+            container = _container(path, raw, data_version, world)
+            for node in scan_chunk(root):
+                yield ScannedNode(node=node, container=container)
+
+
+def _container(path, raw, data_version: int, world: ReadOnlyPath) -> dict:
+    relative = path.relative_to(world).replace("\\", "/")
+    return {
+        "kind": "region_chunk",
+        "path": relative,
+        "dimension": dimension_of(relative),
+        "chunk": {"cx": raw.local_x, "cz": raw.local_z},
+        "data_version": data_version,
+        "compression": raw.compression_type,
+        "external": raw.is_external,
+    }
+
+
+def dimension_of(relative: str) -> str:
+    """從 region 檔的相對路徑推維度名。`entities/` 的來源也用這個。"""
+    if relative.startswith("DIM-1/"):
+        return "minecraft:the_nether"
+    if relative.startswith("DIM1/"):
+        return "minecraft:the_end"
+    if relative.startswith("dimensions/"):
+        parts = relative.split("/")
+        if len(parts) >= 3:
+            return f"{parts[1]}:{parts[2]}"
+    return "minecraft:overworld"
