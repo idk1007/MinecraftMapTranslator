@@ -230,3 +230,52 @@ def test_a_good_write_still_round_trips(project) -> None:
 
     read_back = datfile.read_dat(ensure_readable(target))
     assert str(read_back.tag.compound["Data"]["LevelName"]) == "測試世界"
+
+
+def test_a_non_compound_root_that_still_parses_is_rejected(project, monkeypatch) -> None:
+    """回讀驗證要能接住「解析得回來，但根節點不是 TAG_Compound」這一支。
+
+    `NamedTag.compound` 在根節點不是 Compound 時自己會先拋 `TypeError`（而且是在
+    `_verify` 的 try/except 範圍之外），根本走不到後面「不是 Compound 就報錯」的
+    判斷式。這條測試逼出那個分支：`_encode` 吐出一份**讀得回來**、但根節點是
+    `StringTag` 的位元組，驗證必須認得出「這不是我們要的形狀」並拋
+    `DatWriteVerificationError`，而不是讓裸 `TypeError` 洩漏出去。
+    """
+    import gzip
+
+    import amulet_nbt
+
+    from mcmt.errors import DatWriteVerificationError
+    from mcmt.nbtio import datfile
+
+    target = project / "sandbox" / "level.dat"
+    original = amulet_nbt.NamedTag(
+        amulet_nbt.CompoundTag({"Data": amulet_nbt.CompoundTag(
+            {"LevelName": amulet_nbt.StringTag("原本的世界")}
+        )}),
+        "",
+    )
+    datfile.write_dat(target, datfile.DatFile(tag=original, compression="gzip"))
+    before = target.read_bytes()
+
+    # 根節點是 StringTag 而不是 CompoundTag——解析得回來，但形狀不對。
+    non_compound_root = amulet_nbt.NamedTag(amulet_nbt.StringTag("不是一份世界"), "")
+    monkeypatch.setattr(
+        datfile,
+        "_encode",
+        lambda dat, target: gzip.compress(
+            non_compound_root.save_to(compressed=False), mtime=0
+        ),
+    )
+    replacement = amulet_nbt.NamedTag(
+        amulet_nbt.CompoundTag({"Data": amulet_nbt.CompoundTag(
+            {"LevelName": amulet_nbt.StringTag("新的世界")}
+        )}),
+        "",
+    )
+
+    with pytest.raises(DatWriteVerificationError):
+        datfile.write_dat(target, datfile.DatFile(tag=replacement, compression="gzip"))
+
+    assert target.read_bytes() == before
+    assert list(target.parent.glob("*.mcmt-tmp")) == []

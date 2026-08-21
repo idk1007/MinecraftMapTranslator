@@ -106,7 +106,11 @@ def _verify(temporary: Path, target: Path) -> None:
             f"原檔沒有被動過。原因：{type(exc).__name__}: {exc}"
         ) from exc
 
-    if not isinstance(read_back.tag.compound, amulet_nbt.CompoundTag):
+    # 用 `.tag` 而非 `.compound`：後者在根節點不是 Compound 時會自己先拋
+    # `TypeError`（發生在這個 try/except 範圍之外，不會被轉成
+    # `DatWriteVerificationError`），根本走不到這裡的 isinstance 檢查。
+    # `.tag` 單純回傳根節點物件，不論型別為何都不會自爆。
+    if not isinstance(read_back.tag.tag, amulet_nbt.CompoundTag):
         raise DatWriteVerificationError(
             f"寫出去的位元組解析出來不是 TAG_Compound，已中止：{target}。原檔沒有被動過。"
         )
