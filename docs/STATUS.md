@@ -3,13 +3,15 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-21**（M11 完成並**經遊戲實測**：整條鏈成立）
+最後更新：**2026-08-21**（M12 完成。`CustomName` 走 in_place 已接通、M8 的工具與程序備好，**只差一次進遊戲量測**——見下方「現在卡在你身上的兩件事」）
 
 ---
 
 ## 一句話現況
 
-**M0–M4 全部完成。位元組層、安全層、外科式寫入都在真實地圖上驗過，M4 證實舊世代 chunk 的 legacy 寫入路線也成立。下一步是 M5——開始碰語意。**
+**M0–M8、M10–M12 完成。** 整條鏈（`import → extract → 人工翻譯 → apply`）已經自動化
+測試釘住，兩條寫入路徑（translate key 與 in_place）都走得通。**剩下的兩件事需要你
+進遊戲**：M8 的字寬量測、legacy chunk 的 `CustomName` 形狀。準備工作都做好了，見下方。
 
 ~~M1 只差「節點形狀分佈」~~ → **M5.6 已補上**，`doctor` 現在會報形狀分佈與「有多少節點會被跳過不翻」。
 
@@ -85,6 +87,7 @@ mcmt extract → translations.<lang>.json（人直接編輯）→ mcmt apply
 | `docs/ownership.md` | 模組邊界與三個整合檢查點 | 決定某段程式該放哪裡時 |
 | `docs/adr/0007-prior-art-and-licensing.md` | 為何不得對照 maptranslator 原始碼 | 想參考既有實作時 |
 | `docs/m0-checklist.md` | M0 可重跑程序（換版本時用） | 要重驗遊戲行為時 |
+| `docs/m8-checklist.md` | **字寬校準 + legacy CustomName 探測的完整程序** | 下一次進遊戲時 |
 
 ---
 
@@ -378,50 +381,127 @@ GUI 標題顯示**字面文字**。行為與 M0-3 的告示牌 `messages` 完全
 
 ---
 
-## 下一步（依建議順序）
+### `CustomName` 改走 `in_place`（2026-08-21）✅
 
-### 1. `CustomName` 改走 `in_place`（有實測依據，可以直接做）
+[遊戲實測 M11-3] 已經給出答案，所以這一項不必再進遊戲。四個 commit（合約／model／
+extract／`write/` 各一，後兩者是規範要求的獨立 commit）：
 
-[遊戲實測 ③] 已經給出答案：native chunk 的 `CustomName` 只吃字面文字。所以
-`block_entity_name` 這一類要從 `strategy: translate_key` 改成 `in_place`——把譯文
-**直接寫進節點**，不經過 lang 檔。
+| 層 | 做了什麼 |
+|---|---|
+| 合約 | `SCHEMA_VERSION` 4 → 5。`block_entity_name` 加進「category ⇒ in_place」那條 if/then；`excluded.reason` 新增 `untested_write_shape`；`literal` 的語意收緊為**保留節點既有的 NBT 形狀** |
+| `model/strategy.py` | category ⇒ strategy 的唯一權威。與合約的 if/then 由測試綁死 |
+| `extract/` | legacy chunk 的 in_place 節點 per-occurrence 排除；不可塌縮的整個跳過並計數 |
+| `write/in_place.py` | 新的第三條寫入路徑 |
 
-要動的地方：
+**`write/in_place.py` 不是第三份 legacy/native 實作。** 那兩份的不對稱是**世代**的
+（遊戲會不會跑 DataFixerUpper），而 in_place 完全不做那個判斷——它**什麼形狀都不選**，
+保留節點原本的形狀只換裡面的字。分派依據因此是 `encoding` 不是 `data_version`。
 
-* `extract/build.py`：`block_entity_name` 的 `strategy` 標成 `in_place`
-* `backends/…/backend.py`：in_place 的 value 已經支援（`kind: literal`）
-* `write/apply.py`：**目前只寫 list 元素**，要加上「最後一步是 `key`」的直接指派路徑
-* 合約已經有一條 `if/then`：`plain_string` encoding ⇒ `strategy` 必須是 `in_place`。
-  注意 `CustomName` 現在嗅探出來是 `bare_string` 不是 `plain_string`——**要先想清楚
-  這兩者的界線**，可能要改 schema（那就要 bump SCHEMA_VERSION 並更新 sample）。
+有依據的形狀只有四個（`bare_string` / `plain_string` / `text_compound` /
+`empty_key_compound`），其餘一律拒寫並進報告。**不把 `TAG_String` 提升成 compound**
+（告示牌那邊整個 list 提升過，`CustomName` 沒有那條退路），**兩種 compound 形式互不
+正規化**（路過的 `{"": …}` 順手改成 `{"text": …}` 就是重新編碼一個沒被要求改的欄位）。
 
-> **legacy chunk 的 CustomName 是另一回事**：那裡 DataFixer 會解析 JSON，可能可以走
-> translate key。`Arena of Darkness` 的 **9,579 個** CustomName 全是 DV 3700。
-> **未測**，列在 `SPIKE_RESULT.md` 尚待驗證。
+順手抓到 backend 的兩個 bug——in_place 之前沒有任何 category 走得到，所以一直沒被觸發：
+`_value_for` 回傳的是**原文**不是譯文（會是一次沒有效果卻看起來完全成功的存檔修改），
+而 in_place 的 unit 也被塞進 lang 檔、`key` 是 null 於是寫成字面的 `"None"` 鍵。
 
-### 2. M8 字寬校準（需要進遊戲量測）
+真實資料：探測世界的兩個 CustomName 正確寫成 `StringTag` 譯文、沒進 lang 檔、929 個
+chunk 原封複製。**但 `Arena of Darkness` 一個都寫不出去**——見下方 B。
 
-`tools/calibrate_font_widths.py`（**尚未寫**）產生測試告示牌 → 進遊戲截圖 → 回填量測表。
-ASCII 與 CJK 分開量，**一般告示牌與吊掛告示牌分開量**（實測證明差很多）。
+### M8 字寬（2026-08-21）✅（**量測本身還沒做**）
 
-校準完成前 `enforcement` 一律 `warn`；完成後 `sign` 才能升成 `error`。
+`mcmt/width.py` + `mcmt/fontdata/vanilla_v1.json` + `tools/calibrate_font_widths.py`
++ `docs/m8-checklist.md`。
 
-### 3. M12 自動化端到端
+**數字放在資料裡不放在程式裡**：校準是「改資料」，`--record` 只重寫那一個 JSON，
+「哪些量過、哪些還是猜的」永遠只有一個地方要看。`emit.py` 原本自己有一份
+`_WIDTH_BUDGET`，已刪掉——兩份數字就會有一天只校準了其中一份。
 
-把這次手動跑的來回變成測試：`sandbox import → extract → 填譯文 → apply`，斷言
-chunk 位元組層級的變化只發生在該變的地方。fixture 用自建探測世界的切片。
+**note 從「寬度上限 90px」改成「約 10 個中文字」。** px 對譯者沒有意義，字數有。
 
-### 4. M13 掃描廣度
+`enforcement` 仍一律 `warn`，判準改成資料裡的 `calibrated` 旗標。一條測試把
+[遊戲實測 M11-2] 變成會紅的東西：目前的數字必須預測得出「6 個 CJK 進得去、7 個進不去」。
+
+校準工具**產生方式是改寫你放好的空白告示牌，不是生成 `/setblock`**——這個工具從來
+不碰方塊，要它生成 setblock 就得猜 1.21.11 的方塊實體 NBT 語法，猜錯的症狀是「進遊戲
+什麼都沒出現」，白跑一趟。做法沿用 `tools/m4_prepare.py`。
+
+### M12 自動化端到端（2026-08-21）✅
+
+`tests/integration/test_end_to_end.py`，19 條。走使用者真的會走的四步，fixture 是
+自建探測世界的 30-chunk 切片（剛好同時有告示牌與 CustomName，**兩條寫入路徑一趟都
+走到**）。
+
+**它立刻抓到一個真 bug**：`apply_report.assets_installed` 一直是 `["resources.zip"]`，
+而合約要的是物件陣列。單元測試驗的是手寫的 sample fixture，驗不到「程式真的會吐出來
+的東西」。
+
+**一個值得記住的發現**：「未觸碰的 chunk 位元組一致」這條**單獨不夠**。用突變確認過
+——把 apply 改成每個 chunk 都解碼再編碼，那條測試**仍然是綠的**，正是 `SPIKE_RESULT`
+的 L2 那個巧合。抓得到的是 **timestamp**：`ChunkWrite.unchanged` 帶原始時間戳、
+`replaced` 蓋當下時間，所以「有沒有走原封複製那條路」在磁碟上留得下痕跡，位元組留不下。
+
+---
+
+## 現在卡在你身上的兩件事（都要進遊戲，一次做完）
+
+程式都寫好了、探測世界都備好了，**缺的只有「進去看一眼」**。完整程序在
+`docs/m8-checklist.md`，這裡只講為什麼值得跑這一趟。
+
+### A. M8 字寬量測 —— 譯者正照著一組沒量過的數字在翻
+
+待翻檔的 `note` 現在寫「寬度上限 60px（約 6 個中文字，未校準僅供參考）」。譯者是
+**照著這句話決定用詞的**。數字錯了，他會照著翻，然後在遊戲裡被截掉——那個錯誤沒有
+例外、沒有紅字，只有玩家看到半句話。
+
+要你回報四個數字（哪一行是最後一行完整顯示的），外加兩張校準板的截圖。
+
+> 目前的猜測是 sign 90px / hanging 60px / CJK 9px，也就是預期答案 **15 / 10 / 10 / 6**。
+> **量到就是這四個不算白跑**：那代表 [遊戲實測 M11-2]「7 個 CJK 字被截掉」不是碰巧
+> 對上，`hanging_sign` 的 `[待驗]` 就升成 `[遊戲實測]`，`enforcement` 也才能升 error。
+
+### B. legacy chunk 的 `CustomName` —— 卡著 9,579 個節點
+
+[實測 2026-08-21] `Arena of Darkness` 的 CustomName occurrence **9,579 個全部是舊世代**
+（DV 3700 的 JSON 純量 9,259 + DV 3465 的 JSON 物件 320，native 的 **0** 個），目前
+全數以 `untested_write_shape` 排除——**這張地圖的 CustomName 一個都還寫不出去**。
+
+`sandbox/Arena of Darkness` 的 region `r.-3.1.mca` chunk 235 **已經備好三個箱子**
+（`tools/customname_probe.py --generation legacy` 跑過了）。複製進 `.minecraft\saves`、
+開箱子看標題，三選一就有答案：
+
+| 變體 | `/tp` | 顯示譯文代表 |
+|---|---|---|
+| A JSON 純量 `"A 純量成功"` | `-1353 129 625` | 保留原形狀的 in_place 可行 → 9,579 個解開 |
+| B `{"translate":…}` | `-1353 127 625` | 更好：legacy 可以走 translate key，多語言 |
+| C 裸字串 | `-1353 129 626` | DataFixer 對非 JSON 字串是寬容的 |
+
+**兩件事都要把結果寫回 `SPIKE_RESULT.md`**（證據等級 `[遊戲實測]`）與本檔。單人開發
+沒有第二個人會提醒你這一步。
+
+---
+
+## 之後的順序
+
+### 3. M13 掃描廣度
 
 容器裡的物品（`Items[]` 的 `custom_name`/`lore`/書本）、實體（在 `entities/` 而非
 `region/`）、`level.dat`、記分板、進度、指令方塊、datapack、`hover_event` 內的文字。
 
 **M13 開工時要重新問一次「不翻術語」那個決定**——那時待翻項會含 `%1$s` 格式參數
-（[實測] MP2 的 lang 值 37% 有），那是機器驗得出來的另一類（見下方「決定」那節）。
+（[實測] MP2 的 lang 值 37% 有），那是機器驗得出來的另一類（見上方「決定」那節）。
 
-### 5. M14 CLI／報告／文件
+### 4. M14 CLI／報告／文件
 
----
+### 已知缺口（不急，但別忘了）
+
+* **`occurrence.raw_snapshot` 一直是 null。** `expected_encoding` 守門看得到「形狀
+  變了」，看不到「形狀沒變但字變了」——`in_place` 保留形狀，所以使用者若在 extract
+  之後自己把箱子改名，apply 會蓋掉他的改名。合約裡的 `raw_snapshot` 正是為這件事
+  準備的欄位。M12 有一條測試把這個缺口釘住，接上去的那天它會變紅。
+* **`run_apply` 不比對世界指紋。** extract 記了 `world_fingerprint`，apply 只記錄不
+  比對，全靠 per-node 守門。M14 報告那一輪順手補掉。
 
 ## 開工前該補掉的兩件事
 

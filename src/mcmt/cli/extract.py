@@ -118,7 +118,7 @@ def format_result(summary: dict) -> str:
         f"  translations.{summary['language']}.json  ← **編輯這個檔案**，把 target 填上",
         "  extract.json / keymap.json               機器用，不必手動改",
         "",
-        "翻完之後：mcmt apply（尚未實作，M11）",
+        f"翻完之後：mcmt apply \"{summary['world']}\" --translations \"{summary['translations_path']}\"",
     ]
     return "\n".join(lines)
 
