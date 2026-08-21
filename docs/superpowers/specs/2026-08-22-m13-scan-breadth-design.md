@@ -96,6 +96,15 @@ component，交給同一套嗅探與攤平。寫回去靠 `node_path` 走回原�
 > （`written_book` vs `writable_book`）與值的形狀（JSON 字串 vs 純字串）。
 > 只看路徑會把草稿書當成書處理，而草稿書頁是無包裝的 `TAG_String`，只能 `in_place`。
 
+**`item.py` 是嚴格白名單**：只抽上表列出的那些欄位，**其餘一律忽略、也不遞迴進去**。
+不是「走遍物品的樹再靠 denylist 擋」——那個方向錯了，因為物品底下的機制標籤多到
+列不完（`Enchantments`、`AttributeModifiers`、`Trim`、`Potion`、`CanPlaceOn`、
+`BlockStateTag`、`SkullOwner`、`custom_data`…），而漏擋一個的後果是翻掉識別碼。
+
+白名單的代價是「新版本加了新的文字組件我們不會自動抽到」。那個代價是對的方向：
+**漏抽看得見**（節點數對不上清點），**誤翻看不見**（地圖壞掉時已經來不及）。
+denylist 在這裡只是第二道防線，不是主要機制。
+
 ### `node_path` 不需要 `decode` 步驟
 
 舊格式的物品名 `Items[].tag.display.Name` 的值整個就是一個 JSON component，
@@ -172,6 +181,34 @@ scan/sources/datapack.py    新：advancement JSON 的 display.title/description
 
 備份：`BackupSet.protect` 對 `level.dat` 與 datapack zip 一樣適用，順序不變
 （備份 → 改 → 寫）。
+
+### 共用寫入器不得寫死根節點
+
+`level.dat` 的根是 **`Data`**（大寫），`scoreboard.dat` 的根是 **`data`**（小寫）。
+清點輸出直接證實了這件事：`Data/CustomBossEvents/…` 對 `data/Objectives/…`。
+
+**`write/datfile_apply.py` 完全不碰根鍵名**——它只照 `node_path` 一步一步走，而
+`node_path` 本來就從根開始（合約 sample 裡 `level_name` 的路徑就是
+`[key(Data), key(LevelName)]`）。這不是要小心的事，是設計上就不該知道的事。
+
+知道根鍵名的是**掃描來源**，而且各自**動態解析**：先看 compound 裡實際有哪個鍵，
+不是寫死一個字串。兩個理由——版本之間改過大小寫這種事已經發生過一次（就是這兩個
+檔案本身），而寫死的症狀是「這個檔案掃出 0 個節點」，看起來和「這個檔案本來就沒有
+可翻譯的東西」一模一樣。
+
+### `datfile_apply` 的寫入必須是「暫存 → 驗證 → 原子替換」
+
+`nbtio/datfile.py` 的 `write_dat` 目前是「寫 `.mcmt-tmp` → `os.replace`」，
+**中間沒有驗證**。region 那邊不需要這一步（外科式寫入把未改動的位元組原封送回，
+壞掉的只可能是我們自己編的那一個 chunk），但 `.dat` 是整份重編的——編壞了就是整個
+`level.dat` 沒了，而那是世界的中樞。
+
+所以 `write_dat` 要加一步：**寫完暫存檔之後回讀、重新解析、確認根節點還在**，
+通過才 `os.replace`。驗證失敗就刪掉暫存檔並拋錯，原檔一個位元都沒動過。
+
+放在 `write_dat` 而不是 `datfile_apply`，因為那是「把 NBT 安全地寫到磁碟」這件事
+本身的一部分，任何呼叫端都該拿到它。`nbtio/` 不在高風險目錄清單裡，但它是位元組層，
+所以仍然獨立 commit、獨立測試（含一條「編碼器吐出壞位元組時原檔不變」的測試）。
 
 ### 世界指紋要一起改
 
@@ -267,6 +304,7 @@ M6 的回歸測試（走過每一個字串節點問規則引擎）會涵蓋這�
 
 | # | 任務 | 備註 |
 |---|---|---|
+| M13.0 | `write_dat` 加回讀驗證（暫存 → 驗證 → 原子替換） | `nbtio/`，獨立 commit |
 | M13.1 | denylist 補強 + 世界指紋納入 `entities/` | 前置，各自獨立可測 |
 | M13.2 | `scan/registry.py` + region 來源改註冊表形式 | **純重構，行為不變**，既有測試守著 |
 | M13.3 | `scan/sources/item.py`（兩套格式 + 遞迴）→ 接進 region | 這個範圍裡最大的一塊 |
