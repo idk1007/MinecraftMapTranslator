@@ -953,6 +953,16 @@ M0 證明的是「手動注入 + 資源包」這半段；這次是工具自己�
 「必須直接替換原文」那一類，和 `LevelName` / 書名 / 作者 / 草稿書頁同組——合約的
 `strategy: in_place` 正是為這種欄位存在的。
 
+> **這句話的邊界要講清楚**（2026-08-21 補，實作 in_place 時發現原本的措辭比證據強）：
+> 實測證明的是「`CustomName` 位置上的 `TAG_String` 是字面文字」，因此**寫字面譯文
+> 這條路有實測依據**。它**沒有**證明「把該欄位換成 `TAG_Compound` 的
+> `{translate:…}` 一定不行」——第二輪掃描本來就數到 **15 個原生 Compound 的
+> `CustomName`**，那個形狀在真實地圖裡是存在的。
+>
+> 兩者的差別是：in_place 有依據、compound 提升沒有。v1 走有依據的那條，並且
+> `write/in_place.py` 明確**不做** String → Compound 的提升。要改走 translate key
+> 得先有一次遊戲實測，不是靠這一節推得出來。
+
 **legacy chunk（DV < 4325）的 CustomName 仍未測**：那裡 DataFixer 會解析 JSON，
 [遊戲實測 M4-1] 已證明告示牌的 `messages` 在 DV 3700 吃 JSON 字串的 translate key。
 `Arena of Darkness` 的 9,579 個 CustomName 全部是 DV 3700 的 `'"@"'`，所以那條路
@@ -976,7 +986,7 @@ M0 證明的是「手動注入 + 資源包」這半段；這次是工具自己�
 | MP2 那 585 面全 `'""'` 告示牌是否真的顯示引號 | 在 sandbox 副本裡走到現場肉眼確認 | 中 — M0-4 的直接推論，成立則證實那是地圖自身的顯示瑕疵，工具不應「順手修好」 |
 | ~~`pack_format` 多舊才會拒載~~ | ~~逐級下調~~ | **部分完成（M4-5）**：22 會被拒（「無法套用伺服器資源包」），55 不會。M0-5 的「過期不拒載」需限縮為「在某個範圍內」。確切邊界見上一列 |
 | ~~**方塊實體 `CustomName` 在 native chunk 該寫成什麼形狀**~~ | ~~進遊戲測~~ | **已完成（2026-08-21）**：**不解析任何形狀**，SNBT 顯示為字面文字。native 的 `block_entity_name` 只能走 `in_place`（直接替換原文） |
-| **legacy chunk 的 `CustomName` 吃不吃 JSON 的 translate key** | 在 DV 3700 的 chunk 把箱子 CustomName 寫成 `'{"translate":…}'`，進 1.21.11 開箱子看標題 | **高** — `Arena of Darkness` 有 **9,579 個** DV 3700 的 CustomName。M4-1 已證明告示牌 `messages` 在 DV 3700 吃這個形狀，但那是另一個欄位，仍是推論 |
+| **legacy chunk 的 `CustomName` 吃不吃 JSON 的 translate key** | 在 DV 3700 的 chunk 把箱子 CustomName 寫成 `'{"translate":…}'`，進 1.21.11 開箱子看標題 | **高** — [實測 2026-08-21] `Arena of Darkness` 的 CustomName occurrence **9,579 個全部是舊世代**：DV 3700 的 `json_string_scalar` 9,259 個 + DV 3465 的 `json_string_object` 320 個，**native 的 0 個**。M4-1 已證明告示牌 `messages` 在 DV 3700 吃這個形狀，但那是另一個欄位，仍是推論；v1 因此把它們全部以 `untested_write_shape` 排除，等這一項驗完才寫得出去 |
 | **吊掛告示牌的實際寬度上限** | M8 字寬校準 | 中 — [遊戲實測] 7 個 CJK 字會被截掉，目前 60px 的猜測仍偏寬 |
 | region 是否會出現 LZ4 (type 4) | 對更多來源的地圖跑 `probe_compression.py`，特別是伺服器匯出的 | 中 — 第二輪 5 張地圖 16.2 萬 chunk 全為 type 2，仍未見 type 4 |
 | **type 4 的實際位元組框架** | 拿到真實 type 4 chunk 後，用 `nbtio/compression.py` 的 `_decompress_lz4` 對它跑一次 | 中 — `[文件]` 級：Mojang 走 lz4-java 的 `LZ4BlockOutputStream`（`"LZ4Block"` magic + 每區塊 21 bytes 標頭），**不是**標準 LZ4 frame。M1.1 已照此格式實作並以手寫編碼器測過，但沒有任何真實樣本走過這條路徑 |
