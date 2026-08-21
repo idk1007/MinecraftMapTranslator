@@ -33,6 +33,7 @@ from mcmt.errors import FormatError
 from mcmt.model.component import Encoding, sniff
 from mcmt.model.generation import generation_of
 from mcmt.model.segments import flatten
+from mcmt.model.strategy import strategy_for
 from mcmt.nbtio.region import read_region, region_files
 from mcmt.nbtio.structure import ensure_supported_structure, load_chunk_root
 from mcmt.rules.engine import Subject, label
@@ -144,6 +145,7 @@ def build_units(
                         segment_styles=list(flattened.styles),
                         skeleton=flattened.skeleton,
                         list_context=node.list_context,
+                        excluded=_exclusion_for(node.category, data_version),
                     )
                 )
 
@@ -211,7 +213,39 @@ def _consider(node, data_version: int, result: ExtractResult):
     if not flattened.plain.strip():
         result.stats["skipped_empty"] += 1
         return None
+
+    if strategy_for(node.category) == "in_place" and not flattened.collapsible:
+        # `in_place` 把譯文直接寫進節點，沒有「每段一個 key」的位置；合約同時要求
+        # 「collapsible=false ⇒ translate_key」。兩條規則對這個節點是互斥的，留著
+        # 它就會產出一份違反自己合約的 extract.json。跳過並計數，不靜默丟掉。
+        result.stats["skipped_non_collapsible_in_place"] += 1
+        return None
+
     return flattened, shape.encoding
+
+
+def _exclusion_for(category: str, data_version: int) -> dict[str, Any] | None:
+    """這個 occurrence 該不該被擋在寫入層之前。
+
+    [遊戲實測 M11-3] 給的答案只涵蓋 native chunk：那裡 `CustomName` 不解析任何形狀，
+    所以把譯文原樣寫進去就對了。**DV < 4325 的同一個欄位是另一回事**——那裡
+    DataFixerUpper 會解析它（[遊戲實測 M4-2]），寫什麼形狀進去沒有任何實測依據。
+
+    未測過的寫入路徑比拒絕處理危險（CLAUDE.md 一之四對 `.mcc` 用的是同一條理由），
+    所以擋下來、記原因、進報告。**排除是 per-occurrence 的**：同一段原文在 native
+    chunk 的那一份照樣寫得出去。
+    """
+    if strategy_for(category) != "in_place":
+        return None
+    if not generation_of(data_version).legacy_json_is_content:
+        return None
+    return {
+        "reason": "untested_write_shape",
+        "detail": (
+            f"DV {data_version} 的 {category}：DataFixerUpper 會解析這個欄位，"
+            f"而該寫什麼形狀從未進遊戲驗過。見 SPIKE_RESULT.md 尚待驗證表。"
+        ),
+    }
 
 
 def _plain(tag):

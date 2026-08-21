@@ -16,6 +16,7 @@ from typing import Any
 
 from mcmt.extract.build import ExtractResult, Unit
 from mcmt.model import SCHEMA_VERSION
+from mcmt.model.strategy import strategy_for
 
 __all__ = [
     "RULE_SET_VERSION",
@@ -76,6 +77,9 @@ def build_extract_document(
             "skipped_unparseable": result.stats["skipped_unparseable"],
             "skipped_legacy_json_in_native_chunk": result.stats[
                 "skipped_legacy_json_in_native_chunk"
+            ],
+            "skipped_non_collapsible_in_place": result.stats[
+                "skipped_non_collapsible_in_place"
             ],
             "by_category": _by_category(result.units),
         },
@@ -150,11 +154,14 @@ def _unit_json(unit: Unit) -> dict[str, Any]:
     if not unit.collapsible:
         flags.add("non_collapsible_tree")
 
+    strategy = strategy_for(unit.category)
     document = {
         "unit_id": unit.unit_id,
-        "key": unit.key,
+        # in_place 的譯文直接寫進節點，沒有 lang 檔的鍵可放。合約用
+        # 「strategy=in_place ⇒ key 必須是 null」把這件事機器強制了。
+        "key": unit.key if strategy == "translate_key" else None,
         "category": unit.category,
-        "strategy": "translate_key",
+        "strategy": strategy,
         "collapsible": unit.collapsible,
         "source": source,
         "constraints": _constraints_for(unit),
@@ -223,6 +230,10 @@ def _hint_for(unit: Unit) -> str:
 def _note_for(unit: Unit) -> str:
     """給人看的提示。寬度預算要在人開始翻之前就看得到。"""
     bits = [unit.category]
+    if strategy_for(unit.category) == "in_place":
+        # 這一條沒有 lang 檔那層：譯文直接住在存檔裡，所以一份存檔只有一種語言。
+        # 譯者該在動手之前就知道，而不是事後從報告推回來。
+        bits.append("寫回節點本身（不經 lang 檔）")
     budget = _WIDTH_BUDGET.get(unit.category)
     if budget:
         bits.append(f"寬度上限 {budget['max_width_px']}px（未校準，僅供參考）")
