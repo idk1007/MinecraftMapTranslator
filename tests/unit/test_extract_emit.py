@@ -279,3 +279,63 @@ def test_the_key_and_unit_id_share_a_discriminator(tmp_path) -> None:
     unit = extract["units"][0]
 
     assert unit["unit_id"].split(":")[-1] == unit["key"].split(".")[-1]
+
+
+# --- M8 寬度預算：譯者動手之前就要看得到 -----------------------------------
+
+
+def test_the_note_says_how_many_chinese_characters_fit(tmp_path) -> None:
+    """「90px」對譯者沒有意義，「約 10 個中文字」有。"""
+    world = world_with(tmp_path, chunk_with(sign("Welcome", "", "", "")))
+    _, _, translations = documents(world)
+
+    (entry,) = translations["entries"].values()
+
+    assert "10 個中文字" in entry["note"]
+
+
+def test_a_hanging_sign_note_shows_a_smaller_budget(tmp_path) -> None:
+    """[遊戲實測 M11-2] 吊掛告示牌窄很多。兩者共用一個數字就是把它抹掉。"""
+    world = world_with(
+        tmp_path,
+        chunk_with(sign("Welcome", "", "", "", block_id="minecraft:oak_hanging_sign")),
+    )
+    _, _, translations = documents(world)
+
+    (entry,) = translations["entries"].values()
+
+    assert "6 個中文字" in entry["note"]
+
+
+def test_the_constraints_come_from_the_width_table(tmp_path) -> None:
+    from mcmt.width import MEASUREMENT_ID, budget_for
+
+    world = world_with(tmp_path, chunk_with(sign("Welcome", "", "", "")))
+    _, extract, _ = documents(world)
+
+    constraints = extract["units"][0]["constraints"]
+
+    assert constraints["max_width_px"] == budget_for("sign").max_width_px
+    assert constraints["measurement"] == MEASUREMENT_ID
+
+
+def test_enforcement_is_warn_until_the_table_is_calibrated(tmp_path) -> None:
+    """校準完成前一律 warn（CLAUDE.md C 題）。"""
+    world = world_with(tmp_path, chunk_with(sign("Welcome", "", "", "")))
+    _, extract, _ = documents(world)
+
+    assert extract["units"][0]["constraints"]["enforcement"] == "warn"
+
+
+def test_a_source_that_already_overflows_is_reported_not_hidden(tmp_path) -> None:
+    """原文本來就超寬是地圖自己的事，但譯者該知道——他沒有必要塞回一樣長。"""
+    world = world_with(
+        tmp_path,
+        chunk_with(
+            sign("這一行中文字非常多一定放不下", "", "", "",
+                 block_id="minecraft:oak_hanging_sign")
+        ),
+    )
+    _, extract, _ = documents(world)
+
+    assert extract["units"][0]["constraints"]["source_width_px"] > 60

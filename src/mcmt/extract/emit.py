@@ -17,6 +17,7 @@ from typing import Any
 from mcmt.extract.build import ExtractResult, Unit
 from mcmt.model import SCHEMA_VERSION
 from mcmt.model.strategy import strategy_for
+from mcmt.width import MEASUREMENT_ID, budget_for, cjk_capacity, enforcement_for, measure
 
 __all__ = [
     "RULE_SET_VERSION",
@@ -28,12 +29,9 @@ __all__ = [
 RULE_SET_VERSION = "1.21.11-r1"
 _TOOL_VERSION = "0.1.0.dev0"
 
-# 校準前一律 warn（CLAUDE.md C 題）。這些數字全部是 [待驗]。
-_WIDTH_BUDGET = {
-    "sign": {"max_width_px": 90, "max_lines": 1, "wrap": "none"},
-    "hanging_sign": {"max_width_px": 60, "max_lines": 1, "wrap": "none"},
-    "book_page": {"max_width_px": 114, "max_lines": 14, "wrap": "soft"},
-}
+# 寬度預算全部來自 `mcmt/width.py`（M8）。這裡刻意**沒有**第二份數字——有兩份就會
+# 有一天只校準了其中一份，而寬度錯了的症狀是「譯文在遊戲裡被截掉」，不會有例外
+# 也不會有紅字。
 
 
 def build_extract_document(
@@ -192,15 +190,18 @@ def _occurrence_json(occurrence) -> dict[str, Any]:
 
 
 def _constraints_for(unit: Unit) -> dict[str, Any]:
-    budget = _WIDTH_BUDGET.get(unit.category, {})
+    budget = budget_for(unit.category)
     return {
-        "max_width_px": budget.get("max_width_px"),
-        "max_lines": budget.get("max_lines"),
-        "max_chars": None,
-        "wrap": budget.get("wrap", "none"),
-        # **校準完成前一律 warn。** 那些像素數字目前全部是 [待驗]。
-        "enforcement": "warn",
-        "measurement": "vanilla_font_v1",
+        "max_width_px": budget.max_width_px if budget else None,
+        "max_lines": budget.max_lines if budget else None,
+        "max_chars": cjk_capacity(unit.category),
+        "wrap": budget.wrap if budget else "none",
+        # **校準完成前一律 warn**（CLAUDE.md C 題）。判準是量測表裡的 `calibrated`
+        # 旗標，不是這裡寫死的字串——升級成 error 是資料的決定。
+        "enforcement": enforcement_for(unit.category),
+        "measurement": MEASUREMENT_ID,
+        # 原文本來就放不下是地圖自己的事，但譯者該看得到：他沒有必要塞回一樣長。
+        "source_width_px": measure(unit.plain),
     }
 
 
@@ -234,9 +235,16 @@ def _note_for(unit: Unit) -> str:
         # 這一條沒有 lang 檔那層：譯文直接住在存檔裡，所以一份存檔只有一種語言。
         # 譯者該在動手之前就知道，而不是事後從報告推回來。
         bits.append("寫回節點本身（不經 lang 檔）")
-    budget = _WIDTH_BUDGET.get(unit.category)
+    budget = budget_for(unit.category)
     if budget:
-        bits.append(f"寬度上限 {budget['max_width_px']}px（未校準，僅供參考）")
+        # **px 對譯者沒有意義，「幾個中文字」有。** 這一句是 M8 存在的理由：
+        # 事後才報超寬對人沒有幫助，他得先知道放得下多少才有辦法斟酌用詞。
+        capacity = cjk_capacity(unit.category)
+        caveat = "" if budget.calibrated else "，未校準僅供參考"
+        bits.append(f"寬度上限 {budget.max_width_px}px（約 {capacity} 個中文字{caveat}）")
+        width = measure(unit.plain)
+        if width > budget.max_width_px:
+            bits.append(f"原文本身就超寬 {width}px，不必塞回一樣長")
     if len(unit.occurrences) > 1:
         bits.append(f"出現 {len(unit.occurrences)} 次")
     if len(unit.segments) > 1:

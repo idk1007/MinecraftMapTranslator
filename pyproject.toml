@@ -29,6 +29,10 @@ mcmt = "mcmt.cli.__main__:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+# M8 的量測表。校準是「改資料」不是「改程式」，所以它得跟著套件走。
+mcmt = ["fontdata/*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

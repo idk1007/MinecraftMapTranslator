@@ -1,0 +1,67 @@
+{
+  "id": "vanilla_font_v1",
+  "note": "1.21.11 原版字型的字元前進寬度（px，含字元間 1px 間隔）與各處的行寬預算。evidence 沿用 SPIKE_RESULT.md 的四級制。校準程序見 docs/m8-checklist.md，回填用 tools/calibrate_font_widths.py --record。",
+  "default_advance": 6,
+  "cjk_advance": 9,
+  "bold_extra": 1,
+  "advance_evidence": {
+    "ascii": "文件",
+    "cjk": "待驗",
+    "bold": "文件"
+  },
+  "advances": {
+    " ": 4,
+    "!": 2,
+    "\"": 5,
+    "'": 3,
+    "(": 5,
+    ")": 5,
+    "*": 5,
+    ",": 2,
+    ".": 2,
+    ":": 2,
+    ";": 2,
+    "<": 5,
+    ">": 5,
+    "@": 7,
+    "I": 4,
+    "[": 4,
+    "]": 4,
+    "`": 3,
+    "f": 5,
+    "i": 2,
+    "k": 5,
+    "l": 3,
+    "t": 4,
+    "{": 5,
+    "|": 2,
+    "}": 5,
+    "~": 7
+  },
+  "budgets": {
+    "sign": {
+      "max_width_px": 90,
+      "max_lines": 1,
+      "wrap": "none",
+      "calibrated": false,
+      "evidence": "文件",
+      "note": "一般告示牌單行的算繪寬度。[遊戲實測 M11-2] 7 個 CJK 字在這裡完全正常，與 90px / CJK 9px 一致。"
+    },
+    "hanging_sign": {
+      "max_width_px": 60,
+      "max_lines": 1,
+      "wrap": "none",
+      "calibrated": false,
+      "evidence": "待驗",
+      "note": "[遊戲實測 M11-2] 7 個 CJK 字被截掉、正反面皆然。60px 搭配 CJK 9px 正好預測到這件事（6 字 54px 進得去、7 字 63px 進不去），但那是事後對得上，不是量出來的——M8 校準要確認的就是這兩個數字不是碰巧湊對。"
+    },
+    "book_page": {
+      "max_width_px": 114,
+      "max_lines": 14,
+      "wrap": "soft",
+      "calibrated": false,
+      "evidence": "文件",
+      "note": "成書一頁的文字區寬度與行數。v1 還沒掃到書本（M13），所以連一個真實資料點都還沒有。"
+    }
+  }
+}
