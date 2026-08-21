@@ -73,7 +73,16 @@ def run_apply(
     if not dry_run:
         report["world"]["world_fingerprint_after"] = world_fingerprint(world_path)
     if pack_report:
-        report["assets_installed"] = ["resources.zip"]
+        # 合約要的是物件不是字串。M12 的端到端測試第一次真的拿 apply_report 去驗
+        # schema，才發現這裡一直產出一份不合自己合約的報告——單元測試驗的是手寫的
+        # sample fixture，驗不到「程式真的會吐出來的東西」。
+        report["assets_installed"] = [
+            {
+                "source": str(pack_report.path.name),
+                "destination": str(pack_report.path.relative_to(world_path)),
+                "replaced_existing": not pack_report.created,
+            }
+        ]
     report["unwritten"] = outcome.unwritten + [
         {**item, "occurrence_id": None} for item in plan.document["unwritten"]
         if item["reason"] in _WRITER_REASONS
