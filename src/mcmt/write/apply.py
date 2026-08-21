@@ -11,6 +11,10 @@
 **外科式寫入由 `write_region` 保證**：沒被改到的 chunk 帶著它從磁碟讀來的原始壓縮
 位元組原封送回去。報告裡的 `chunks_copied_verbatim` 就是這條規則的機器可檢查形式。
 
+**兩條寫入路徑**，由 `node_path` 的最後一步分派：最後一步是 `index` 就是 list 元素
+（告示牌四行），走 `legacy`/`native` 的世代分派；最後一步是 `key` 就是直接指派
+（`CustomName` 這類不吃 translate key 的欄位），走 `in_place`，保留節點既有的形狀。
+
 **每一筆寫入前都過 `expected_encoding` 守門。** 節點現在的形狀與 extract 當時記的不同
 就拒寫那一筆（`node_changed`）——[遊戲實測 M4-4] 使用者只要在中間玩過一次遊戲，
 DataFixer 就會把部分節點的形狀改掉。
@@ -33,7 +37,7 @@ from mcmt.nbtio.compression import decompress_chunk
 from mcmt.nbtio.region import ChunkWrite, read_region, write_region
 from mcmt.safety.backup import BackupSet
 from mcmt.safety.paths import ensure_readable, ensure_writable
-from mcmt.write import legacy, native
+from mcmt.write import in_place, legacy, native
 
 __all__ = ["ApplyOutcome", "apply_editplan"]
 
@@ -196,22 +200,21 @@ def _rewrite_chunk(raw, edits: list[dict], outcome: ApplyOutcome) -> bytes | Non
 def _apply_edit(root, edit: dict, outcome: ApplyOutcome) -> bool:
     path = NodePath.from_json(edit["node_path"])
     steps = list(path)
-    if not steps or steps[-1].t != "index":
-        # **v1 只寫 list 元素（告示牌四行）。**
-        #
-        # 主要卡在 `CustomName`：[實測] 它在兩個世代都是 String 節點——native
-        # （DV 4671）裡是裸字串 `TT_CHEST_CUSTOM_NAME`，legacy（DV 3700）裡是 JSON
-        # 純量 `'"@"'`。要放 translate key 進去，native 那邊該寫什麼形狀**沒有實測
-        # 依據**：寫 compound 會改掉那個欄位的 NBT 型別，寫 JSON 字串又踩到 M0-3
-        # （native chunk 的 TAG_String 是字面文字，不解析）。
-        #
-        # 未測過的寫入路徑比拒絕處理危險。已列入 SPIKE_RESULT 的尚待驗證。
-        _refuse(
-            outcome,
-            edit,
-            "unsupported_encoding",
-            "v1 只寫 list 元素；CustomField 這類 String 節點的寫入形狀尚未實測",
-        )
+    if not steps:
+        _refuse(outcome, edit, "node_missing", "node_path 是空的")
+        return False
+
+    # **兩條寫入路徑，由 node_path 的最後一步分派。**
+    #
+    # 最後一步是 `index` → list 元素（告示牌四行），走 legacy/native 的世代分派，
+    # 節點換成 `{translate: key}`，譯文住在資源包裡。
+    #
+    # 最後一步是 `key` → 直接指派（`CustomName` 這類不吃 translate key 的欄位），
+    # 保留節點既有的形狀、只換裡面的字。[遊戲實測 M11-3]
+    if steps[-1].t == "key":
+        return _apply_in_place(root, steps, edit, outcome)
+    if steps[-1].t != "index":
+        _refuse(outcome, edit, "unsupported_encoding", "v1 的寫入路徑不支援 decode 步驟")
         return False
 
     index = steps[-1].i
@@ -254,6 +257,49 @@ def _apply_edit(root, edit: dict, outcome: ApplyOutcome) -> bool:
     _replace_list(root, steps[:-1], result.list)
     if result.promoted:
         outcome.counts["list_promotions"] += 1
+    return True
+
+
+def _apply_in_place(root, steps, edit: dict, outcome: ApplyOutcome) -> bool:
+    """直接指派一個 compound 的鍵。**保留節點既有的 NBT 形狀。**
+
+    守門與 list 那條路徑一模一樣，而且順序不能換：先確認節點還在、再確認它的形狀
+    還是 extract 當時記的那個，最後才決定寫什麼。[遊戲實測 M4-4] 使用者中間玩過
+    一次遊戲，DataFixer 就會把部分節點的形狀改掉。
+    """
+    name = steps[-1].name
+    try:
+        parent = _resolve(root, steps[:-1])
+    except (KeyError, IndexError) as exc:
+        _refuse(outcome, edit, "node_missing", str(exc))
+        return False
+
+    if not isinstance(parent, amulet_nbt.CompoundTag) or name not in parent:
+        _refuse(outcome, edit, "node_missing", f"找不到鍵 {name}")
+        return False
+
+    try:
+        current = sniff(parent[name]).encoding.value
+    except TypeError:
+        _refuse(outcome, edit, "unsupported_encoding", "這個節點不是文字節點")
+        return False
+    if current != edit["expected_encoding"]:
+        _refuse(
+            outcome,
+            edit,
+            "node_changed",
+            f"預期 {edit['expected_encoding']}，現在是 {current}"
+            f"——世界在 extract 之後被改過了（多半是在遊戲裡開過）",
+        )
+        return False
+
+    try:
+        tag = in_place.value_tag(current, edit["value"])
+    except in_place.UnsupportedInPlaceShape as exc:
+        _refuse(outcome, edit, "unsupported_encoding", str(exc))
+        return False
+
+    parent[name] = tag
     return True
 
 
