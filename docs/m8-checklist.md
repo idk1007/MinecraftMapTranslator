@@ -1,5 +1,20 @@
 # M8 — 字寬校準（可重跑程序）
 
+> ## ✅ 已完成一次：2026-08-21
+>
+> | | ASCII（`M`） | CJK（`中`） | 預算 |
+> |---|---|---|---|
+> | 一般告示牌 | 15 | 10 | **90px（約 10 個中文字）** |
+> | 吊掛告示牌 | 10 | 6 | **60px（約 6 個中文字）** |
+>
+> CJK **9px**、粗體 **+1**（吊掛上 10 個粗體 `M` 只顯示 8 個）。
+> `enforcement` 已升成 `error` 並且真的會擋。第 5 節的 legacy `CustomName` 探測
+> **也做完了**，結果見該節末尾。
+>
+> **這份文件留著是因為它可重跑**：換 Minecraft 版本、或 M13 掃到書本之後
+> （`book_page` 的 114px 還是 `[文件]` 級），照同一套程序再跑一次。
+
+
 **目的**：把 `src/mcmt/fontdata/vanilla_v1.json` 裡那些 `[文件]` 與 `[待驗]` 的數字，
 換成 `[遊戲實測]` 的數字。校準完成前 `constraints.enforcement` 一律 `warn`；完成後
 `sign` 與 `hanging_sign` 才會自動升成 `error`（判準是資料裡的 `calibrated` 旗標，
@@ -74,17 +89,20 @@
 
 **另外對每一種告示牌的校準板各截一張圖**（正對著、盡量近）。那八行是精確值的來源。
 
-> 目前的猜測是 sign 90px / hanging 60px / CJK 9px，也就是預期答案是
-> **15 / 10 / 10 / 6**。**如果你量到的就是這四個數字，那不是白跑**——那代表事後
-> 對得上的巧合其實是真的，而 `hanging_sign` 那條 `[待驗]` 就變成 `[遊戲實測]`。
+> 校準前的猜測是 sign 90px / hanging 60px / CJK 9px，也就是預期答案 **15 / 10 / 10 / 6**。
+> **2026-08-21 量到的就是這四個**——所以那不是白跑：它證實了 [遊戲實測 M11-2]
+> 「7 個 CJK 字被截掉」不是碰巧對上，`hanging_sign` 因此從 `[待驗]` 升成 `[遊戲實測]`。
 
 ## 4. 回填
 
 ```
 .venv\Scripts\python -X utf8 tools\calibrate_font_widths.py --record ^
     --sign-ascii-max 15 --sign-cjk-max 10 ^
-    --hanging-ascii-max 10 --hanging-cjk-max 6
+    --hanging-ascii-max 10 --hanging-cjk-max 6 ^
+    --sign-bold-shown 10 --hanging-bold-shown 8
 ```
+
+（上面就是 2026-08-21 那次實際用的指令。）
 
 腳本會：
 
@@ -93,6 +111,9 @@
   階梯只給得出區間，硬要相等會把一組其實一致的觀察判成錯誤，而假警報比沒有檢查更糟
 * 把你回報的原始觀察一起寫進 JSON，讓推導過程之後查得到
 * 交集是空的就**拒絕回填**，請你改用校準板的截圖直接量（`--cjk-advance N`）
+* 粗體那兩個數字（校準板第 7 行看得到幾個 `M`）把 `bold_extra` 釘死。**三個觀察要
+  一起解**：只看 ASCII 區間的話，`e=2` 也會留下來——它要求吊掛預算落在 64..65px，
+  而同一面「6 個中文字進得去、7 個不行」要求 < 63px，兩者其實互斥，分開檢查看不出來
 
 回填之後**跑一次 pytest**。`tests/unit/test_width.py` 有幾條測試綁著目前的數字，
 它們變紅是預期的——**要照新的量測值改，不是把測試放寬**。
@@ -102,16 +123,17 @@
 
 ---
 
-## 5. 順便做：legacy chunk 的 `CustomName`（準備工作已完成）
+## 5. legacy chunk 的 `CustomName`（✅ 2026-08-21 完成）
 
-**這一項卡著 9,579 個節點。** [實測 2026-08-21] `Arena of Darkness` 的 CustomName
-occurrence 全部是舊世代（DV 3700 的 JSON 純量 9,259 個 + DV 3465 的 JSON 物件
-320 個，native 的 **0** 個），目前全數以 `untested_write_shape` 排除——也就是這張
-地圖的 CustomName 一個都還寫不出去。
+**這一項當時卡著 9,579 個節點。** [實測 2026-08-21] `Arena of Darkness` 的
+CustomName occurrence 全部是舊世代（DV 3700 的 JSON 純量 9,259 個 + DV 3465 的
+JSON 物件 320 個，native 的 **0** 個），全數以 `untested_write_shape` 排除——
+也就是這張地圖的 CustomName 一個都寫不出去。
 
-`sandbox\Arena of Darkness` **已經備好了**（`tools/customname_probe.py --generation
-legacy`，region `r.-3.1.mca` 的 chunk 235）。把它複製到 `.minecraft\saves\` 用
-1.21.11 開啟，`/gamemode spectator`，然後開這三個箱子看標題：
+重跑的方式（換版本時用）：`tools/customname_probe.py --generation legacy --find`
+找一個世代對得上、容器夠多的 chunk，再對它跑一次；2026-08-21 用的是
+`region r.-3.1.mca` 的 chunk 235。把世界複製到 `.minecraft\saves\` 用 1.21.11 開啟，
+`/gamemode spectator`，然後開這三個箱子看標題：
 
 | 變體 | 寫進去的 | `/tp` | 顯示什麼代表什麼 |
 |---|---|---|---|
@@ -124,4 +146,16 @@ legacy`，region `r.-3.1.mca` 的 chunk 235）。把它複製到 `.minecraft\sav
 > 這張地圖自己帶了一個 **131 MB 的 `resources.zip`**，腳本是**合併**進去的（既有
 > 329 個條目一個都不動），不是覆蓋。M4 第一版覆蓋掉它、被 `BackupSet` 接住過。
 
-結果一樣要寫回 `SPIKE_RESULT.md` 的「尚待驗證」表。
+### 2026-08-21 的結果
+
+| 變體 | 開箱子看到 | 結論 |
+|---|---|---|
+| **A** JSON 純量 | 「A 純量成功」 | **成立** |
+| **B** JSON 物件的 translate key | 「自訂名稱翻譯成功」 | **成立**，資源包解得開 |
+| **C** 非 JSON 的裸字串 | **「大型儲物箱」** | **失敗，欄位整個被丟掉** |
+
+**C 是最重要的一個，而且它是反面的**：顯示的是原版預設容器名，代表 DataFixerUpper
+沒能解析那個字串、整個欄位被丟棄。所以在舊世代換掉節點的形狀會**悄無聲息地弄丟
+別人地圖上的名字**——「保留既有形狀」不是保守，是唯一不會壞事的選擇。
+
+落地與完整記錄見 `SPIKE_RESULT.md`「M8 + legacy CustomName 遊戲實測」⑤。

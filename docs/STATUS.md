@@ -3,15 +3,16 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-21**（M12 完成。`CustomName` 走 in_place 已接通、M8 的工具與程序備好，**只差一次進遊戲量測**——見下方「現在卡在你身上的兩件事」）
+最後更新：**2026-08-21**（M8 校準完成、legacy `CustomName` 驗完。**沒有任何一項卡在進遊戲了**，下一步是 M13 掃描廣度）
 
 ---
 
 ## 一句話現況
 
-**M0–M8、M10–M12 完成。** 整條鏈（`import → extract → 人工翻譯 → apply`）已經自動化
-測試釘住，兩條寫入路徑（translate key 與 in_place）都走得通。**剩下的兩件事需要你
-進遊戲**：M8 的字寬量測、legacy chunk 的 `CustomName` 形狀。準備工作都做好了，見下方。
+**M0–M8、M10–M12 完成，而且沒有任何一項卡在「要進遊戲」了。** 整條鏈
+（`import → extract → 人工翻譯 → apply`）有自動化測試釘住，兩條寫入路徑
+（translate key 與 in_place）都走得通，字寬預算是量出來的、`enforcement` 已經是
+`error` 而且真的會擋。下一步是 **M13 掃描廣度**——目前只掃告示牌與 `CustomName`。
 
 ~~M1 只差「節點形狀分佈」~~ → **M5.6 已補上**，`doctor` 現在會報形狀分佈與「有多少節點會被跳過不翻」。
 
@@ -87,7 +88,7 @@ mcmt extract → translations.<lang>.json（人直接編輯）→ mcmt apply
 | `docs/ownership.md` | 模組邊界與三個整合檢查點 | 決定某段程式該放哪裡時 |
 | `docs/adr/0007-prior-art-and-licensing.md` | 為何不得對照 maptranslator 原始碼 | 想參考既有實作時 |
 | `docs/m0-checklist.md` | M0 可重跑程序（換版本時用） | 要重驗遊戲行為時 |
-| `docs/m8-checklist.md` | **字寬校準 + legacy CustomName 探測的完整程序** | 下一次進遊戲時 |
+| `docs/m8-checklist.md` | 字寬校準的可重跑程序（M13 掃到書本後要再跑一次） | 要重驗字寬時 |
 
 ---
 
@@ -409,7 +410,7 @@ extract／`write/` 各一，後兩者是規範要求的獨立 commit）：
 真實資料：探測世界的兩個 CustomName 正確寫成 `StringTag` 譯文、沒進 lang 檔、929 個
 chunk 原封複製。**但 `Arena of Darkness` 一個都寫不出去**——見下方 B。
 
-### M8 字寬（2026-08-21）✅（**量測本身還沒做**）
+### M8 字寬的表與工具（2026-08-21）✅（量測見下面那節）
 
 `mcmt/width.py` + `mcmt/fontdata/vanilla_v1.json` + `tools/calibrate_font_widths.py`
 + `docs/m8-checklist.md`。
@@ -420,8 +421,9 @@ chunk 原封複製。**但 `Arena of Darkness` 一個都寫不出去**——見�
 
 **note 從「寬度上限 90px」改成「約 10 個中文字」。** px 對譯者沒有意義，字數有。
 
-`enforcement` 仍一律 `warn`，判準改成資料裡的 `calibrated` 旗標。一條測試把
-[遊戲實測 M11-2] 變成會紅的東西：目前的數字必須預測得出「6 個 CJK 進得去、7 個進不去」。
+`enforcement` 判準是資料裡的 `calibrated` 旗標（當時全部是 `warn`，量測完成後自動
+升成 `error`）。一條測試把 [遊戲實測 M11-2] 變成會紅的東西：數字必須預測得出
+「6 個 CJK 進得去、7 個進不去」——後來的量測證實它一直是對的。
 
 校準工具**產生方式是改寫你放好的空白告示牌，不是生成 `/setblock`**——這個工具從來
 不碰方塊，要它生成 setblock 就得猜 1.21.11 的方塊實體 NBT 語法，猜錯的症狀是「進遊戲
@@ -444,55 +446,76 @@ chunk 原封複製。**但 `Arena of Darkness` 一個都寫不出去**——見�
 
 ---
 
-## 現在卡在你身上的兩件事（都要進遊戲，一次做完）
+### M8 校準完成 + legacy `CustomName`（2026-08-21，`[遊戲實測]`）✅
 
-程式都寫好了、探測世界都備好了，**缺的只有「進去看一眼」**。完整程序在
-`docs/m8-checklist.md`，這裡只講為什麼值得跑這一趟。
+一次進遊戲做完兩件事，兩件都成立。完整記錄見 `SPIKE_RESULT.md`「M8 + legacy
+CustomName 遊戲實測」，這裡只留不能重推的結論。
 
-### A. M8 字寬量測 —— 譯者正照著一組沒量過的數字在翻
+**① 字寬：四個數字全部命中校準前的猜測。**
 
-待翻檔的 `note` 現在寫「寬度上限 60px（約 6 個中文字，未校準僅供參考）」。譯者是
-**照著這句話決定用詞的**。數字錯了，他會照著翻，然後在遊戲裡被截掉——那個錯誤沒有
-例外、沒有紅字，只有玩家看到半句話。
+| | ASCII（`M`） | CJK（`中`） | 預算 |
+|---|---|---|---|
+| 一般告示牌 | 15 | 10 | **90px（約 10 個中文字）** |
+| 吊掛告示牌 | 10 | 6 | **60px（約 6 個中文字）** |
 
-要你回報四個數字（哪一行是最後一行完整顯示的），外加兩張校準板的截圖。
+CJK 9px、粗體 +1（吊掛上 10 個粗體 `M` 只顯示 8 個——若粗體不加寬就會全部顯示）。
+所以 [遊戲實測 M11-2]「7 個 CJK 字被截掉」不是碰巧對上，`hanging_sign` 從 `[待驗]`
+升成 `[遊戲實測]`。
 
-> 目前的猜測是 sign 90px / hanging 60px / CJK 9px，也就是預期答案 **15 / 10 / 10 / 6**。
-> **量到就是這四個不算白跑**：那代表 [遊戲實測 M11-2]「7 個 CJK 字被截掉」不是碰巧
-> 對上，`hanging_sign` 的 `[待驗]` 就升成 `[遊戲實測]`，`enforcement` 也才能升 error。
+> **階梯定的是比例，不是絕對 px。** 窮舉過所有相容的參數組，全部是等比族
+> （ASCII : CJK 恆為 2 : 3），整張表乘以 2 也一樣相容。絕對尺度靠「ASCII = 6px」
+> 這個 `[文件]` 級的錨。不影響工具——真正用到的 `cjk_capacity` 只依賴比值。
 
-### B. legacy chunk 的 `CustomName` —— 卡著 9,579 個節點
+**`enforcement` 因此升成 `error`，而且現在真的會擋**（`overflow_rejected`，合約本來
+就有這個原因）。合約寫的是「拒絕該筆譯文」，校準前一律 warn 是因為「拿沒驗過的預算
+去擋會退掉正確的譯文」；驗過了就得執行，否則那個欄位在說謊。
 
-[實測 2026-08-21] `Arena of Darkness` 的 CustomName occurrence **9,579 個全部是舊世代**
-（DV 3700 的 JSON 純量 9,259 + DV 3465 的 JSON 物件 320，native 的 **0** 個），目前
-全數以 `untested_write_shape` 排除——**這張地圖的 CustomName 一個都還寫不出去**。
+**一個豁免**：原文本身就放不下時，只要譯文不比原文寬就放行。那是地圖自己的排版，
+在那種節點上退掉一個「不比原文糟」的譯文，等於要求譯者解一個原作者沒解的問題，
+而且無論他怎麼寫都過不了。
 
-`sandbox/Arena of Darkness` 的 region `r.-3.1.mca` chunk 235 **已經備好三個箱子**
-（`tools/customname_probe.py --generation legacy` 跑過了）。複製進 `.minecraft\saves`、
-開箱子看標題，三選一就有答案：
+**② legacy `CustomName`：JSON 兩種都成立，裸字串會弄丟名字。**
 
-| 變體 | `/tp` | 顯示譯文代表 |
-|---|---|---|
-| A JSON 純量 `"A 純量成功"` | `-1353 129 625` | 保留原形狀的 in_place 可行 → 9,579 個解開 |
-| B `{"translate":…}` | `-1353 127 625` | 更好：legacy 可以走 translate key，多語言 |
-| C 裸字串 | `-1353 129 626` | DataFixer 對非 JSON 字串是寬容的 |
+| 變體 | 結果 |
+|---|---|
+| `'"譯文"'`（JSON 純量） | 正確顯示 |
+| `'{"translate":…}'`（JSON 物件） | 正確解出資源包的譯文 |
+| `'譯文'`（非 JSON 裸字串） | **顯示原版預設名——欄位整個被丟掉** |
 
-**兩件事都要把結果寫回 `SPIKE_RESULT.md`**（證據等級 `[遊戲實測]`）與本檔。單人開發
-沒有第二個人會提醒你這一步。
+**第三個是反面證據，而且比前兩個重要**：在舊世代換掉節點的形狀會**悄無聲息地弄丟
+別人地圖上的名字**。「保留節點既有的形狀」在這裡不是保守，是唯一不會壞事的選擇。
+
+落地：`write/in_place.py` 支援六種形狀（多了 `json_string_scalar` /
+`json_string_object`），`extract` 的排除判準從**世代**改成**形狀有沒有實測依據**
+（清單在 `model/strategy.py`，寫入層的實作與它由一個 assert 綁死）。
+
+真實地圖：`Arena of Darkness` 的 CustomName occurrence 從 **9,579 全數排除** 變成
+**9,581 個 0 排除**，並真的寫了一筆驗證（DV 3700 的旗幟，`'"Letter F"'` →
+`'"測試譯文"'`，形狀與 DataVersion 都沒變，同 region 其餘 952 個 chunk 原封複製）。
+
+> **B 成立代表舊世代可以走 translate key**（一份存檔支援多語言）。v1 不走：
+> `strategy` 是 per-unit 的，而同一段原文可能同時有 native 與 legacy 的 occurrence，
+> native 那邊 translate key 不成立（M11-3）。留給 v2。
 
 ---
 
-## 之後的順序
+## 下一步
 
-### 3. M13 掃描廣度
+### 1. M13 掃描廣度 ← **現在就是這一項**
 
-容器裡的物品（`Items[]` 的 `custom_name`/`lore`/書本）、實體（在 `entities/` 而非
-`region/`）、`level.dat`、記分板、進度、指令方塊、datapack、`hover_event` 內的文字。
+目前只掃告示牌與 `CustomName`。還沒掃的：容器裡的物品（`Items[]` 的
+`custom_name`/`lore`/書本）、實體（在 `entities/` 而非 `region/`）、`level.dat`、
+記分板、進度、指令方塊、datapack、`hover_event` 內的文字。
 
-**M13 開工時要重新問一次「不翻術語」那個決定**——那時待翻項會含 `%1$s` 格式參數
+**開工時要重新問一次「不翻術語」那個決定**——那時待翻項會含 `%1$s` 格式參數
 （[實測] MP2 的 lang 值 37% 有），那是機器驗得出來的另一類（見上方「決定」那節）。
 
-### 4. M14 CLI／報告／文件
+順帶會用到的東西已經備好：`level_name` / `book_title` / `book_author` /
+`draft_book_page` 四個 category 早就在 `IN_PLACE_CATEGORIES` 裡，`in_place` 的
+`plain_string` 形狀也實作好了（有單元測試，但**還沒有任何 region 路徑走得到它**
+——那四個欄位都在 `level.dat` 或物品裡）。
+
+### 2. M14 CLI／報告／文件
 
 ### 已知缺口（不急，但別忘了）
 
@@ -502,6 +525,9 @@ chunk 原封複製。**但 `Arena of Darkness` 一個都寫不出去**——見�
   準備的欄位。M12 有一條測試把這個缺口釘住，接上去的那天它會變紅。
 * **`run_apply` 不比對世界指紋。** extract 記了 `world_fingerprint`，apply 只記錄不
   比對，全靠 per-node 守門。M14 報告那一輪順手補掉。
+* **`book_page` 的寬度還沒校準**（114px 是 `[文件]`）。v1 還沒掃到書本，所以連一個
+  真實資料點都沒有；M13 掃到之後要照 `docs/m8-checklist.md` 再跑一次校準。
+* **`json_string_array` 形狀的 `in_place` 仍拒寫**，沒測過。實務上罕見。
 
 ## 開工前該補掉的兩件事
 
