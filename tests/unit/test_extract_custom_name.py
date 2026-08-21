@@ -8,9 +8,9 @@ translate key，譯文得直接寫進節點。
 三件事在這裡被釘死：
 
 1. `block_entity_name` 的 `strategy` 是 `in_place`，`key` 是 null；告示牌不受影響。
-2. **legacy chunk（DV < 4325）的 CustomName 被 per-occurrence 排除**。那裡
-   DataFixerUpper 會解析該欄位，native 的答案不能轉移過去，而那條路徑從沒進過遊戲。
-   排除是 per-occurrence 的：同一段原文在 native chunk 的那一份照樣寫。
+2. **沒有實測依據的形狀被 per-occurrence 排除**。判準是形狀不是世代——
+   [遊戲實測 2026-08-21] 舊世代的 JSON 純量與 JSON 物件都驗過了，剩 `json_string_array`
+   沒有。排除是 per-occurrence 的：同一段原文有依據的那一份照樣寫。
 3. **不可塌縮的 CustomName 整個節點跳過。** `in_place` 沒有辦法表達「每段一個 key」，
    而合約同時要求「collapsible=false ⇒ translate_key」——留著它會產出一份違反自己
    合約的 extract.json。
@@ -106,10 +106,35 @@ def test_a_sign_unit_still_goes_through_a_translate_key(tmp_path) -> None:
 # --- legacy chunk 的 CustomName 是未測過的寫入路徑 -------------------------
 
 
-def test_a_custom_name_in_a_legacy_chunk_is_excluded(tmp_path) -> None:
+def test_a_custom_name_in_a_legacy_chunk_is_no_longer_excluded(tmp_path) -> None:
+    """[遊戲實測 2026-08-21] DV 3700 的 CustomName 寫 `'"譯文"'` 正確顯示。
+
+    這一條原本是反過來的（斷言它被排除），理由是「沒有實測依據」。依據補上了，
+    所以排除也就沒有理由了——`Arena of Darkness` 的 9,579 個節點因此解開。
+    """
     world = world_with(
         tmp_path,
         chunk_with(chest(amulet_nbt.StringTag('"Supply Crate"')), data_version=3700),
+    )
+    _, document = extract_of(world)
+
+    (occurrence,) = unit_of(document, "block_entity_name")["occurrences"]
+
+    assert occurrence.get("excluded") is None
+
+
+def test_a_shape_without_evidence_is_still_excluded(tmp_path) -> None:
+    """判準是**形狀有沒有實測依據**，不是世代。
+
+    原本用 `data_version` 近似它（「舊世代一律排除」）。那個近似在 legacy 的結果
+    出來之後就錯了，而且方向很差：它會把已經驗過的形狀一起擋掉。
+    """
+    world = world_with(
+        tmp_path,
+        chunk_with(
+            chest(amulet_nbt.StringTag('["", {"text":"Supply Crate"}]')),
+            data_version=3700,
+        ),
     )
     _, document = extract_of(world)
 
@@ -119,16 +144,27 @@ def test_a_custom_name_in_a_legacy_chunk_is_excluded(tmp_path) -> None:
 
 
 def test_the_exclusion_is_per_occurrence_not_per_unit(tmp_path) -> None:
-    """同一段原文，native 的那一份照樣要寫得出去。"""
+    """有依據的那一份照樣要寫得出去，不會被同一批裡沒依據的那一份拖下水。
+
+    （這兩個節點的攤平結果不同——陣列形式的第一元素是空的父級，會多切出一段——
+    所以它們是兩個單位。要驗的是「排除只落在該落的那一個 occurrence 上」。）
+    """
     world = world_with(
         tmp_path,
-        chunk_with(chest(amulet_nbt.StringTag("Supply Crate"))),
         chunk_with(chest(amulet_nbt.StringTag('"Supply Crate"')), data_version=3700),
+        chunk_with(
+            chest(amulet_nbt.StringTag('["", {"text":"Supply Crate"}]')),
+            data_version=3700,
+        ),
     )
     _, document = extract_of(world)
 
-    occurrences = unit_of(document, "block_entity_name")["occurrences"]
-    excluded = [bool(o.get("excluded")) for o in occurrences]
+    excluded = [
+        bool(o.get("excluded"))
+        for u in document["units"]
+        if u["category"] == "block_entity_name"
+        for o in u["occurrences"]
+    ]
 
     assert sorted(excluded) == [False, True]
 

@@ -33,7 +33,7 @@ from mcmt.errors import FormatError
 from mcmt.model.component import Encoding, sniff
 from mcmt.model.generation import generation_of
 from mcmt.model.segments import flatten
-from mcmt.model.strategy import strategy_for
+from mcmt.model.strategy import IN_PLACE_ENCODINGS, strategy_for
 from mcmt.nbtio.region import read_region, region_files
 from mcmt.nbtio.structure import ensure_supported_structure, load_chunk_root
 from mcmt.rules.engine import Subject, label
@@ -145,7 +145,7 @@ def build_units(
                         segment_styles=list(flattened.styles),
                         skeleton=flattened.skeleton,
                         list_context=node.list_context,
-                        excluded=_exclusion_for(node.category, data_version),
+                        excluded=_exclusion_for(node.category, encoding),
                     )
                 )
 
@@ -224,26 +224,32 @@ def _consider(node, data_version: int, result: ExtractResult):
     return flattened, shape.encoding
 
 
-def _exclusion_for(category: str, data_version: int) -> dict[str, Any] | None:
+def _exclusion_for(category: str, encoding: Encoding) -> dict[str, Any] | None:
     """這個 occurrence 該不該被擋在寫入層之前。
 
-    [遊戲實測 M11-3] 給的答案只涵蓋 native chunk：那裡 `CustomName` 不解析任何形狀，
-    所以把譯文原樣寫進去就對了。**DV < 4325 的同一個欄位是另一回事**——那裡
-    DataFixerUpper 會解析它（[遊戲實測 M4-2]），寫什麼形狀進去沒有任何實測依據。
+    `in_place` 把譯文直接寫進節點並**保留節點既有的形狀**，所以問題是「這個形狀我們
+    有沒有寫過並看過結果」。有依據的清單在 `model/strategy.py`，寫入層的實作與它由
+    一個 assert 綁死。
+
+    > **這裡原本是用 `data_version` 近似的**（「舊世代一律排除」），理由是舊世代會
+    > 跑 DataFixerUpper、沒有實測依據。[遊戲實測 2026-08-21] 補上依據之後那個近似就
+    > 錯了，而且方向很差——它會把已經驗過的形狀一起擋掉，`Arena of Darkness` 的
+    > 9,579 個節點就是這樣被擋著的。真正的判準從來不是世代，是形狀。
 
     未測過的寫入路徑比拒絕處理危險（CLAUDE.md 一之四對 `.mcc` 用的是同一條理由），
-    所以擋下來、記原因、進報告。**排除是 per-occurrence 的**：同一段原文在 native
-    chunk 的那一份照樣寫得出去。
+    所以擋下來、記原因、進報告。**排除是 per-occurrence 的**：同一段原文有依據的
+    那一份照樣寫得出去。
     """
     if strategy_for(category) != "in_place":
         return None
-    if not generation_of(data_version).legacy_json_is_content:
+    if encoding.value in IN_PLACE_ENCODINGS:
         return None
     return {
         "reason": "untested_write_shape",
         "detail": (
-            f"DV {data_version} 的 {category}：DataFixerUpper 會解析這個欄位，"
-            f"而該寫什麼形狀從未進遊戲驗過。見 SPIKE_RESULT.md 尚待驗證表。"
+            f"{category} 的 {encoding.value} 形狀沒有實測依據——"
+            f"in_place 保留節點既有的形狀，而這一種從未進遊戲驗過。"
+            f"見 SPIKE_RESULT.md 尚待驗證表。"
         ),
     }
 

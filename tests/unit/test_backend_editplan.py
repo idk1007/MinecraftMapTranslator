@@ -303,11 +303,18 @@ def test_an_in_place_unit_puts_nothing_in_the_lang_file(tmp_path) -> None:
 
 
 def test_an_excluded_in_place_occurrence_produces_no_edit(tmp_path) -> None:
-    """legacy chunk 的 CustomName 是未測過的寫入路徑，不該進計畫。"""
+    """沒有實測依據的形狀不該進計畫。
+
+    這裡用 JSON 陣列形式——舊世代的純量與物件在 2026-08-21 都驗過了，只剩陣列
+    還沒有依據。
+    """
     extract, translations = prepare(
-        tmp_path, chest(amulet_nbt.StringTag('"Supply Crate"')), data_version=3700
+        tmp_path,
+        chest(amulet_nbt.StringTag('["", {"text":"Supply Crate"}]')),
+        data_version=3700,
     )
-    translate(translations, {"Supply Crate": "補給箱"})
+    for entry in translations["entries"].values():
+        entry["target"] = entry["source"]
 
     plan = build_editplan(extract, translations, language="zh_tw")
 
