@@ -215,3 +215,24 @@ def test_chunks_are_yielded_before_a_later_chunk_fails(tmp_path) -> None:
             seen.append(chunk.index)
 
     assert seen == [0]
+
+
+# --- entities_files --------------------------------------------------------
+
+
+def test_entities_files_finds_every_dimension(tmp_path) -> None:
+    """`entities/` 和 `region/` 一樣，每個維度各有一份。"""
+    from mcmt.nbtio.region import entities_files
+    from mcmt.safety.paths import ensure_readable
+
+    world = tmp_path / "world"
+    for relative in ("entities", "DIM-1/entities", "DIM1/entities"):
+        write_region_file(world / relative, RegionBuilder().build())
+    write_region_file(world / "region", RegionBuilder().build())
+    write_region_file(world / "poi", RegionBuilder().build())
+
+    found = [str(p).replace("\\", "/") for p in entities_files(ensure_readable(world))]
+
+    assert len(found) == 3
+    assert all("/entities/" in p for p in found)
+    assert not any("/poi/" in p or "/region/" in p for p in found)

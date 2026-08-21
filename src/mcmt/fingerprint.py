@@ -21,6 +21,11 @@ payload 就變了。刻意**不**餵進去的三樣東西：
   磁區重整後的世界與重整前是同一個世界（CLAUDE.md §1.5）。
 * **chunk 時間戳** —— 後設資料。內容一樣，既有的 extract 就還適用。
 
+**涵蓋 `region/` 與 `entities/`**（M13）。實體從 1.17 起分開存放，但它一樣是這個
+世界的內容——具名生物、盔甲座、`text_display` 的浮空文字都在那裡。漏掉它的症狀
+是「使用者玩過一次、動了實體，指紋卻說世界沒變」，而 `extract_fingerprint` 正是
+靠指紋判斷譯文還適不適用。
+
 **壞掉的 region 不會讓指紋失敗**：它會被折成一個穩定的標記寫進 hash。指紋負責
 身分，健檢是 `doctor` 的事——壞掉的世界更需要能先被複製進 sandbox 再診斷。
 """
@@ -29,7 +34,7 @@ from hashlib import blake2b
 from pathlib import Path
 
 from mcmt.errors import FormatError
-from mcmt.nbtio.region import read_region, region_files
+from mcmt.nbtio.region import entities_files, read_region, region_files
 from mcmt.safety.paths import ensure_readable
 
 __all__ = ["world_fingerprint"]
@@ -43,7 +48,13 @@ def world_fingerprint(world: Path | str) -> str:
     readable = ensure_readable(Path(world))
     digest = blake2b(digest_size=_DIGEST_SIZE)
 
-    for path in region_files(readable):
+    # **region 與 entities 都算。** [預告於 nbtio/region.py] 掃描範圍擴大到實體
+    # 之後，「什麼算這個世界的內容」就得包含它們——不然使用者在遊戲裡動了盔馬座，
+    # 指紋不變，extract_fingerprint 會說「世界沒變」而實際上變了。
+    #
+    # 兩份清單分開取再串起來（而不是 rglob 一次抓兩種），是為了讓順序穩定且
+    # 與各自的 *_files() 定義一致——指紋對順序敏感。
+    for path in [*region_files(readable), *entities_files(readable)]:
         # 一律用 / 分隔：同一個世界在 Windows 與 Linux 上必須算出同一個指紋。
         name = path.relative_to(readable).replace("\\", "/").encode("utf-8")
         try:

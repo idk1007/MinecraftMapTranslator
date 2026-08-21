@@ -42,6 +42,7 @@ __all__ = [
     "RawChunk",
     "RegionWriteReport",
     "SECTOR_SIZE",
+    "entities_files",
     "read_region",
     "region_files",
     "write_region",
@@ -232,14 +233,33 @@ def region_files(world: ReadOnlyPath) -> list[ReadOnlyPath]:
     「所有名為 `region` 的目錄」涵蓋 `region/`、`DIM-1/region/`、`DIM1/region/`
     與 datapack 自訂維度（`dimensions/<ns>/<name>/region/`）——[實測] MP2 有 5 個。
 
-    `entities/` 與 `poi/` 底下也是 `.mca`，但那不是方塊 chunk，v1 不看。掃描範圍
-    擴大到 entities 時（M13），**世界指紋的定義要一起重新考慮**，因為那會改變
-    「什麼算這個世界的內容」。
+    `entities/` 與 `poi/` 底下也是 `.mca`，但那不是方塊 chunk。實體由
+    `entities_files()` 負責（M13），`poi/` 沒有文字所以不看。
     """
     return sorted(
         (
             path
             for directory in world.rglob("region")
+            if directory.is_dir()
+            for path in directory.glob("*.mca")
+        ),
+        key=str,
+    )
+
+
+def entities_files(world: ReadOnlyPath) -> list[ReadOnlyPath]:
+    """世界底下所有的實體 region 檔，依路徑排序。
+
+    `entities/` 從 1.17 起與 `region/` 分開存放，格式完全一樣（同一套 header、
+    同一套壓縮），所以讀寫都能沿用 `read_region` / `write_region`。差別只在裡面
+    裝的是 `Entities[]` 而不是 `block_entities[]`。
+
+    `poi/` 底下也是 `.mca`，但那是興趣點索引，沒有任何給人看的字。
+    """
+    return sorted(
+        (
+            path
+            for directory in world.rglob("entities")
             if directory.is_dir()
             for path in directory.glob("*.mca")
         ),

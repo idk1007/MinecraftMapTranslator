@@ -13,6 +13,7 @@
 import re
 import shutil
 import zlib
+from pathlib import Path
 
 import amulet_nbt
 from conftest import RegionBuilder, modern_chunk, write_region_file
@@ -156,3 +157,53 @@ def test_payload_bytes_are_what_is_hashed(tmp_path) -> None:
     write_region_file(b / "region", RegionBuilder().add(0, zlib.compress(nbt, 9)).build())
 
     assert world_fingerprint(a) != world_fingerprint(b)
+
+
+def test_changing_an_entity_changes_the_fingerprint(tmp_path) -> None:
+    """[預告於 nbtio/region.py] 掃描範圍擴大到 entities 之後，
+
+    「什麼算這個世界的內容」就得包含它。不含的話，使用者在遊戲裡動了盔甲座、
+    指紋卻不變，`extract_fingerprint` 會說「世界沒變」而實際上變了。
+    """
+    import amulet_nbt
+
+    from mcmt.fingerprint import world_fingerprint
+
+    def build(name: str) -> Path:
+        world = tmp_path / name
+        write_region_file(
+            world / "region", RegionBuilder().add_chunk_nbt(0, modern_chunk()).build()
+        )
+        root = modern_chunk()
+        root["Entities"] = amulet_nbt.ListTag(
+            [amulet_nbt.CompoundTag({"CustomName": amulet_nbt.StringTag(name)})]
+        )
+        write_region_file(
+            world / "entities", RegionBuilder().add_chunk_nbt(0, root).build()
+        )
+        return world
+
+    assert world_fingerprint(build("a")) != world_fingerprint(build("b"))
+
+
+def test_the_same_world_still_fingerprints_the_same(tmp_path) -> None:
+    """穩定性沒有被破壞——同樣的內容算兩次要一樣。"""
+    import amulet_nbt
+
+    from mcmt.fingerprint import world_fingerprint
+
+    def build(name: str) -> Path:
+        world = tmp_path / name
+        write_region_file(
+            world / "region", RegionBuilder().add_chunk_nbt(0, modern_chunk()).build()
+        )
+        root = modern_chunk()
+        root["Entities"] = amulet_nbt.ListTag(
+            [amulet_nbt.CompoundTag({"CustomName": amulet_nbt.StringTag("同樣的")})]
+        )
+        write_region_file(
+            world / "entities", RegionBuilder().add_chunk_nbt(0, root).build()
+        )
+        return world
+
+    assert world_fingerprint(build("x")) == world_fingerprint(build("y"))
