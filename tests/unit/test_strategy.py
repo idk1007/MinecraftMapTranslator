@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""category ⇒ strategy 的綁定（`model/strategy.py`）。
+
+有些欄位**不吃 translate key**：放進去顯示的是 key 本身或字面文字，不是譯文。
+那不是偏好問題，是遊戲行為，所以合約用一條 `if/then` 把它機器強制了。這個模組是
+那條規則的程式碼投影，這份測試負責讓兩邊不能漂移。
+
+`block_entity_name` 是 2026-08-21 加進來的第五個：[遊戲實測 M11-3] native chunk 的
+`CustomName` 寫進 SNBT 的 `{translate:…}`，容器 GUI 顯示的是字面的大括號。
+"""
+
+import json
+from pathlib import Path
+
+from mcmt.model.strategy import IN_PLACE_CATEGORIES, strategy_for
+
+CONTRACTS = Path(__file__).resolve().parents[2] / "docs" / "contracts"
+
+
+def contract_in_place_categories() -> set[str]:
+    """從 extract.schema.json 裡把那條 `if/then` 的 category 清單挖出來。"""
+    schema = json.loads((CONTRACTS / "extract.schema.json").read_text("utf-8"))
+    for rule in schema["$defs"]["unit"]["allOf"]:
+        condition = rule.get("if", {}).get("properties", {}).get("category", {})
+        if "enum" in condition and rule["then"]["properties"]["strategy"] == {
+            "const": "in_place"
+        }:
+            return set(condition["enum"])
+    raise AssertionError("合約裡找不到 category ⇒ in_place 那條規則")
+
+
+def test_the_in_place_category_set_is_exactly_the_contracts():
+    """漂移要同時改兩邊才做得到——那正是合約改動流程想擋的事。"""
+    assert IN_PLACE_CATEGORIES == contract_in_place_categories()
+
+
+def test_block_entity_name_is_in_place():
+    """[遊戲實測 M11-3] CustomName 只吃字面文字。"""
+    assert strategy_for("block_entity_name") == "in_place"
+
+
+def test_sign_is_translate_key():
+    """告示牌走資源包路線——這是整個工具的主路徑，不能被一起改掉。"""
+    assert strategy_for("sign") == "translate_key"
+
+
+def test_an_unknown_category_defaults_to_translate_key():
+    """M13 補掃描廣度時會冒出新的 category。預設走主路徑，要例外得明確加進清單。"""
+    assert strategy_for("objective") == "translate_key"
