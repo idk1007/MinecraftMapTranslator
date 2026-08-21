@@ -8,7 +8,7 @@
   "additionalProperties": false,
   "properties": {
     "format": { "const": "mcmt-apply-report" },
-    "schema_version": { "type": "integer", "const": 4 },
+    "schema_version": { "type": "integer", "const": 5 },
     "generated_at": { "type": "string", "format": "date-time" },
 
     "outcome": {

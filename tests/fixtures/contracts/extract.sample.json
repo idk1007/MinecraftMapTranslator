@@ -1,6 +1,6 @@
 {
   "format": "mcmt-extract",
-  "schema_version": 4,
+  "schema_version": 5,
   "generated_at": "2026-08-16T09:14:02Z",
   "generator": {
     "tool": "mcmt",
@@ -713,6 +713,142 @@
         }
       ],
       "flags": []
+    },
+    {
+      "unit_id": "u:block_entity_name:3c9f0a5b17d24e68",
+      "key": null,
+      "category": "block_entity_name",
+      "strategy": "in_place",
+      "collapsible": true,
+      "source": {
+        "text": "Supply Crate",
+        "plain": "Supply Crate",
+        "segments": [
+          {
+            "kind": "none",
+            "sigma_expressible": true
+          }
+        ]
+      },
+      "constraints": {
+        "max_width_px": null,
+        "max_lines": 1,
+        "max_chars": null,
+        "wrap": "none",
+        "enforcement": "none",
+        "measurement": "none",
+        "source_width_px": null
+      },
+      "context": {
+        "hint": "Chest GUI title. [遊戲實測 M11-3] a native chunk does not parse CustomName at all -- an SNBT translate component written there renders as literal text -- so the translated string must be written into the node itself.",
+        "group_id": null,
+        "group_index": null,
+        "siblings": [],
+        "neighbour_text": [],
+        "dimension": "minecraft:overworld",
+        "position": [
+          128,
+          64,
+          -32
+        ]
+      },
+      "occurrences": [
+        {
+          "occurrence_id": "o:01101",
+          "container": {
+            "kind": "region_chunk",
+            "path": "region/r.0.-1.mca",
+            "dimension": "minecraft:overworld",
+            "chunk": {
+              "cx": 8,
+              "cz": 28
+            },
+            "data_version": 4671,
+            "compression": 2,
+            "external": false
+          },
+          "anchor": {
+            "kind": "block",
+            "id": "minecraft:chest",
+            "x": 128,
+            "y": 64,
+            "z": -32,
+            "uuid": null
+          },
+          "node_path": [
+            {
+              "t": "key",
+              "name": "block_entities"
+            },
+            {
+              "t": "index",
+              "i": 3
+            },
+            {
+              "t": "key",
+              "name": "CustomName"
+            }
+          ],
+          "encoding": "bare_string",
+          "segment_styles": [
+            {}
+          ],
+          "skeleton": null,
+          "raw_snapshot": "Supply Crate",
+          "list_context": null
+        },
+        {
+          "occurrence_id": "o:01102",
+          "container": {
+            "kind": "region_chunk",
+            "path": "region/r.1.0.mca",
+            "dimension": "minecraft:overworld",
+            "chunk": {
+              "cx": 40,
+              "cz": 3
+            },
+            "data_version": 3700,
+            "compression": 2,
+            "external": false
+          },
+          "anchor": {
+            "kind": "block",
+            "id": "minecraft:barrel",
+            "x": 645,
+            "y": 71,
+            "z": 51,
+            "uuid": null
+          },
+          "node_path": [
+            {
+              "t": "key",
+              "name": "block_entities"
+            },
+            {
+              "t": "index",
+              "i": 1
+            },
+            {
+              "t": "key",
+              "name": "CustomName"
+            }
+          ],
+          "encoding": "json_string_scalar",
+          "segment_styles": [
+            {}
+          ],
+          "skeleton": null,
+          "raw_snapshot": "\"Supply Crate\"",
+          "list_context": null,
+          "excluded": {
+            "reason": "untested_write_shape",
+            "detail": "CustomName in a DV < 4325 chunk goes through DataFixerUpper; what that field accepts there has never been checked in game, and an untested write path is more dangerous than refusing to write."
+          }
+        }
+      ],
+      "flags": [
+        "mixed_encoding"
+      ]
     },
     {
       "unit_id": "u:sign:b31f00ac5d7e2916",

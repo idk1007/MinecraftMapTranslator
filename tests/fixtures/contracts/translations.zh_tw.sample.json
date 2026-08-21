@@ -1,13 +1,13 @@
 {
   "format": "mcmt-translations",
-  "schema_version": 4,
+  "schema_version": 5,
   "generated_at": "2026-08-16T09:31:44Z",
   "language": "zh_tw",
   "extract_ref": {
     "extract_fingerprint": "blake2b:41b0c7de99a2f005",
     "world_fingerprint": "blake2b:9c1f0a44d2e7b381",
     "rule_set_version": "1.21.11-r1",
-    "unit_count": 7,
+    "unit_count": 8,
     "namespace": "mcmt",
     "generated_at": "2026-08-16T09:14:02Z"
   },
@@ -57,11 +57,17 @@
       "source": "[[0]][[1]]M [[2]]Minecraft Party",
       "target": "[[0]][[1]]M [[2]]Minecraft 派對",
       "note": "level_name・必須保留 [[0]] [[1]] [[2]]（順序可調）"
+    },
+    "u:block_entity_name:3c9f0a5b17d24e68": {
+      "source": "Supply Crate",
+      "target": "補給箱",
+      "note": "block_entity_name・出現 2 次・寫回節點本身（不經 lang 檔）",
+      "where": "minecraft:overworld 128,64,-32"
     }
   },
   "stats": {
-    "total": 7,
-    "translated": 7,
+    "total": 8,
+    "translated": 8,
     "untranslated": 0,
     "skipped": 0,
     "rejected": 0

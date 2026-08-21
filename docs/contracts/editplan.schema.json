@@ -8,7 +8,7 @@
   "additionalProperties": false,
   "properties": {
     "format": { "const": "mcmt-editplan" },
-    "schema_version": { "type": "integer", "const": 4 },
+    "schema_version": { "type": "integer", "const": 5 },
     "generated_at": { "type": "string", "format": "date-time" },
 
     "backend": {
@@ -146,7 +146,7 @@
           "type": "object",
           "required": ["kind", "text"],
           "additionalProperties": false,
-          "description": "Write a literal string. For a component node the writer emits {\"text\": ...}; for a plain_string node it writes the bare string.",
+          "description": "Write a literal string INTO THE NODE, keeping the node's existing NBT shape. A plain_string or bare_string node gets a bare string back; a text_compound node gets {\"text\": ...}; an empty_key_compound node gets {\"\": ...} -- the writer never normalises one compound shape into the other, because that would re-encode a node nobody asked it to change. The shape comes from expected_encoding, which the writer re-checks against the node before writing. It deliberately does NOT promote a TAG_String into a compound: [遊戲實測 M11-3] the field that forced this path, CustomName in a native chunk, renders whatever string is there literally, and promoting it has never been tested.",
           "properties": {
             "kind": { "const": "literal" },
             "text": {

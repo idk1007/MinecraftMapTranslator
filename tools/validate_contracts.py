@@ -130,6 +130,15 @@ must_reject(
 )
 
 must_reject(
+    "block_entity_name with strategy=translate_key  [遊戲實測 M11-3: CustomName 顯示字面文字]",
+    "extract",
+    lambda d: unit_by_category(d, "block_entity_name").update({
+        "strategy": "translate_key",
+        "key": "mcmt.block_entity_name.3c9f0a5b17d24e68",
+    }),
+)
+
+must_reject(
     "level_name with strategy=translate_key",
     "extract",
     lambda d: unit_by_category(d, "level_name").update({

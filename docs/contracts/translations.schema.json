@@ -10,7 +10,7 @@
     "format": { "const": "mcmt-translations" },
     "schema_version": {
       "type": "integer",
-      "const": 4,
+      "const": 5,
       "description": "Shared by all four mcmt contracts. Mismatch is fatal; there is no migration path."
     },
     "generated_at": { "type": "string", "format": "date-time" },

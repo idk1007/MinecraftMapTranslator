@@ -10,7 +10,7 @@
     "format": { "const": "mcmt-extract" },
     "schema_version": {
       "type": "integer",
-      "const": 4,
+      "const": 5,
       "description": "Single version number shared by all four mcmt contracts. Mismatch is a fatal error, never a migration."
     },
     "generated_at": { "type": "string", "format": "date-time" },
@@ -194,12 +194,12 @@
           "if": {
             "required": ["category"],
             "properties": {
-              "category": { "enum": ["level_name", "book_title", "book_author", "draft_book_page"] }
+              "category": { "enum": ["level_name", "book_title", "book_author", "draft_book_page", "block_entity_name"] }
             }
           },
           "then": {
             "properties": { "strategy": { "const": "in_place" } },
-            "description": "[遊戲實測] These four fields only accept a literal string. A translate key placed in book title.raw renders the raw key on screen."
+            "description": "[遊戲實測] These fields only accept a literal string. A translate key placed in book title.raw renders the raw key on screen. block_entity_name joined the list on 2026-08-21 [遊戲實測 M11-3]: an SNBT translate component written into a native chunk's CustomName renders as literal text in the container GUI, exactly as sign messages[] do (M0-3). in_place here means the writer replaces the text INSIDE the node while KEEPING the node's existing NBT shape; it does not promote a TAG_String to a compound, because that promotion has never been tested for this field."
           }
         },
         {
@@ -388,7 +388,8 @@
           "properties": {
             "reason": {
               "type": "string",
-              "enum": ["legacy_json_in_native_chunk", "unparseable_json"]
+              "enum": ["legacy_json_in_native_chunk", "unparseable_json", "untested_write_shape"],
+              "description": "untested_write_shape: the unit is translatable and every other occurrence of it is writable, but for THIS node we have no game-tested answer for what shape to write. v1 holds it back rather than guessing. [實測] the case that introduced it is CustomName in a DV < 4325 chunk: DataFixerUpper parses that field there, so the native literal-string answer does not transfer, and an untested write path is more dangerous than refusing to write."
             },
             "detail": { "type": "string" }
           }

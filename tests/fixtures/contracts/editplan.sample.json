@@ -1,16 +1,20 @@
 {
   "format": "mcmt-editplan",
-  "schema_version": 4,
+  "schema_version": 5,
   "generated_at": "2026-08-16T09:35:10Z",
   "backend": "resourcepack",
   "extract_ref": {
     "extract_fingerprint": "blake2b:41b0c7de99a2f005",
     "world_fingerprint": "blake2b:9c1f0a44d2e7b381",
-    "languages": ["zh_tw"]
+    "languages": [
+      "zh_tw"
+    ]
   },
   "assets": {
     "resources_zip": "out/resources.zip",
-    "lang_files": { "zh_tw": "out/assets/mcmt/lang/zh_tw.json" }
+    "lang_files": {
+      "zh_tw": "out/assets/mcmt/lang/zh_tw.json"
+    }
   },
   "edits": [
     {
@@ -20,17 +24,35 @@
         "kind": "region_chunk",
         "path": "region/r.0.0.mca",
         "dimension": "minecraft:overworld",
-        "chunk": { "cx": 7, "cz": -3 },
+        "chunk": {
+          "cx": 7,
+          "cz": -3
+        },
         "data_version": 4671,
         "compression": 2,
         "external": false
       },
       "node_path": [
-        { "t": "key", "name": "block_entities" },
-        { "t": "index", "i": 3 },
-        { "t": "key", "name": "front_text" },
-        { "t": "key", "name": "messages" },
-        { "t": "index", "i": 0 }
+        {
+          "t": "key",
+          "name": "block_entities"
+        },
+        {
+          "t": "index",
+          "i": 3
+        },
+        {
+          "t": "key",
+          "name": "front_text"
+        },
+        {
+          "t": "key",
+          "name": "messages"
+        },
+        {
+          "t": "index",
+          "i": 0
+        }
       ],
       "expected_encoding": "empty_key_compound",
       "value": {
@@ -40,7 +62,6 @@
         "style": null
       }
     },
-
     {
       "occurrence_id": "o:00002",
       "unit_id": "u:sign:aa10bc9d31f2e470",
@@ -48,17 +69,35 @@
         "kind": "region_chunk",
         "path": "region/r.0.0.mca",
         "dimension": "minecraft:overworld",
-        "chunk": { "cx": 7, "cz": -3 },
+        "chunk": {
+          "cx": 7,
+          "cz": -3
+        },
         "data_version": 4556,
         "compression": 2,
         "external": false
       },
       "node_path": [
-        { "t": "key", "name": "block_entities" },
-        { "t": "index", "i": 3 },
-        { "t": "key", "name": "front_text" },
-        { "t": "key", "name": "messages" },
-        { "t": "index", "i": 1 }
+        {
+          "t": "key",
+          "name": "block_entities"
+        },
+        {
+          "t": "index",
+          "i": 3
+        },
+        {
+          "t": "key",
+          "name": "front_text"
+        },
+        {
+          "t": "key",
+          "name": "messages"
+        },
+        {
+          "t": "index",
+          "i": 1
+        }
       ],
       "expected_encoding": "compound_tree",
       "value": {
@@ -76,7 +115,6 @@
         }
       }
     },
-
     {
       "occurrence_id": "o:00003",
       "unit_id": "u:sign:0e77f2a5cc31b409",
@@ -84,17 +122,35 @@
         "kind": "region_chunk",
         "path": "region/r.0.0.mca",
         "dimension": "minecraft:overworld",
-        "chunk": { "cx": 5, "cz": 0 },
+        "chunk": {
+          "cx": 5,
+          "cz": 0
+        },
         "data_version": 4556,
         "compression": 2,
         "external": false
       },
       "node_path": [
-        { "t": "key", "name": "block_entities" },
-        { "t": "index", "i": 0 },
-        { "t": "key", "name": "back_text" },
-        { "t": "key", "name": "messages" },
-        { "t": "index", "i": 2 }
+        {
+          "t": "key",
+          "name": "block_entities"
+        },
+        {
+          "t": "index",
+          "i": 0
+        },
+        {
+          "t": "key",
+          "name": "back_text"
+        },
+        {
+          "t": "key",
+          "name": "messages"
+        },
+        {
+          "t": "index",
+          "i": 2
+        }
       ],
       "expected_encoding": "bare_string",
       "value": {
@@ -104,7 +160,6 @@
         "style": null
       }
     },
-
     {
       "occurrence_id": "o:00512",
       "unit_id": "u:hover_text:5d2e88a10c47bb39",
@@ -112,24 +167,63 @@
         "kind": "region_chunk",
         "path": "region/r.0.0.mca",
         "dimension": "minecraft:overworld",
-        "chunk": { "cx": 2, "cz": 1 },
+        "chunk": {
+          "cx": 2,
+          "cz": 1
+        },
         "data_version": 4556,
         "compression": 2,
         "external": false
       },
       "node_path": [
-        { "t": "key", "name": "block_entities" },
-        { "t": "index", "i": 1 },
-        { "t": "key", "name": "Book" },
-        { "t": "key", "name": "components" },
-        { "t": "key", "name": "minecraft:written_book_content" },
-        { "t": "key", "name": "pages" },
-        { "t": "index", "i": 0 },
-        { "t": "key", "name": "raw" },
-        { "t": "key", "name": "extra" },
-        { "t": "index", "i": 2 },
-        { "t": "key", "name": "hover_event" },
-        { "t": "key", "name": "name" }
+        {
+          "t": "key",
+          "name": "block_entities"
+        },
+        {
+          "t": "index",
+          "i": 1
+        },
+        {
+          "t": "key",
+          "name": "Book"
+        },
+        {
+          "t": "key",
+          "name": "components"
+        },
+        {
+          "t": "key",
+          "name": "minecraft:written_book_content"
+        },
+        {
+          "t": "key",
+          "name": "pages"
+        },
+        {
+          "t": "index",
+          "i": 0
+        },
+        {
+          "t": "key",
+          "name": "raw"
+        },
+        {
+          "t": "key",
+          "name": "extra"
+        },
+        {
+          "t": "index",
+          "i": 2
+        },
+        {
+          "t": "key",
+          "name": "hover_event"
+        },
+        {
+          "t": "key",
+          "name": "name"
+        }
       ],
       "expected_encoding": "compound_tree",
       "value": {
@@ -141,7 +235,6 @@
         }
       }
     },
-
     {
       "occurrence_id": "o:00902",
       "unit_id": "u:sign:b31f00ac5d7e2916",
@@ -149,27 +242,46 @@
         "kind": "region_chunk",
         "path": "region/r.-1.6.mca",
         "dimension": "minecraft:overworld",
-        "chunk": { "cx": -3, "cz": 13 },
+        "chunk": {
+          "cx": -3,
+          "cz": 13
+        },
         "data_version": 3955,
         "compression": 2,
         "external": false
       },
       "node_path": [
-        { "t": "key", "name": "block_entities" },
-        { "t": "index", "i": 2 },
-        { "t": "key", "name": "front_text" },
-        { "t": "key", "name": "messages" },
-        { "t": "index", "i": 0 }
+        {
+          "t": "key",
+          "name": "block_entities"
+        },
+        {
+          "t": "index",
+          "i": 2
+        },
+        {
+          "t": "key",
+          "name": "front_text"
+        },
+        {
+          "t": "key",
+          "name": "messages"
+        },
+        {
+          "t": "index",
+          "i": 0
+        }
       ],
       "expected_encoding": "json_string_object",
       "value": {
         "kind": "translate",
         "key": "mcmt.sign.b31f00ac5d7e2916",
         "fallback": "Welcome to the Lobby",
-        "style": { "color": "aqua" }
+        "style": {
+          "color": "aqua"
+        }
       }
     },
-
     {
       "occurrence_id": "o:00801",
       "unit_id": "u:level_name:c4b8210f9e3a7d51",
@@ -183,8 +295,14 @@
         "external": false
       },
       "node_path": [
-        { "t": "key", "name": "Data" },
-        { "t": "key", "name": "LevelName" }
+        {
+          "t": "key",
+          "name": "Data"
+        },
+        {
+          "t": "key",
+          "name": "LevelName"
+        }
       ],
       "expected_encoding": "plain_string",
       "value": {
@@ -192,9 +310,44 @@
         "text": "§l§kM §9§lMinecraft 派對",
         "style": null
       }
+    },
+    {
+      "occurrence_id": "o:01101",
+      "unit_id": "u:block_entity_name:3c9f0a5b17d24e68",
+      "container": {
+        "kind": "region_chunk",
+        "path": "region/r.0.-1.mca",
+        "dimension": "minecraft:overworld",
+        "chunk": {
+          "cx": 8,
+          "cz": 28
+        },
+        "data_version": 4671,
+        "compression": 2,
+        "external": false
+      },
+      "node_path": [
+        {
+          "t": "key",
+          "name": "block_entities"
+        },
+        {
+          "t": "index",
+          "i": 3
+        },
+        {
+          "t": "key",
+          "name": "CustomName"
+        }
+      ],
+      "expected_encoding": "bare_string",
+      "value": {
+        "kind": "literal",
+        "text": "補給箱",
+        "style": null
+      }
     }
   ],
-
   "unwritten": [
     {
       "unit_id": "u:command_text:31c9de07aa5b1e62",
