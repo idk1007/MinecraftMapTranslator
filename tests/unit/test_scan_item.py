@@ -213,3 +213,151 @@ def test_the_anchor_is_carried_down_into_nested_items():
     (node,) = list(scan_item(outer, NodePath([key_step("Items")]), anchor=anchor))
 
     assert node.anchor == anchor
+
+
+# --- 舊格式（1.20.5 之前）---------------------------------------------------
+
+
+def tag_item(item_id="minecraft:stone", **tag):
+    item = amulet_nbt.CompoundTag({"id": amulet_nbt.StringTag(item_id)})
+    item["tag"] = amulet_nbt.CompoundTag(tag)
+    return item
+
+
+def test_an_old_display_name_is_found():
+    """[實測] Arena of Darkness 有 3,696 個，值是 JSON 字串。"""
+    item = tag_item(
+        display=amulet_nbt.CompoundTag(
+            {"Name": amulet_nbt.StringTag('{"text":"Xyphia"}')}
+        )
+    )
+
+    assert paths_and_categories(item) == {
+        "Items/tag/display/Name": "custom_name"
+    }
+
+
+def test_old_lore_lines_are_found():
+    item = tag_item(
+        display=amulet_nbt.CompoundTag(
+            {
+                "Lore": amulet_nbt.ListTag(
+                    [
+                        amulet_nbt.StringTag('{"text":"第一行"}'),
+                        amulet_nbt.StringTag('{"text":"第二行"}'),
+                    ]
+                )
+            }
+        )
+    )
+
+    assert paths_and_categories(item) == {
+        "Items/tag/display/Lore/[0]": "lore",
+        "Items/tag/display/Lore/[1]": "lore",
+    }
+
+
+def test_an_old_written_book_yields_title_author_and_pages():
+    """舊格式的成書：title/author 是純字串，pages[] 是 JSON 字串。"""
+    item = tag_item(
+        "minecraft:written_book",
+        title=amulet_nbt.StringTag("Base Notes"),
+        author=amulet_nbt.StringTag("TheWorfer27"),
+        pages=amulet_nbt.ListTag([amulet_nbt.StringTag('{"text":"第一頁"}')]),
+    )
+
+    assert paths_and_categories(item) == {
+        "Items/tag/title": "book_title",
+        "Items/tag/author": "book_author",
+        "Items/tag/pages/[0]": "book_page",
+    }
+
+
+def test_an_old_writable_book_is_a_draft_not_a_written_book():
+    """**成書與草稿書共用 `tag.pages[]`。**
+
+    差別在物品 id，不在路徑。只看路徑會把草稿書當成書處理，而草稿書頁是無包裝的
+    TAG_String，只能 in_place——搞錯的話會往它寫一個 translate key，玩家看到的是
+    key 本身。
+    """
+    item = tag_item(
+        "minecraft:writable_book",
+        pages=amulet_nbt.ListTag([amulet_nbt.StringTag("草稿內容")]),
+    )
+
+    assert paths_and_categories(item) == {"Items/tag/pages/[0]": "draft_book_page"}
+
+
+def test_an_old_shulker_box_recurses_into_its_items():
+    """[實測] Arena of Darkness 的三層巢狀就是這條路徑。"""
+    inner = tag_item(
+        display=amulet_nbt.CompoundTag(
+            {"Name": amulet_nbt.StringTag('{"text":"Ultra Health Potion"}')}
+        )
+    )
+    outer = tag_item(
+        BlockEntityTag=amulet_nbt.CompoundTag(
+            {"Items": amulet_nbt.ListTag([inner])}
+        )
+    )
+
+    assert paths_and_categories(outer) == {
+        "Items/tag/BlockEntityTag/Items/[0]/tag/display/Name": "custom_name"
+    }
+
+
+def test_an_old_block_entity_tag_custom_name_is_found():
+    """[實測] Arena of Darkness 有 1 個——物品形式的容器自己也有名字。"""
+    outer = tag_item(
+        BlockEntityTag=amulet_nbt.CompoundTag(
+            {"CustomName": amulet_nbt.StringTag('{"text":"箱子"}')}
+        )
+    )
+
+    assert paths_and_categories(outer) == {
+        "Items/tag/BlockEntityTag/CustomName": "block_entity_name"
+    }
+
+
+def test_an_old_bundle_recurses():
+    """舊格式的收納袋用 `tag.Items`。"""
+    inner = tag_item(
+        display=amulet_nbt.CompoundTag({"Name": amulet_nbt.StringTag('{"text":"袋內"}')})
+    )
+    outer = tag_item(Items=amulet_nbt.ListTag([inner]))
+
+    assert paths_and_categories(outer) == {
+        "Items/tag/Items/[0]/tag/display/Name": "custom_name"
+    }
+
+
+def test_old_mechanic_tags_are_ignored_entirely():
+    """白名單在舊格式一樣嚴格。"""
+    item = tag_item(
+        display=amulet_nbt.CompoundTag(
+            {"Name": amulet_nbt.StringTag('{"text":"要抽的"}')}
+        ),
+        SkullOwner=amulet_nbt.CompoundTag({"Name": amulet_nbt.StringTag("TheWorfer27")}),
+        Potion=amulet_nbt.StringTag("minecraft:water"),
+        BlockStateTag=amulet_nbt.CompoundTag({"delay": amulet_nbt.StringTag("4")}),
+        CanDestroy=amulet_nbt.ListTag([amulet_nbt.StringTag("minecraft:red_bed")]),
+    )
+
+    assert paths_and_categories(item) == {"Items/tag/display/Name": "custom_name"}
+
+
+def test_an_item_with_both_shapes_prefers_components():
+    """理論上不該同時存在，但真的碰到時要有個確定的答案。
+
+    `components` 是新的，它才是遊戲會讀的那一份。
+    """
+    item = component_item(
+        **{"minecraft:custom_name": amulet_nbt.StringTag("新的")}
+    )
+    item["tag"] = amulet_nbt.CompoundTag(
+        {"display": amulet_nbt.CompoundTag({"Name": amulet_nbt.StringTag("舊的")})}
+    )
+
+    assert paths_and_categories(item) == {
+        "Items/components/minecraft:custom_name": "custom_name"
+    }

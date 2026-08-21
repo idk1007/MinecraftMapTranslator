@@ -54,12 +54,28 @@ _CONTAINER_COMPONENTS = {
 def scan_item(
     item: amulet_nbt.CompoundTag, path: NodePath, *, anchor: dict[str, Any] | None
 ) -> Iterator[TextNode]:
-    """一個物品裡所有可翻譯的文字節點。自己遞迴進容器。"""
+    """一個物品裡所有可翻譯的文字節點。自己遞迴進容器。
+
+    **由物品自己有 `components` 還是 `tag` 決定走哪一套，不看 DataVersion。**
+    兩者同時存在時以 `components` 為準——它是新的，也是遊戲會讀的那一份。
+    """
     if not isinstance(item, amulet_nbt.CompoundTag):
         return
+
     components = item.get("components")
     if isinstance(components, amulet_nbt.CompoundTag):
-        yield from _scan_components(components, path.child(key_step("components")), anchor)
+        yield from _scan_components(
+            components, path.child(key_step("components")), anchor
+        )
+        return
+
+    tag = item.get("tag")
+    if isinstance(tag, amulet_nbt.CompoundTag):
+        yield from _scan_tag(tag, path.child(key_step("tag")), anchor, _item_id(item))
+
+
+def _item_id(item: amulet_nbt.CompoundTag) -> str:
+    return str(item.get("id", ""))
 
 
 def _scan_components(
@@ -162,3 +178,119 @@ def _scan_pages(
                 category=category,
                 anchor=anchor,
             )
+
+
+# --- 舊格式（1.20.5 之前的 `tag`）-----------------------------------------
+#
+# [實測] `Arena of Darkness`（1.20.4）全是這一套，`Items[].tag.display.Name` 3,696 個。
+# 值是 JSON 字串（`{"text":"Xyphia"}`），嗅探層會判成 json_string_object。
+
+_OLD_CONTAINER_KEYS = ("Items",)  # 收納袋。潛影盒走 BlockEntityTag.Items
+
+
+def _scan_tag(
+    tag: amulet_nbt.CompoundTag,
+    path: NodePath,
+    anchor: dict[str, Any] | None,
+    item_id: str,
+) -> Iterator[TextNode]:
+    display = tag.get("display")
+    if isinstance(display, amulet_nbt.CompoundTag):
+        display_path = path.child(key_step("display"))
+        name = display.get("Name")
+        if name is not None:
+            yield TextNode(
+                path=display_path.child(key_step("Name")),
+                tag=name,
+                category="custom_name",
+                anchor=anchor,
+            )
+        lore = display.get("Lore")
+        if isinstance(lore, amulet_nbt.ListTag):
+            lore_path = display_path.child(key_step("Lore"))
+            for index, line in enumerate(lore):
+                yield TextNode(
+                    path=lore_path.child(index_step(index)),
+                    tag=line,
+                    category="lore",
+                    anchor=anchor,
+                )
+
+    yield from _scan_old_book(tag, path, anchor, item_id)
+
+    # 物品形式的容器（潛影盒、箱子）自己的名字與內容物。
+    block_entity = tag.get("BlockEntityTag")
+    if isinstance(block_entity, amulet_nbt.CompoundTag):
+        be_path = path.child(key_step("BlockEntityTag"))
+        custom_name = block_entity.get("CustomName")
+        if custom_name is not None:
+            yield TextNode(
+                path=be_path.child(key_step("CustomName")),
+                tag=custom_name,
+                category="block_entity_name",
+                anchor=anchor,
+            )
+        yield from _scan_old_item_list(block_entity, be_path, anchor, "Items")
+
+    for key in _OLD_CONTAINER_KEYS:
+        yield from _scan_old_item_list(tag, path, anchor, key)
+
+
+def _scan_old_item_list(
+    parent: amulet_nbt.CompoundTag,
+    path: NodePath,
+    anchor: dict[str, Any] | None,
+    key: str,
+) -> Iterator[TextNode]:
+    items = parent.get(key)
+    if not isinstance(items, amulet_nbt.ListTag):
+        return
+    items_path = path.child(key_step(key))
+    for index, entry in enumerate(items):
+        yield from scan_item(entry, items_path.child(index_step(index)), anchor=anchor)
+
+
+def _scan_old_book(
+    tag: amulet_nbt.CompoundTag,
+    path: NodePath,
+    anchor: dict[str, Any] | None,
+    item_id: str,
+) -> Iterator[TextNode]:
+    """舊格式的書。
+
+    **成書與草稿書共用 `tag.pages[]`**，差別在物品 id：`written_book` 的頁是 JSON
+    字串，`writable_book` 的頁是無包裝的純字串（只能 in_place）。只看路徑會把草稿書
+    當成書處理，往它寫一個 translate key，而玩家看到的會是 key 本身。
+    """
+    is_draft = item_id.endswith("writable_book")
+
+    if not is_draft:
+        title = tag.get("title")
+        if title is not None:
+            yield TextNode(
+                path=path.child(key_step("title")),
+                tag=title,
+                category="book_title",
+                anchor=anchor,
+            )
+        author = tag.get("author")
+        if author is not None:
+            yield TextNode(
+                path=path.child(key_step("author")),
+                tag=author,
+                category="book_author",
+                anchor=anchor,
+            )
+
+    pages = tag.get("pages")
+    if not isinstance(pages, amulet_nbt.ListTag):
+        return
+    pages_path = path.child(key_step("pages"))
+    category = "draft_book_page" if is_draft else "book_page"
+    for index, page in enumerate(pages):
+        yield TextNode(
+            path=pages_path.child(index_step(index)),
+            tag=page,
+            category=category,
+            anchor=anchor,
+        )
