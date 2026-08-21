@@ -9,10 +9,11 @@ M13 之前 `extract/build.py` 自己硬編碼了「走 region 檔」。那在只
 維持顯式分派。）
 """
 
+import zlib
 from collections import Counter
 
 import amulet_nbt
-from conftest import RegionBuilder, modern_chunk, write_region_file
+from conftest import RegionBuilder, modern_chunk, set_offset_entry, write_region_file
 
 from mcmt.safety.paths import ensure_readable
 from mcmt.scan import registry
@@ -83,4 +84,35 @@ def test_an_unreadable_region_is_counted_not_fatal(tmp_path) -> None:
     found = list(region.scan(ensure_readable(world), stats))
 
     assert found == []
+    assert stats["skipped_region"] == 1
+
+
+def test_a_clean_chunk_before_a_broken_one_is_not_lost(tmp_path) -> None:
+    """`read_region` 是產生器，`scan()` 不能先 `list()` 整份收集完再迭代。
+
+    這裡在同一張 region 裡放一個乾淨的告示牌 chunk（index 0）與一個中途讀壞的
+    chunk（index 1，offset 被改指進 header 磁區）。`list(read_region(...))` 對一個
+    中途拋例外的產生器不會回傳部分結果——已經成功讀到的 index 0 會連同壞掉的
+    index 1 一起被丟棄。真正的串流則會在例外發生前，把 index 0 已經處理好的節點
+    留在輸出裡。
+    """
+    root = modern_chunk(data_version=4671)
+    root["block_entities"] = amulet_nbt.ListTag([sign("歡迎光臨", "", "", "")])
+    data = (
+        RegionBuilder()
+        .add_chunk_nbt(0, root)
+        .add(1, zlib.compress(b"whatever"))
+        .build()
+    )
+    # 把 index 1 的磁區偏移改成 1——落在 header（偏移表 + 時間戳表）裡，讀取時
+    # 會在 index 0 已經被 yield 之後才觸發 MalformedRegionError。
+    set_offset_entry(data, 1, sector=1, count=1)
+    world = tmp_path / "world"
+    write_region_file(world / "region", data)
+    stats = Counter()
+
+    found = list(region.scan(ensure_readable(world), stats))
+
+    assert found, "index 0 的乾淨 chunk 不該因為 index 1 壞掉而憑空消失"
+    assert stats["chunks"] == 1
     assert stats["skipped_region"] == 1

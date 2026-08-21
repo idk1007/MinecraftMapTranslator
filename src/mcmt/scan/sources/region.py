@@ -134,25 +134,28 @@ def scan(world: ReadOnlyPath, stats: Counter) -> Iterator[ScannedNode]:
     """
     for path in region_files(world):
         try:
-            chunks = list(read_region(path))
+            # `read_region` 是產生器，這裡不能先 `list()` 整份收集完再迭代——
+            # `list()` 對一個中途拋例外的產生器不會回傳部分結果，已經成功讀到的
+            # chunk 會連同壞掉的一起被丟棄（見 tests/unit/test_region.py 的
+            # `test_chunks_are_yielded_before_a_later_chunk_fails`）。峰值記憶體
+            # 要維持單一 chunk，所以 for 迴圈本體要直接吃產生器、把 try 包住整個
+            # 迴圈，才能在例外真的發生時仍保留之前已經 yield 出去的結果。
+            for raw in read_region(path):
+                if raw.is_external:
+                    stats["skipped_external_chunk"] += 1
+                    continue
+                try:
+                    root = load_chunk_root(raw)
+                    data_version = ensure_supported_structure(root, chunk_index=raw.index)
+                except (FormatError, amulet_nbt.NBTLoadError):
+                    stats["skipped_chunk"] += 1
+                    continue
+                stats["chunks"] += 1
+                container = _container(path, raw, data_version, world)
+                for node in scan_chunk(root):
+                    yield ScannedNode(node=node, container=container)
         except FormatError:
             stats["skipped_region"] += 1
-            continue
-
-        for raw in chunks:
-            if raw.is_external:
-                stats["skipped_external_chunk"] += 1
-                continue
-            try:
-                root = load_chunk_root(raw)
-                data_version = ensure_supported_structure(root, chunk_index=raw.index)
-            except (FormatError, amulet_nbt.NBTLoadError):
-                stats["skipped_chunk"] += 1
-                continue
-            stats["chunks"] += 1
-            container = _container(path, raw, data_version, world)
-            for node in scan_chunk(root):
-                yield ScannedNode(node=node, container=container)
 
 
 def _container(path, raw, data_version: int, world: ReadOnlyPath) -> dict:
