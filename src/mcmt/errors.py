@@ -185,6 +185,14 @@ class DatFormatError(FormatError):
         super().__init__(f"{path} 不是可以辨識的 NBT 檔：{detail}")
 
 
+class DatWriteVerificationError(FormatError):
+    """`.dat` 寫出去的位元組讀不回來——原檔沒有被動過。
+
+    `.dat` 是整份重編的（不像 region 有外科式寫入），所以「編壞了」的後果是整個
+    檔案沒了。寫入前先回讀驗證，失敗就中止並保留原檔。
+    """
+
+
 class ChunkTooLargeError(FormatError):
     """chunk 大到一個 region 槽放不下（超過 255 個磁區）。
 

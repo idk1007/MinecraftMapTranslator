@@ -149,3 +149,84 @@ def test_a_failed_write_leaves_the_original_intact(project, monkeypatch) -> None
 
     assert target.read_bytes() == before
     assert list(target.parent.glob("*.mcmt-tmp")) == []
+
+
+def test_a_corrupt_encode_leaves_the_original_untouched(project, monkeypatch) -> None:
+    """**整份重編的東西編壞了，原檔一個位元都不能動。**
+
+    `.dat` 沒有外科式寫入這回事——`level.dat` 是一份檔案，改一個欄位就得整份重編。
+    所以「寫壞」的後果是整個世界的中樞沒了，不是一個 chunk 壞掉。
+    """
+    import amulet_nbt
+
+    from mcmt.errors import DatWriteVerificationError
+    from mcmt.nbtio import datfile
+
+    target = project / "sandbox" / "level.dat"
+    original = amulet_nbt.NamedTag(
+        amulet_nbt.CompoundTag({"Data": amulet_nbt.CompoundTag(
+            {"LevelName": amulet_nbt.StringTag("原本的世界")}
+        )}),
+        "",
+    )
+    datfile.write_dat(target, datfile.DatFile(tag=original, compression="gzip"))
+    before = target.read_bytes()
+
+    # 讓編碼器吐出讀不回來的位元組。
+    monkeypatch.setattr(
+        datfile, "_encode", lambda dat, target: b"\x0a\xff\xff not nbt at all"
+    )
+    replacement = amulet_nbt.NamedTag(
+        amulet_nbt.CompoundTag({"Data": amulet_nbt.CompoundTag(
+            {"LevelName": amulet_nbt.StringTag("新的世界")}
+        )}),
+        "",
+    )
+
+    with pytest.raises(DatWriteVerificationError):
+        datfile.write_dat(target, datfile.DatFile(tag=replacement, compression="gzip"))
+
+    assert target.read_bytes() == before
+
+
+def test_no_temporary_file_is_left_behind_when_verification_fails(
+    project, monkeypatch
+) -> None:
+    """失敗時不留垃圾——下一次寫入不該撞到上一次的殘骸。"""
+    import amulet_nbt
+
+    from mcmt.errors import DatWriteVerificationError
+    from mcmt.nbtio import datfile
+
+    sandbox = project / "sandbox"
+    target = sandbox / "level.dat"
+    tag = amulet_nbt.NamedTag(
+        amulet_nbt.CompoundTag({"Data": amulet_nbt.CompoundTag({})}), ""
+    )
+    datfile.write_dat(target, datfile.DatFile(tag=tag, compression="none"))
+
+    monkeypatch.setattr(datfile, "_encode", lambda dat, target: b"garbage")
+    with pytest.raises(DatWriteVerificationError):
+        datfile.write_dat(target, datfile.DatFile(tag=tag, compression="none"))
+
+    assert list(sandbox.glob("*.mcmt-tmp")) == []
+
+
+def test_a_good_write_still_round_trips(project) -> None:
+    """驗證那一步不能把正常的寫入擋下來。"""
+    import amulet_nbt
+
+    from mcmt.nbtio import datfile
+    from mcmt.safety.paths import ensure_readable
+
+    target = project / "sandbox" / "level.dat"
+    tag = amulet_nbt.NamedTag(
+        amulet_nbt.CompoundTag({"Data": amulet_nbt.CompoundTag(
+            {"LevelName": amulet_nbt.StringTag("測試世界")}
+        )}),
+        "",
+    )
+    datfile.write_dat(target, datfile.DatFile(tag=tag, compression="gzip"))
+
+    read_back = datfile.read_dat(ensure_readable(target))
+    assert str(read_back.tag.compound["Data"]["LevelName"]) == "測試世界"

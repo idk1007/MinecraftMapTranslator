@@ -24,8 +24,8 @@ from pathlib import Path
 
 import amulet_nbt
 
-from mcmt.errors import DatFormatError
-from mcmt.safety.paths import ReadOnlyPath, ensure_writable
+from mcmt.errors import DatFormatError, DatWriteVerificationError
+from mcmt.safety.paths import ReadOnlyPath, ensure_readable, ensure_writable
 
 __all__ = ["DatFile", "read_dat", "write_dat"]
 
@@ -62,21 +62,54 @@ def read_dat(path: ReadOnlyPath) -> DatFile:
     return DatFile(tag=tag, compression=compression)
 
 
-def write_dat(path: Path | str, dat: DatFile) -> Path:
-    """整份重新編碼寫出去。先寫 `.mcmt-tmp` 再 `os.replace`。"""
-    target = ensure_writable(path)
+def _encode(dat: DatFile, target: Path) -> bytes:
+    """把一份 `DatFile` 編成磁碟上的位元組。
+
+    抽成函式是為了讓驗證測試替換得掉它——不然沒有辦法製造「編碼器吐出壞位元組」
+    這個情境，而那正是要驗的那一件事。`target` 只在壓縮形式不認得時用來組錯誤訊息。
+    """
     payload = dat.tag.save_to(compressed=False)
-    data = _compress(payload, dat.compression, target)
+    return _compress(payload, dat.compression, target)
+
+
+def write_dat(path: Path | str, dat: DatFile) -> Path:
+    """整份重新編碼寫出去：**暫存 → 回讀驗證 → 原子替換**。
+
+    中間那一步是這裡與 `write_region` 最大的差別。region 是外科式的——未改動的
+    chunk 帶著磁碟上的原始位元組原封送回，所以編壞了最多壞一個 chunk。`.dat`
+    是一份檔案整份重編，編壞了就是整個 `level.dat` 沒了，而那是世界的中樞。
+
+    驗證失敗時**原檔一個位元都沒有被動過**，因為 `os.replace` 還沒發生。
+    """
+    target = ensure_writable(path)
+    data = _encode(dat, target)
 
     temporary = ensure_writable(target.with_name(target.name + ".mcmt-tmp"))
     temporary.parent.mkdir(parents=True, exist_ok=True)
     try:
         temporary.write_bytes(data)
+        _verify(temporary, target)
         os.replace(temporary, target)
     finally:
         if temporary.exists():
             temporary.unlink()
     return target
+
+
+def _verify(temporary: Path, target: Path) -> None:
+    """回讀剛寫出去的暫存檔，確認它真的解析得回來。"""
+    try:
+        read_back = read_dat(ensure_readable(temporary))
+    except Exception as exc:  # noqa: BLE001 —— 任何讀不回來的理由都一樣致命
+        raise DatWriteVerificationError(
+            f"寫出去的位元組讀不回來，已中止：{target}。"
+            f"原檔沒有被動過。原因：{type(exc).__name__}: {exc}"
+        ) from exc
+
+    if not isinstance(read_back.tag.compound, amulet_nbt.CompoundTag):
+        raise DatWriteVerificationError(
+            f"寫出去的位元組解析出來不是 TAG_Compound，已中止：{target}。原檔沒有被動過。"
+        )
 
 
 def _decompress(raw: bytes, path) -> tuple[bytes, str]:
