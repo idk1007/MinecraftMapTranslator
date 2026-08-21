@@ -47,3 +47,38 @@ def test_sign_is_translate_key():
 def test_an_unknown_category_defaults_to_translate_key():
     """M13 補掃描廣度時會冒出新的 category。預設走主路徑，要例外得明確加進清單。"""
     assert strategy_for("objective") == "translate_key"
+
+
+# --- 哪些形狀有 in_place 的寫入依據 ---------------------------------------
+
+
+def test_the_in_place_encodings_are_the_six_with_evidence():
+    """多一個就是猜的。這個集合讓「加一個形狀」變成一個刻意的動作。
+
+    | encoding | 依據 |
+    |---|---|
+    | `bare_string` / `plain_string` | [遊戲實測 M0-3 / M11-3] native 的 TAG_String 是字面文字 |
+    | `text_compound` | 官方文件記載的形狀 |
+    | `empty_key_compound` | [遊戲實測 M4-2] Mojang NbtOps 自己的輸出 |
+    | `json_string_scalar` / `json_string_object` | [遊戲實測 2026-08-21] legacy chunk 的 CustomName 兩種都正確顯示 |
+
+    `json_string_array` 不在裡面——沒測過。
+    """
+    from mcmt.model.strategy import IN_PLACE_ENCODINGS
+
+    assert IN_PLACE_ENCODINGS == {
+        "bare_string",
+        "plain_string",
+        "text_compound",
+        "empty_key_compound",
+        "json_string_scalar",
+        "json_string_object",
+    }
+
+
+def test_every_in_place_encoding_is_a_real_encoding():
+    """打錯字會讓一整類節點安靜地被排除掉，而那看起來像「本來就沒有那種節點」。"""
+    from mcmt.model.component import Encoding
+    from mcmt.model.strategy import IN_PLACE_ENCODINGS
+
+    assert IN_PLACE_ENCODINGS <= {e.value for e in Encoding}
