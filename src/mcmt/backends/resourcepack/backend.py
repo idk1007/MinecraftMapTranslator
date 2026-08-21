@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from mcmt.backends.resourcepack.lang import build_lang, sigma_codes_for
+from mcmt.backends.resourcepack.lang import build_lang, inline_text, sigma_codes_for
 from mcmt.extract.placeholders import unescape, validate
 from mcmt.model import SCHEMA_VERSION
 
@@ -75,12 +75,13 @@ def build_editplan(
             rejected.append((unit_id, check.reason or "placeholder_mismatch"))
             continue
 
-        lang_pairs.append((_lang_view(unit), target))
+        if unit["strategy"] == "translate_key":
+            lang_pairs.append((_lang_view(unit), target))
         for occurrence in unit["occurrences"]:
             if occurrence.get("excluded"):
                 # per-occurrence 的排除：同一段原文可能一半可寫一半不可寫。
                 continue
-            edits.append(_edit_for(unit, occurrence))
+            edits.append(_edit_for(unit, occurrence, target))
 
     lang = {language: build_lang(lang_pairs)}
     document = {
@@ -102,7 +103,9 @@ def build_editplan(
     return PlanResult(document=document, lang=lang, rejected=rejected)
 
 
-def _edit_for(unit: dict[str, Any], occurrence: dict[str, Any]) -> dict[str, Any]:
+def _edit_for(
+    unit: dict[str, Any], occurrence: dict[str, Any], target: str
+) -> dict[str, Any]:
     return {
         "occurrence_id": occurrence["occurrence_id"],
         "unit_id": unit["unit_id"],
@@ -111,14 +114,29 @@ def _edit_for(unit: dict[str, Any], occurrence: dict[str, Any]) -> dict[str, Any
         # 守門用：寫入層會比對節點現在的形狀是不是還是這個。不是就拒寫——
         # 使用者在中間玩過一次遊戲，DataFixer 就可能已經把形狀改掉了（M4-4）。
         "expected_encoding": occurrence["encoding"],
-        "value": _value_for(unit, occurrence),
+        "value": _value_for(unit, occurrence, target),
     }
 
 
-def _value_for(unit: dict[str, Any], occurrence: dict[str, Any]) -> dict[str, Any]:
+def _value_for(
+    unit: dict[str, Any], occurrence: dict[str, Any], target: str
+) -> dict[str, Any]:
     if unit["strategy"] == "in_place":
-        # 不是 component 的欄位（LevelName、書名、作者、草稿書頁），直接寫字面字串。
-        return {"kind": "literal", "text": unescape(unit["source"]["text"]), "style": None}
+        # 不吃 translate key 的欄位（LevelName、書名、作者、草稿書頁、CustomName）。
+        # **值是譯文，不是原文**——寫回原文會是一次沒有任何效果卻看起來完全成功的
+        # 存檔修改，那比失敗難發現得多。
+        #
+        # 樣式沒有結構可以掛（這裡就是一個字串），所以多段樣式轉成行內 § 碼，與
+        # 塌縮的 lang 值走同一份實作。
+        return {
+            "kind": "literal",
+            "text": inline_text(
+                target,
+                len(unit["source"]["segments"]),
+                occurrence.get("segment_styles") or [{}],
+            ),
+            "style": None,
+        }
 
     if unit["collapsible"]:
         styles = occurrence.get("segment_styles") or [{}]

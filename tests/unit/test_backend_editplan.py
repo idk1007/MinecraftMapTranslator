@@ -262,3 +262,66 @@ def test_one_unit_in_two_places_produces_two_edits(tmp_path) -> None:
 
     assert len(plan.document["edits"]) == 2
     assert len({e["occurrence_id"] for e in plan.document["edits"]}) == 2
+
+
+# --- in_place：值是譯文，不是原文 -----------------------------------------
+
+
+def chest(custom_name, *, x=1, y=2, z=3):
+    tag = amulet_nbt.CompoundTag()
+    tag["id"] = amulet_nbt.StringTag("minecraft:chest")
+    for name, value in (("x", x), ("y", y), ("z", z)):
+        tag[name] = amulet_nbt.IntTag(value)
+    tag["CustomName"] = custom_name
+    return tag
+
+
+def test_an_in_place_edit_carries_the_translation_not_the_source(tmp_path) -> None:
+    """這一條擋的是「in_place 把原文原封寫回去」——那會是一次沒有任何效果的
+    存檔修改，而且看起來完全成功。"""
+    extract, translations = prepare(
+        tmp_path, chest(amulet_nbt.StringTag("Supply Crate"))
+    )
+    translate(translations, {"Supply Crate": "補給箱"})
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    (edit,) = plan.document["edits"]
+    assert edit["value"] == {"kind": "literal", "text": "補給箱", "style": None}
+
+
+def test_an_in_place_unit_puts_nothing_in_the_lang_file(tmp_path) -> None:
+    """譯文住在存檔裡。再往 lang 檔塞一份就是兩個真相來源。"""
+    extract, translations = prepare(
+        tmp_path, chest(amulet_nbt.StringTag("Supply Crate"))
+    )
+    translate(translations, {"Supply Crate": "補給箱"})
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    assert plan.lang["zh_tw"] == {}
+
+
+def test_an_excluded_in_place_occurrence_produces_no_edit(tmp_path) -> None:
+    """legacy chunk 的 CustomName 是未測過的寫入路徑，不該進計畫。"""
+    extract, translations = prepare(
+        tmp_path, chest(amulet_nbt.StringTag('"Supply Crate"')), data_version=3700
+    )
+    translate(translations, {"Supply Crate": "補給箱"})
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    assert plan.document["edits"] == []
+
+
+def test_a_multi_segment_in_place_value_carries_inline_sigma_codes(tmp_path) -> None:
+    """in_place 沒有結構可以掛樣式——多段只能轉成行內 § 碼，和塌縮的 lang 值一樣。"""
+    extract, translations = prepare(
+        tmp_path, chest(amulet_nbt.StringTag("§aGreen§cRed"))
+    )
+    translate(translations, {"[[0]]Green[[1]]Red": "[[0]]綠[[1]]紅"})
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    (edit,) = plan.document["edits"]
+    assert edit["value"]["text"] == "§a綠§c紅"

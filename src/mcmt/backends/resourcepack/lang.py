@@ -16,7 +16,7 @@ from typing import Any, Iterable
 
 from mcmt.extract.placeholders import unescape
 
-__all__ = ["build_lang", "dump_lang", "sigma_codes_for"]
+__all__ = ["build_lang", "dump_lang", "inline_text", "sigma_codes_for"]
 
 _COLOURS = {
     "black": "0", "dark_blue": "1", "dark_green": "2", "dark_aqua": "3",
@@ -56,6 +56,25 @@ def sigma_codes_for(style: dict[str, Any]) -> str:
     return codes
 
 
+def inline_text(
+    target: str, segment_count: int, segment_styles: list[dict[str, Any]]
+) -> str:
+    """把譯文攤平成一個**自帶 § 碼**的字串。
+
+    塌縮的 lang 值與 `in_place` 的字面值是同一件事：多段樣式沒有結構可以掛，只能
+    轉成行內的 § 碼。所以兩邊共用這一份實作——分開寫就會有一天只修好其中一邊。
+
+    **照譯者寫的順序輸出，不是照段落序號。** 中文語序重排是正常的，樣式要跟著它
+    那段文字走；照序號重排會把金色套到紅色那段上。
+    """
+    ordered = _split_by_token(target, segment_count)
+    return "".join(
+        sigma_codes_for(segment_styles[index] if index < len(segment_styles) else {})
+        + text
+        for index, text in ordered
+    )
+
+
 def build_lang(pairs: Iterable[tuple[dict[str, Any], str]]) -> dict[str, str]:
     """`(unit, 譯文) → lang 條目`。空譯文不產生條目。"""
     lang: dict[str, str] = {}
@@ -69,15 +88,12 @@ def build_lang(pairs: Iterable[tuple[dict[str, Any], str]]) -> dict[str, str]:
         if not target:
             continue  # 尚未翻譯：保留原文，不要寫一個空字串上去
 
-        ordered = _split_by_token(target, unit["segment_count"])
         if unit["collapsible"]:
-            # **照譯者寫的順序輸出，不是照段落序號。** 中文語序重排是正常的，
-            # 樣式要跟著它那段文字走；照序號重排會把金色套到紅色那段上。
-            lang[key] = "".join(
-                sigma_codes_for(unit["segment_styles"][index]) + text
-                for index, text in ordered
+            lang[key] = inline_text(
+                target, unit["segment_count"], unit["segment_styles"]
             )
         else:
+            ordered = _split_by_token(target, unit["segment_count"])
             # 逐段一個 key，樣式由重建出來的樹自己帶。
             for index, text in ordered:
                 lang[f"{key}.{index}"] = text
