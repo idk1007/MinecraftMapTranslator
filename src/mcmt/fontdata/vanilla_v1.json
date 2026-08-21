@@ -68,10 +68,10 @@
     "book_page": {
       "max_width_px": 114,
       "max_lines": 14,
-      "wrap": "soft",
+      "wrap": "auto",
       "calibrated": false,
       "evidence": "文件",
-      "note": "成書一頁的文字區寬度與行數。v1 還沒掃到書本（M13），所以連一個真實資料點都還沒有。"
+      "note": "成書一頁的文字區寬度與行數。v1 還沒掃到書本（M13），所以連一個真實資料點都還沒有。原本誤寫成 \"soft\"——合約（docs/contracts/extract.schema.json）的 wrap enum 只有 none/auto，v1 尚未掃到 book_page 時沒有任何真實資料流經 emit.py 驗證，這個 typo 一直沒被抓到，直到本任務把 book_page 接進掃描來源（task-7）才在 test_the_extract_validates_against_the_schema 炸出來。"
     }
   },
   "bold_observed": {

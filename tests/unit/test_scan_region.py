@@ -199,3 +199,102 @@ def test_known_denylist_fields_are_not_scanned_here(field: str) -> None:
     box[field] = amulet_nbt.StringTag('{"text":"不要翻我"}')
 
     assert list(scan_chunk(chunk_with(box))) == []
+
+
+# --- 容器裡的物品（M13.3）--------------------------------------------------
+
+
+def chest_with_items(*items, x=1, y=2, z=3):
+    tag = amulet_nbt.CompoundTag()
+    tag["id"] = amulet_nbt.StringTag("minecraft:chest")
+    for name, value in (("x", x), ("y", y), ("z", z)):
+        tag[name] = amulet_nbt.IntTag(value)
+    tag["Items"] = amulet_nbt.ListTag(list(items))
+    return tag
+
+
+def named_item(name):
+    item = amulet_nbt.CompoundTag({"id": amulet_nbt.StringTag("minecraft:stone")})
+    item["components"] = amulet_nbt.CompoundTag(
+        {"minecraft:custom_name": amulet_nbt.StringTag(name)}
+    )
+    return item
+
+
+def test_items_inside_a_container_are_scanned() -> None:
+    root = amulet_nbt.CompoundTag()
+    root["block_entities"] = amulet_nbt.ListTag(
+        [chest_with_items(named_item("聖劍"), named_item("盾牌"))]
+    )
+
+    names = {
+        str(node.tag) for node in scan_chunk(root) if node.category == "custom_name"
+    }
+
+    assert names == {"聖劍", "盾牌"}
+
+
+def test_an_item_node_carries_the_containers_coordinates() -> None:
+    """譯者要走得到現場，而物品自己沒有座標——它在容器裡。"""
+    root = amulet_nbt.CompoundTag()
+    root["block_entities"] = amulet_nbt.ListTag(
+        [chest_with_items(named_item("聖劍"), x=10, y=20, z=30)]
+    )
+
+    (node,) = [n for n in scan_chunk(root) if n.category == "custom_name"]
+
+    assert (node.anchor["x"], node.anchor["y"], node.anchor["z"]) == (10, 20, 30)
+
+
+def test_the_item_path_starts_from_the_chunk_root() -> None:
+    """node_path 是寫回去的指路，必須從 chunk 根一路走得到。"""
+    root = amulet_nbt.CompoundTag()
+    root["block_entities"] = amulet_nbt.ListTag([chest_with_items(named_item("聖劍"))])
+
+    (node,) = [n for n in scan_chunk(root) if n.category == "custom_name"]
+    steps = [
+        step.name if step.t == "key" else f"[{step.i}]" for step in node.path
+    ]
+
+    assert steps == [
+        "block_entities",
+        "[0]",
+        "Items",
+        "[0]",
+        "components",
+        "minecraft:custom_name",
+    ]
+
+
+def test_a_lectern_book_is_scanned() -> None:
+    """[實測] 講台的書在 `Book` 而不是 `Items[]`——Arena of Darkness 有 126 頁。"""
+    lectern = amulet_nbt.CompoundTag()
+    lectern["id"] = amulet_nbt.StringTag("minecraft:lectern")
+    for name in ("x", "y", "z"):
+        lectern[name] = amulet_nbt.IntTag(1)
+    book = amulet_nbt.CompoundTag({"id": amulet_nbt.StringTag("minecraft:written_book")})
+    book["components"] = amulet_nbt.CompoundTag(
+        {
+            "minecraft:written_book_content": amulet_nbt.CompoundTag(
+                {
+                    "pages": amulet_nbt.ListTag(
+                        [amulet_nbt.CompoundTag({"raw": amulet_nbt.StringTag("第一頁")})]
+                    )
+                }
+            )
+        }
+    )
+    lectern["Book"] = book
+    root = amulet_nbt.CompoundTag()
+    root["block_entities"] = amulet_nbt.ListTag([lectern])
+
+    pages = [n for n in scan_chunk(root) if n.category == "book_page"]
+
+    assert [str(n.tag) for n in pages] == ["第一頁"]
+
+
+def test_a_container_without_items_is_fine() -> None:
+    root = amulet_nbt.CompoundTag()
+    root["block_entities"] = amulet_nbt.ListTag([chest_with_items()])
+
+    assert list(scan_chunk(root)) == []

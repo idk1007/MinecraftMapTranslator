@@ -12,12 +12,12 @@
 * 告示牌（`minecraft:*sign`）的 `front_text` / `back_text` 的 `messages[]` 四行，
   **含空行**——NBT list 同型規則要知道整個 list 長什麼樣。
 * 方塊實體的 `CustomName`。
+* 容器裡的物品（`Items[]`）與講台的書（`Book`），遞迴交給 `item.py`。
 
 ## 還沒掃的（M13 掃描廣度）
 
-容器裡的物品（`Items[]` 的 `custom_name` / `lore` / 書本內容）、實體（在
-`entities/` 而不是 `region/`）、`level.dat`、記分板、進度、指令方塊的 `Command`、
-datapack 的 `.mcfunction`、`hover_event` 內的文字。**不是忘了，是還沒做。**
+實體（在 `entities/` 而不是 `region/`）、`level.dat`、記分板、進度、指令方塊的
+`Command`、datapack 的 `.mcfunction`、`hover_event` 內的文字。**不是忘了，是還沒做。**
 
 ## 刻意不去找的
 
@@ -37,6 +37,7 @@ from mcmt.nbtio.region import read_region, region_files
 from mcmt.nbtio.structure import ensure_supported_structure, load_chunk_root
 from mcmt.safety.paths import ReadOnlyPath
 from mcmt.scan.node import ScannedNode, TextNode
+from mcmt.scan.sources.item import scan_item
 
 __all__ = ["TextNode", "dimension_of", "scan", "scan_chunk"]
 
@@ -99,6 +100,21 @@ def _scan_block_entity(
             category="block_entity_name",
             anchor=anchor,
         )
+
+    # 容器裡的物品。**遞迴交給 `item.py`**——同一份遞迴被方塊實體、實體裝備、
+    # 玩家背包三處共用，各寫一份是漏掉一層的最短路徑。
+    items = entity.get("Items")
+    if isinstance(items, amulet_nbt.ListTag):
+        items_path = path.child(key_step("Items"))
+        for index, item in enumerate(items):
+            yield from scan_item(
+                item, items_path.child(index_step(index)), anchor=anchor
+            )
+
+    # [實測] 講台的書在 `Book` 而不是 `Items[]`（Arena of Darkness 有 126 頁）。
+    book = entity.get("Book")
+    if isinstance(book, amulet_nbt.CompoundTag):
+        yield from scan_item(book, path.child(key_step("Book")), anchor=anchor)
 
 
 def _anchor(entity: amulet_nbt.CompoundTag, block_id: str) -> dict[str, Any]:
