@@ -6,8 +6,8 @@
   "bold_extra": 1,
   "advance_evidence": {
     "ascii": "文件",
-    "cjk": "待驗",
-    "bold": "文件"
+    "cjk": "遊戲實測",
+    "bold": "遊戲實測"
   },
   "advances": {
     " ": 4,
@@ -43,17 +43,27 @@
       "max_width_px": 90,
       "max_lines": 1,
       "wrap": "none",
-      "calibrated": false,
-      "evidence": "文件",
-      "note": "一般告示牌單行的算繪寬度。[遊戲實測 M11-2] 7 個 CJK 字在這裡完全正常，與 90px / CJK 9px 一致。"
+      "calibrated": true,
+      "evidence": "遊戲實測",
+      "note": "[遊戲實測 2026-08-21] 15 個 'M'（6px）完整顯示、16 個被截掉，因此預算取下界 90px。同一面上 10 個 CJK 字完整顯示。",
+      "observed": {
+        "ascii_max": 15,
+        "cjk_max": 10,
+        "ascii_advance": 6
+      }
     },
     "hanging_sign": {
       "max_width_px": 60,
       "max_lines": 1,
       "wrap": "none",
-      "calibrated": false,
-      "evidence": "待驗",
-      "note": "[遊戲實測 M11-2] 7 個 CJK 字被截掉、正反面皆然。60px 搭配 CJK 9px 正好預測到這件事（6 字 54px 進得去、7 字 63px 進不去），但那是事後對得上，不是量出來的——M8 校準要確認的就是這兩個數字不是碰巧湊對。"
+      "calibrated": true,
+      "evidence": "遊戲實測",
+      "note": "[遊戲實測 2026-08-21] 10 個 'M'（6px）完整顯示、11 個被截掉，因此預算取下界 60px。同一面上 6 個 CJK 字完整顯示。",
+      "observed": {
+        "ascii_max": 10,
+        "cjk_max": 6,
+        "ascii_advance": 6
+      }
     },
     "book_page": {
       "max_width_px": 114,
@@ -63,5 +73,12 @@
       "evidence": "文件",
       "note": "成書一頁的文字區寬度與行數。v1 還沒掃到書本（M13），所以連一個真實資料點都還沒有。"
     }
-  }
+  },
+  "bold_observed": {
+    "sign": 10,
+    "hanging_sign": 8,
+    "board_count": 10
+  },
+  "calibrated_at": "2026-08-21",
+  "scale_note": "階梯觀察定的是**比例**，不是絕對 px——滿足這組觀察的解全部是等比族（ASCII:CJK 恆為 2:3），把整張表乘以 2 也一樣相容。絕對尺度來自 ascii_advance 這個 [文件] 級的錨。工具真正用到的 cjk_capacity（一行放得下幾個中文字）只依賴比值，所以就算尺度整體錯了，那個數字仍然是對的。"
 }

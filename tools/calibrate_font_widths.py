@@ -70,6 +70,7 @@ FONTDATA_PATH = Path(__file__).resolve().parent.parent / "src" / "mcmt" / "fontd
 
 CJK = "中"
 ASCII_WIDE = "M"  # 最寬的一般 ASCII 字母，6px
+BOLD_BOARD_COUNT = 10  # 校準板第 7 行放幾個粗體 M。推導要知道「沒被截」長什麼樣
 _FACES = ("front_text", "back_text")
 
 
@@ -298,6 +299,60 @@ def _cjk_range(ascii_max: int, cjk_max: int, ascii_advance: int) -> set[int]:
     return {n for n in range(1, 33) if lower < n <= upper}
 
 
+def _bold_extra_candidates(
+    observations: dict, ascii_advance: int, shown: dict, cjk_advance: int
+) -> set[int]:
+    """粗體讓每個字多幾 px。
+
+    校準板第 7 行固定放 10 個粗體 M，所以觀察分兩種，給的約束不一樣：
+
+    * **看到 10 個**（沒被截）→ 只知道 `10·(A+e) ≤ B`，是下界。
+    * **看到 N < 10 個**（被截）→ `N·(A+e) ≤ B < (N+1)·(A+e)`，是夾擠，資訊多得多。
+
+    [遊戲實測 2026-08-21] 一般告示牌 10 個全顯示、吊掛只顯示 8 個——**吊掛那個被截
+    的觀察才是把 e 釘死的那一個**。若 e 是 0，10 個粗體 M 就和 10 個一般 M 一樣寬，
+    在吊掛上會全部顯示；它沒有，所以粗體確實會加寬。
+
+    **三個觀察要一起解，不能只看 ASCII 那一個。** 第一版漏掉 CJK，於是 e=2 也留了
+    下來——它要求吊掛的預算落在 64..65px，而同一面上「6 個中文字進得去、7 個不行」
+    要求預算 < 63px。兩者其實互斥，只是分開檢查看不出來。
+    """
+    candidates = set()
+    for extra in range(0, 4):
+        advance = ascii_advance + extra
+        if all(
+            _budgets_for(kind, observations, ascii_advance, cjk_advance, shown, advance)
+            for kind in observations
+        ):
+            candidates.add(extra)
+    return candidates
+
+
+def _budgets_for(
+    kind: str,
+    observations: dict,
+    ascii_advance: int,
+    cjk_advance: int,
+    shown: dict,
+    bold_advance: int | None = None,
+) -> list[int]:
+    """同時滿足這一種告示牌**全部**觀察的預算值。空的代表這組參數不成立。"""
+    ascii_max, cjk_max = observations[kind]
+    seen = shown.get(kind)
+    result = []
+    for budget in range(ascii_max * ascii_advance, (ascii_max + 1) * ascii_advance):
+        if not cjk_max * cjk_advance <= budget < (cjk_max + 1) * cjk_advance:
+            continue
+        if seen is not None and bold_advance is not None:
+            if seen >= BOLD_BOARD_COUNT:
+                if not seen * bold_advance <= budget:
+                    continue
+            elif not seen * bold_advance <= budget < (seen + 1) * bold_advance:
+                continue
+        result.append(budget)
+    return result
+
+
 def record(args) -> int:
     """把觀察到的臨界點換算成量測表。**推導過程一起寫進檔案。**"""
     ascii_advance = args.ascii_advance
@@ -362,13 +417,48 @@ def record(args) -> int:
         data["default_advance"] = ascii_advance
         data["advance_evidence"]["ascii"] = "遊戲實測"
 
+    shown = {
+        "sign": args.sign_bold_shown,
+        "hanging_sign": args.hanging_bold_shown,
+    }
+    if any(v is not None for v in shown.values()):
+        extras = _bold_extra_candidates(
+            observations, ascii_advance, shown, data["cjk_advance"]
+        )
+        if not extras:
+            print(
+                "粗體的觀察和階梯對不上——**沒有回填**。"
+                "先確認校準板第 7 行看到的個數是不是數錯了。",
+                file=sys.stderr,
+            )
+            return 2
+        if len(extras) == 1:
+            data["bold_extra"] = extras.pop()
+            data["advance_evidence"]["bold"] = "遊戲實測"
+            data["bold_observed"] = {
+                k: v for k, v in shown.items() if v is not None
+            } | {"board_count": BOLD_BOARD_COUNT}
+        else:
+            print(
+                f"粗體加寬只縮到 {sorted(extras)}，維持原值 {data['bold_extra']}"
+                f"（{data['advance_evidence']['bold']}）。"
+                f"要釘死它，需要一行粗體在某一種告示牌上被截斷。"
+            )
+
     data["calibrated_at"] = date.today().isoformat()
+    data["scale_note"] = (
+        "階梯觀察定的是**比例**，不是絕對 px——滿足這組觀察的解全部是等比族"
+        "（ASCII:CJK 恆為 2:3），把整張表乘以 2 也一樣相容。絕對尺度來自"
+        " ascii_advance 這個 [文件] 級的錨。工具真正用到的 cjk_capacity"
+        "（一行放得下幾個中文字）只依賴比值，所以就算尺度整體錯了，那個數字仍然是對的。"
+    )
     FONTDATA_PATH.write_text(
         json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
 
     print(f"已回填：{FONTDATA_PATH}")
     print(f"  CJK 前進寬度：{data['cjk_advance']}px（{data['advance_evidence']['cjk']}）")
+    print(f"  粗體加寬：{data['bold_extra']}px（{data['advance_evidence']['bold']}）")
     for kind in observations:
         budget = data["budgets"][kind]
         print(
@@ -404,6 +494,12 @@ def main() -> int:
         type=int,
         help="直接指定 CJK 前進寬度（從校準板截圖量出來的值）。不給就從臨界點推導",
     )
+    parser.add_argument(
+        "--sign-bold-shown",
+        type=int,
+        help=f"一般告示牌的校準板第 7 行（{BOLD_BOARD_COUNT} 個粗體 M）看得到幾個",
+    )
+    parser.add_argument("--hanging-bold-shown", type=int, help="吊掛告示牌的同一行")
     args = parser.parse_args()
 
     if args.record:

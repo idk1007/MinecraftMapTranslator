@@ -325,3 +325,73 @@ def test_a_multi_segment_in_place_value_carries_inline_sigma_codes(tmp_path) -> 
 
     (edit,) = plan.document["edits"]
     assert edit["value"]["text"] == "§a綠§c紅"
+
+
+# --- 寬度：校準完成後 sign 是 error，要真的擋 -----------------------------
+
+
+def hanging(*lines, x=1, y=2, z=3):
+    tag = sign(*lines, x=x, y=y, z=z)
+    tag["id"] = amulet_nbt.StringTag("minecraft:oak_hanging_sign")
+    return tag
+
+
+def test_a_translation_that_overflows_the_line_is_rejected(tmp_path) -> None:
+    """校準完成前這裡只能 warn；量過之後 `error` 就得真的擋，否則那個欄位在說謊。"""
+    extract, translations = prepare(tmp_path, hanging("Hi", "", "", ""))
+    translate(translations, {"Hi": "這行中文字明顯太多了"})
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    assert plan.document["edits"] == []
+    (refusal,) = plan.document["unwritten"]
+    assert refusal["reason"] == "overflow_rejected"
+
+
+def test_a_translation_that_exactly_fills_the_line_is_written(tmp_path) -> None:
+    """[遊戲實測 2026-08-21] 吊掛告示牌放得下 6 個中文字。第 6 個不能被誤擋。"""
+    extract, translations = prepare(tmp_path, hanging("Hi", "", "", ""))
+    translate(translations, {"Hi": "六個中文字剛好"[:6]})
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    assert len(plan.document["edits"]) == 1
+
+
+def test_a_source_that_already_overflows_does_not_trap_the_translator(tmp_path) -> None:
+    """原文本身就放不下是**地圖自己的排版**，不是我們造成的。
+
+    這種節點上拒絕一個「不比原文寬」的譯文，等於要求譯者解一個原作者沒解的問題，
+    而且無論他怎麼寫都過不了。
+    """
+    extract, translations = prepare(tmp_path, hanging("MMMMMMMMMMMMMMM", "", "", ""))
+    translate(translations, {"MMMMMMMMMMMMMMM": "七個中文字放不下"[:7]})
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    assert len(plan.document["edits"]) == 1
+
+
+def test_a_translation_wider_than_an_already_overflowing_source_is_still_rejected(
+    tmp_path,
+) -> None:
+    """豁免的界線是「不比原文更糟」，不是「原文超寬就整個不管」。"""
+    extract, translations = prepare(tmp_path, hanging("MMMMMMMMMMMMMMM", "", "", ""))
+    translate(translations, {"MMMMMMMMMMMMMMM": "十六個中文字絕對比原文還要寬得多了"})
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    assert plan.document["edits"] == []
+    assert plan.document["unwritten"][0]["reason"] == "overflow_rejected"
+
+
+def test_a_category_without_a_width_budget_is_not_checked(tmp_path) -> None:
+    """`block_entity_name` 是容器 GUI 的標題，沒有告示牌那種硬邊界。"""
+    extract, translations = prepare(
+        tmp_path, chest(amulet_nbt.StringTag("Supply Crate"))
+    )
+    translate(translations, {"Supply Crate": "這個名字非常非常非常長但是不該被擋下來"})
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    assert len(plan.document["edits"]) == 1

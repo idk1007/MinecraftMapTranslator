@@ -44,6 +44,25 @@ def test_the_data_file_is_strict_json():
     assert "//" not in text
 
 
+def test_the_calibrated_numbers_record_what_was_observed():
+    """推導過程要留得下來。「90px」本身說不出它是量的還是猜的。"""
+    sign = FONT_DATA["budgets"]["sign"]
+
+    assert sign["observed"] == {"ascii_max": 15, "cjk_max": 10, "ascii_advance": 6}
+    assert FONT_DATA["bold_observed"]["hanging_sign"] == 8
+
+
+def test_the_scale_caveat_is_recorded():
+    """**階梯定的是比例，不是絕對 px。**
+
+    滿足這組觀察的解全部是等比族（ASCII:CJK 恆為 2:3），整張表乘以 2 也一樣相容。
+    絕對尺度靠 `ascii_advance` 那個 [文件] 級的錨。這件事必須寫在資料裡，否則下次
+    看到 `evidence: 遊戲實測` 的人會以為 90 這個數字本身是量出來的。
+    """
+    assert FONT_DATA["scale_note"]
+    assert FONT_DATA["advance_evidence"]["ascii"] == "文件"
+
+
 def test_every_number_carries_an_evidence_level():
     """四級制（[實測]/[遊戲實測]/[文件]/[待驗]）是這個專案的價值所在。
 
@@ -106,8 +125,9 @@ def test_a_hanging_sign_is_narrower_than_a_regular_sign():
 def test_the_current_numbers_predict_the_m11_observation():
     """把實測觀察變成一條會紅的測試。
 
-    [遊戲實測 M11-2] 吊掛告示牌上 7 個 CJK 字放不下。目前的數字若預測不出這件事，
-    那它們在校準之前就已經是錯的，不必等進遊戲。
+    [遊戲實測 M11-2] 吊掛告示牌上 7 個 CJK 字放不下。這一條在校準**之前**就寫了，
+    當時 60px / CJK 9px 還只是猜的；[遊戲實測 2026-08-21] M8 的階梯量出來正是
+    「6 個進得去、7 個不行」，所以那組猜測是對的，而這條測試從一開始就守著它。
     """
     assert measure("中" * 6) <= budget_for("hanging_sign").max_width_px
     assert measure("中" * 7) > budget_for("hanging_sign").max_width_px
@@ -130,22 +150,34 @@ def test_an_unknown_category_has_no_budget():
 # --- 校準前一律 warn ------------------------------------------------------
 
 
-def test_enforcement_stays_warn_while_the_category_is_uncalibrated():
-    assert budget_for("sign").calibrated is False
-    assert enforcement_for("sign") == "warn"
+def test_a_calibrated_category_enforces_error():
+    """[遊戲實測 2026-08-21] 告示牌兩種都量過了，所以它們現在硬擋。"""
+    assert budget_for("sign").calibrated is True
+    assert enforcement_for("sign") == "error"
+    assert enforcement_for("hanging_sign") == "error"
+
+
+def test_an_uncalibrated_category_still_only_warns():
+    """`book_page` 還沒量——v1 根本還沒掃到書本（M13），連一個資料點都沒有。"""
+    assert budget_for("book_page").calibrated is False
+    assert enforcement_for("book_page") == "warn"
 
 
 def test_a_category_without_a_budget_enforces_nothing():
     assert enforcement_for("command_text") == "none"
 
 
-def test_enforcement_may_only_become_error_once_calibrated(monkeypatch):
-    """升級成 error 是**資料**的決定，不是程式碼裡某個 if 的決定。"""
+def test_enforcement_falls_back_to_warn_if_a_category_is_un_calibrated(monkeypatch):
+    """升級成 error 是**資料**的決定，不是程式碼裡某個 if 的決定。
+
+    這條原本是反過來寫的（把 sign 假裝成已校準，斷言它變 error）。校準真的做完
+    之後那個方向就測不到東西了，所以改成假裝**退回**未校準——要驗的是「旗標說了算」，
+    不是某一個特定的值。
+    """
     from mcmt import width
 
-    calibrated = dict(FONT_DATA["budgets"]["sign"])
-    calibrated["calibrated"] = True
-    calibrated["evidence"] = "遊戲實測"
-    monkeypatch.setitem(width.FONT_DATA["budgets"], "sign", calibrated)
+    uncalibrated = dict(FONT_DATA["budgets"]["sign"])
+    uncalibrated["calibrated"] = False
+    monkeypatch.setitem(width.FONT_DATA["budgets"], "sign", uncalibrated)
 
-    assert width.enforcement_for("sign") == "error"
+    assert width.enforcement_for("sign") == "warn"

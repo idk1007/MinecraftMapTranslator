@@ -167,6 +167,7 @@ _REASON_TEXT = {
     "untranslated": "還沒翻（target 是空的）",
     "skipped": "刻意不翻（status: skip）",
     "placeholder_mismatch": "佔位符對不上——hard fail，少一個標記 § 碼會染到行尾",
+    "overflow_rejected": "譯文太長，那一行放不下（寬度已校準，見報告的 detail）",
     "node_changed": "節點形狀變了（世界在 extract 之後被改過，多半是在遊戲裡開過）",
     "node_missing": "找不到那個節點",
     "chunk_unreadable": "chunk 讀不下去",

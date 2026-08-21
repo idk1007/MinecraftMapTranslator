@@ -23,6 +23,7 @@ from typing import Any
 from mcmt.backends.resourcepack.lang import build_lang, inline_text, sigma_codes_for
 from mcmt.extract.placeholders import unescape, validate
 from mcmt.model import SCHEMA_VERSION
+from mcmt.width import budget_for, cjk_capacity, enforcement_for, measure
 
 __all__ = ["PlanResult", "build_editplan"]
 
@@ -73,6 +74,14 @@ def build_editplan(
                 }
             )
             rejected.append((unit_id, check.reason or "placeholder_mismatch"))
+            continue
+
+        overflow = _overflow_for(unit, target)
+        if overflow:
+            unwritten.append(
+                {"unit_id": unit_id, "reason": "overflow_rejected", "detail": overflow}
+            )
+            rejected.append((unit_id, "overflow_rejected"))
             continue
 
         if unit["strategy"] == "translate_key":
@@ -149,6 +158,42 @@ def _value_for(
         }
 
     return {"kind": "component", "tree": _rebuild(unit, occurrence)}
+
+
+def _overflow_for(unit: dict[str, Any], target: str) -> str | None:
+    """譯文放不放得下。**校準完成之後才擋**（`enforcement` 是 `error` 時）。
+
+    [遊戲實測 2026-08-21] 一般告示牌一行 90px、吊掛 60px，量出來的。校準前那些數字
+    是猜的，拿沒驗過的預算去擋會退掉正確的譯文——合約在 `enforcement` 上寫的就是
+    這句話。現在驗過了，所以它得真的擋，否則那個欄位在說謊。
+
+    **一個豁免**：原文本身就放不下時，只要譯文不比原文寬就放行。那是地圖自己的
+    排版，不是我們造成的；在那種節點上退掉一個「不比原文糟」的譯文，等於要求譯者
+    解一個原作者沒解的問題，而且無論他怎麼寫都過不了。
+    """
+    category = unit["category"]
+    if enforcement_for(category) != "error":
+        return None
+    budget = budget_for(category)
+
+    first = unit["occurrences"][0]
+    # § 碼不佔寬度，但粗體讓其後每個字多 1px——所以要量的是**最終要顯示的那串字**，
+    # 不是譯者打的原始 target。
+    rendered = inline_text(
+        target, len(unit["source"]["segments"]), first.get("segment_styles") or [{}]
+    )
+    width = measure(rendered)
+    if width <= budget.max_width_px:
+        return None
+
+    source_width = unit["constraints"].get("source_width_px") or 0
+    if source_width > budget.max_width_px and width <= source_width:
+        return None
+
+    return (
+        f"譯文 {width}px，超過 {category} 一行的 {budget.max_width_px}px"
+        f"（約 {cjk_capacity(category)} 個中文字）。原文是 {source_width}px。"
+    )
 
 
 def _style_for(styles: list[dict[str, Any]]) -> dict[str, Any] | None:

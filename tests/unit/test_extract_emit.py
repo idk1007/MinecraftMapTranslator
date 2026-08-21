@@ -319,12 +319,16 @@ def test_the_constraints_come_from_the_width_table(tmp_path) -> None:
     assert constraints["measurement"] == MEASUREMENT_ID
 
 
-def test_enforcement_is_warn_until_the_table_is_calibrated(tmp_path) -> None:
-    """校準完成前一律 warn（CLAUDE.md C 題）。"""
+def test_enforcement_follows_the_calibration_flag(tmp_path) -> None:
+    """校準完成前一律 warn（CLAUDE.md C 題），完成後才 error。
+
+    [遊戲實測 2026-08-21] 告示牌兩種都量過了，所以這裡現在是 error。判準在
+    `mcmt/width.py`，跟著資料裡的 `calibrated` 走。
+    """
     world = world_with(tmp_path, chunk_with(sign("Welcome", "", "", "")))
     _, extract, _ = documents(world)
 
-    assert extract["units"][0]["constraints"]["enforcement"] == "warn"
+    assert extract["units"][0]["constraints"]["enforcement"] == "error"
 
 
 def test_a_source_that_already_overflows_is_reported_not_hidden(tmp_path) -> None:
