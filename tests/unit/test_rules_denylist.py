@@ -186,6 +186,29 @@ def test_item_mechanic_tags_are_denied():
     assert denied("block_entities", "LootTableSeed")
 
 
+def test_item_mechanic_tags_new_namespaced_format_are_denied():
+    """[code review finding, M13a task-2] 上一版只認舊裸鍵名，認不到 1.20.5+
+
+    實際使用的 `minecraft:*` 命名空間鍵名——同一個 commit 裡 `profile`/`Lock`/
+    `Potion` 都正確處理了新舊兩種鍵名，但 `CanDestroy`/`CanPlaceOn`/
+    `BlockStateTag`/`Trim` 這四類漏掉了新格式，而且原本補的裸小寫替代品
+    （`can_destroy`、`can_place_on`、`block_state`）根本不是任何版本真正用過的
+    鍵名，是永遠不會命中的死條目。真正的新格式鍵名是
+    `minecraft:can_break`（不是 `can_destroy` 的直譯）、
+    `minecraft:can_place_on`、`minecraft:block_state`、`minecraft:trim`。
+    """
+    assert denied("Items", "components", "minecraft:block_state", "facing")
+    assert denied("Items", "components", "minecraft:can_break", "blocks")
+    assert denied("Items", "components", "minecraft:can_place_on", "blocks")
+    assert denied("Items", "components", "minecraft:trim", "material")
+    assert denied("Items", "components", "minecraft:trim", "pattern")
+    # 死條目移除後，裸小寫版本不該再是「湊巧擋到」——它們本來就不該出現在真實
+    # 存檔裡，這裡只是確認移除沒有留下任何殘餘的巧合命中。
+    assert not denied("Items", "components", "can_destroy")
+    assert not denied("Items", "components", "can_place_on")
+    assert not denied("Items", "components", "block_state")
+
+
 def test_the_translatable_fields_are_still_allowed():
     """**對照組。** 擋過頭的症狀是「有些東西沒被抽出來」，和「本來就沒有」
 

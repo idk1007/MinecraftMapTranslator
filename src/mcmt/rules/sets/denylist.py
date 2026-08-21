@@ -34,9 +34,13 @@ _DENIED_TAILS: dict[tuple[str, ...], str] = {
     ("Objectives", "CriteriaName"): "identifier",
     ("Teams", "Name"): "identifier",
     ("PlayerScores", "Name"): "identifier",
-    # 盔甲紋飾：材質與圖案都是識別碼，不是給人看的字。
+    # 盔甲紋飾：材質與圖案都是識別碼，不是給人看的字。舊格式（1.20.4 以前）
+    # 是裸鍵名 `Trim`，1.20.5+ 是 `minecraft:trim`——兩種都要擋，見 code review
+    # 對 M13a task-2 的 finding：新格式命名空間鍵名先前被漏掉了。
     ("Trim", "material"): "identifier",
     ("Trim", "pattern"): "identifier",
+    ("minecraft:trim", "material"): "identifier",
+    ("minecraft:trim", "pattern"): "identifier",
 }
 
 # 這幾個是「出現在路徑任何位置就擋」，不看尾巴。
@@ -64,16 +68,30 @@ _DENIED_ANYWHERE: dict[str, str] = {
     # 戰利品表與它的種子，是識別碼。
     "LootTable": "identifier",
     "LootTableSeed": "identifier",
+    # `BlockStateTag` 是 1.20.4 以前的舊鍵名（`Arena of Darkness` 用的就是這個
+    # 版本）；1.20.5+ 的正式鍵名是 `minecraft:block_state`。
+    #
+    # [code review finding, M13a task-2] 這裡原本多了 `"block_state"`（裸小寫）
+    # 這個死條目——它不是任何版本真正用過的鍵名，留著只會讓人誤以為新格式已經
+    # 被覆蓋。已移除，換成真正的 `minecraft:block_state`。
     "BlockStateTag": "block_id",
-    "block_state": "block_id",
+    "minecraft:block_state": "block_id",
     # 藥水：舊格式是 `tag.Potion`，1.20.5+ 是
     # `components."minecraft:potion_contents".potion`。兩個鍵名都擋。
     "Potion": "identifier",
     "minecraft:potion_contents": "identifier",
+    # `CanDestroy`/`CanPlaceOn` 是 1.20.4 以前的舊鍵名。1.20.5+ 的正式替代品是
+    # `minecraft:can_break`／`minecraft:can_place_on`——**不是**
+    # `can_destroy`／`can_place_on`（裸小寫版本在新舊格式裡都不存在）。
+    #
+    # [code review finding, M13a task-2] 原本這裡寫的 `"can_destroy"` 與
+    # `"can_place_on"` 是發明出來的死條目，兩者都不是遊戲實際使用的鍵名，永遠
+    # 不會命中；同時真正的 `minecraft:can_break` 完全沒被擋到。已移除死條目，
+    # 換成正確的新格式鍵名。
     "CanDestroy": "block_id",
     "CanPlaceOn": "block_id",
-    "can_destroy": "block_id",
-    "can_place_on": "block_id",
+    "minecraft:can_break": "block_id",
+    "minecraft:can_place_on": "block_id",
 }
 
 _REASON_TEXT = {
