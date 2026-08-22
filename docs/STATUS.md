@@ -3,17 +3,20 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-22**（M13a 完成：物品與 `entities/*.mca` 掃描廣度接上。**`entities/` 的寫入層零改動，但物品暴露了 `apply.py` 的分派缺陷、已修**。下一步是 M13b）
+最後更新：**2026-08-22**（M13b 完成：`level.dat`／`scoreboard.dat`／datapack advancement
+三個非 region 來源接上，寫入層補了 `.dat` 整份重編與 datapack 檔案重寫兩種新寫入器，
+`apply.py` 換成顯式 `kind → writer` 分派表。已在地化節點整個跳過。下一步是 M14）
 
 ---
 
 ## 一句話現況
 
-**M0–M8、M10–M13a 完成，而且沒有任何一項卡在「要進遊戲」了。** 整條鏈
+**M0–M8、M10–M13b 完成，而且沒有任何一項卡在「要進遊戲」了。** 整條鏈
 （`import → extract → 人工翻譯 → apply`）有自動化測試釘住，三條寫入路徑
 （translate key、in_place、legacy JSON）都走得通，字寬預算是量出來的、`enforcement`
-已經是 `error` 而且真的會擋。**M13a 把掃描廣度擴到容器物品與 `entities/*.mca`**——
-下一步是 **M13b**（`level.dat`、記分板、指令方塊、datapack、`hover_event`）。
+已經是 `error` 而且真的會擋。**M13a 把掃描廣度擴到容器物品與 `entities/*.mca`，
+M13b 再擴到 `level.dat`／`scoreboard.dat`／datapack advancement 三個非 region 來源**
+——下一步是 **M14**（CLI／報告／文件）。
 
 ~~M1 只差「節點形狀分佈」~~ → **M5.6 已補上**，`doctor` 現在會報形狀分佈與「有多少節點會被跳過不翻」。
 
@@ -572,50 +575,59 @@ T8 的 brief 抄了同一個 `list()` 反模式，**這次在 review 之前就�
 
 ---
 
+### M13b — 掃描廣度：`level.dat`／`scoreboard.dat`／datapack（2026-08-22）✅
+
+八個任務八個 commit（分支 `m13b`，計畫見
+`.superpowers/sdd/2026-08-22-m13b-datfile-and-datapack/`）。M13a 做完了
+M13.0–M13.4，這一輪做完 M13.5–M13.9：
+
+| 任務 | 產出 |
+|---|---|
+| T1 | `write/common.py`：節點編輯引擎（`apply_edit_to_compound`）從 `write/apply.py` 搬出來，`apply.py` 改用顯式 `kind → writer` 分派表（**M13a 遺留、spec 明文要求的重構**） |
+| T2 | `write/datfile_apply.py`：`.dat` 檔通用寫入器（整份重新編碼，`level.dat` 與 `scoreboard.dat` 共用） |
+| T3 | `scan/sources/level_dat.py`：`LevelName`（in_place）／`CustomBossEvents.<id>.Name`（translate key）／`Player.Inventory[]`（走 `scan_item`） |
+| T4 | `scan/sources/scoreboard.py`：`Objectives[].DisplayName`／`Teams[].DisplayName`／`Teams[].MemberNamePrefix`／`MemberNameSuffix` |
+| T5/T6 | `scan/sources/datapack.py` + `write/datapack_apply.py`：advancement JSON 的 `display.title`／`display.description`，資料夾與 zip 兩種形式、單複數目錄名都認 |
+| T7 | 已在地化節點整個跳過（樹裡任何一處有 `translate` 就跳過，避免蓋掉地圖自己的多語言支援） |
+| T8 | 端到端測試擴充 + 兩張語料地圖真實驗證 + 文件寫回（本節） |
+
+**T8 的端到端測試立刻抓到一個真 bug，已修（獨立 commit，理由詳述在 commit
+訊息裡）**：`extract/build.py` 對 `level_name` category 把 `occurrence.encoding`
+覆寫成 `plain_string`（欄位決定的形狀，避免世界名剛好以 `{`/`"`/`[` 開頭被
+`sniff()` 誤判成 JSON）。但 `sniff()` 本身**永遠不會**回報 `plain_string`——
+一個裸字串節點永遠回報 `bare_string`。`write/common.py` 的 `_guarded_encoding`
+修好之前直接比對字串相等，於是每一筆 `level_name` 的 edit 在守門這關就被拒寫
+成 `node_changed`，**`LevelName` 事實上整個寫不出去**，而這條路徑此前只被
+單元測試用 `expected_encoding="bare_string"` 繞過，從沒被真正的
+`extract → apply` 來回測到。這正是 M13a 教訓那句話（「複製了一段在舊脈絡下
+正確的程式碼，而它依賴的不變式在範圍擴大之後靜默失效」）的第三次重演——這次
+是「單元測試用了一個和真實 extract 產出不一致的 fixture 值」。
+
+**真實地圖驗證**（`mcmt extract --lang zh_tw`，相異單位數）：
+
+| category | Arena of Darkness | 100 Ways To Die |
+|---|---:|---:|
+| `level_name` | 1 | 1 |
+| `bossbar` | 26 | 2 |
+| `objective` | 168 | 156 |
+| `team` | 17 | 13 |
+| `team_affix` | 0（實際內容全空） | 0（欄位不存在） |
+| `advancement_title` | 28 | 0（沒有 datapack） |
+| `advancement_description` | 26 | 0（沒有 datapack） |
+
+全部落在計畫開頭期望表的範圍內，沒有任何分類是「該非 0 卻是 0」。`--dry-run`
+確認 `editplan.json` 裡三個新 `container.kind`（`level_dat`／`scoreboard_dat`／
+`datapack_file`）都產得出真正的 edit。
+
+已知缺口（新增，見下方「已知缺口」清單）：`team_affix`／`scoreboard.dat` 的
+legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字），**沒有**
+`[遊戲實測]`——兩張地圖的內容都不足以驅動這兩項的進遊戲驗證。
+
+---
+
 ## 下一步
 
-### 1. M13b（下一個計畫）← **就是這一項**
-
-**設計已經寫好了**：`docs/superpowers/specs/2026-08-22-m13-scan-breadth-design.md`
-的第 8 節，M13.5–M13.9。M13a 做完了 M13.0–M13.4，剩下的是：
-
-| # | 任務 | 需要的新東西 |
-|---|---|---|
-| M13.5 | `scan/sources/level_dat.py` + `write/datfile_apply.py` | **第一條非 region 的寫入路徑** |
-| M13.6 | `scan/sources/scoreboard.py` | 共用 M13.5 的寫入器 |
-| M13.7 | `scan/sources/datapack.py` + `write/datapack_apply.py` | 檔案／zip 寫入 |
-| M13.8 | 已在地化跳過（樹裡任何一處有 `translate` 就整個節點跳過） | |
-| M13.9 | 真實地圖驗證 + 文件 | |
-
-**指令方塊的 `Command` 與 datapack 的 `.mcfunction` 不在 M13b 範圍內**——那需要指令
-語法解析，架構計畫的「不做」清單早就列了（「工作量最難估」），`tree/codecs/command.py`
-也是明確拋 `NotImplementedError` 的。`hover_event` 內的文字（[實測] MP2 有 331 筆
-`pages[]/raw/extra[]/hover_event/name`）已經由攤平器處理，含 `hover_event` 的樹一律
-`collapsible: false`，不需要額外的掃描來源。
-
-**M13.8 開工時要重新問一次「不翻術語」那個決定**——那時待翻項會含 `%1$s` 格式參數
-（[實測] MP2 的 lang 值 37% 有），那是機器驗得出來的另一類（見上方「決定」那節）。
-
-> **spec 第 4 節有一項 M13a 沒做完、M13b 必須做的事**：寫入層要換成顯式的
-> `kind → writer` 對照表。M13a 只在 `apply.py` 裡把分派改成看 `value.kind`，
-> 容器種類（`region_chunk` / `level_dat` / `datapack_file`）的分派還沒建立——
-> 而 M13.5 加進 `level_dat` 的那一刻就需要它。**三種寫入器的保證等級不同**
-> （外科式 vs 整份重編 vs 檔案重寫），spec 說那個不對稱必須看得見。
-
-順帶會用到的東西已經備好：`level_name` / `book_title` / `book_author` /
-`draft_book_page` 四個 category 早就在 `IN_PLACE_CATEGORIES` 裡，`in_place` 的
-`plain_string` 形狀也實作好了。
-
-> **這裡原本寫「還沒有任何 region 路徑走得到它」，M13a 推翻了那句話。** 物品掃描
-> 一接上，`book_title` / `book_author` / `draft_book_page` 就從 region 走得到了
-> ——[實測] AoD `book_title` 25、`book_author` 26、`draft_book_page` 9。而那句話
-> 正是 F1（草稿書頁被寫成 JSON 字串）沒被更早發現的原因：以為走不到的路徑，
-> 沒有人會去想它走對了沒有。剩下真的只在 `level.dat` 的是 `level_name`。
->
-> `plain_string` 這個 encoding 仍然只有 `level.dat` 產得出來——region 掃到的
-> 草稿書頁嗅探出來是 `bare_string`（形狀一律逐節點嗅探，不由欄位推導）。
-
-### 2. M14 CLI／報告／文件
+### M14 CLI／報告／文件
 
 ### 已知缺口（不急，但別忘了）
 
@@ -664,6 +676,14 @@ T8 的 brief 抄了同一個 `list()` 反模式，**這次在 review 之前就�
   edit」都會撞，`minecraft:lore` 同樣適用；「全部是告示牌」是 100WTD 的實測事實，
   不是機制的邊界。**（b）使用者看到的診斷訊息是錯的**——它會說「世界在 extract 之後
   被改過了（多半是在遊戲裡開過）」，而實際上是我們自己剛剛改的。修的時候訊息要一起改。
+* **`team_affix`（`Teams[].MemberNamePrefix`/`MemberNameSuffix`）translate key 未單獨遊戲實測。**
+  兩張語料地圖的實際內容全空，掃描與寫入路徑都已接上但從未真的寫過非空值進遊戲。
+* **`scoreboard.dat` 的 legacy JSON 寫入路徑未單獨遊戲實測**——沿用 chunk 層級已驗證的
+  `legacy.py`，但「DataFixerUpper 對 `.dat` 檔案一視同仁」這個推論本身沒有進遊戲確認過。
+* **datapack 的 `.mcmeta` 過期問題本計畫未處理。** `pack.py` 對 `resources.zip` 做的
+  `pack_format` 下限修正（M4-5 的教訓）沒有類比套用到 datapack 自己的 `pack.mcmeta`——
+  這次沒有寫入 datapack 自己的 `pack.mcmeta`（只改了 advancement JSON），所以不觸發
+  這個問題，但如果未來要支援翻譯 datapack 的其他部分要記得重新檢查。
 
 ## 開工前該補掉的兩件事
 
@@ -682,7 +702,7 @@ T8 的 brief 抄了同一個 `list()` 反模式，**這次在 review 之前就�
 - `spike/.venv` 與 `spike/.venv_alt` 共 134 MB，已 gitignore。
 - `claude-code-stats/` 是**放在同一個資料夾裡的第三方工具**，與 mcmt 無關，已 gitignore。
 - 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 47 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
-- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 642 passed）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
+- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 712 passed）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
 - 跑 CLI：`.venv\Scripts\python -X utf8 -m mcmt.cli {doctor|sandbox import|extract|apply} …`。
 - **heredoc 會吃掉反斜線**：用 `bash << 'PY'` 寫含 `
 `、``、` ` 的 Python 原始碼會被破壞（曾寫出 NUL byte 讓檔案無法解析）。含跳脫序列的檔案改用 Write 工具，或用 `chr(92)` 組出反斜線。

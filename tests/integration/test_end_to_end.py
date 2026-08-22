@@ -165,6 +165,88 @@ def entities_region():
     )
 
 
+def _write_dat_raw(path: Path, tag: "amulet_nbt.CompoundTag") -> None:
+    """`source_world` 建在 sandbox **之外**（見 fixture docstring），`write_dat`
+    會強制過 `ensure_writable` 而在這裡炸掉——所以合成 fixture 檔案跟
+    `write_region_file` 一樣繞過安全層直接寫位元組，只有這裡的測試 helper
+    可以這樣做（真正的寫入路徑仍然一律走 `write_dat`）。"""
+    import gzip
+
+    import amulet_nbt as _nbt
+
+    named = _nbt.NamedTag(tag, "")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(gzip.compress(named.save_to(compressed=False), mtime=0))
+
+
+def level_dat_for(world: Path) -> None:
+    """`LevelName`（in_place）+ `CustomBossEvents`（translate key）+
+    `Player.Inventory`（走 `scan_item`）。"""
+    import amulet_nbt
+
+    sword = amulet_nbt.CompoundTag({"id": amulet_nbt.StringTag("minecraft:diamond_sword")})
+    sword["components"] = amulet_nbt.CompoundTag(
+        {"minecraft:custom_name": amulet_nbt.StringTag("TT_INVENTORY_ITEM_NAME")}
+    )
+    events = amulet_nbt.CompoundTag(
+        {"tt:probe": amulet_nbt.CompoundTag({"Name": amulet_nbt.StringTag("TT_BOSSBAR_NAME")})}
+    )
+    data = amulet_nbt.CompoundTag(
+        {
+            "LevelName": amulet_nbt.StringTag("TT_LEVEL_NAME"),
+            "DataVersion": amulet_nbt.IntTag(4671),
+            "CustomBossEvents": events,
+            "Player": amulet_nbt.CompoundTag(
+                {"Inventory": amulet_nbt.ListTag([sword])}
+            ),
+        }
+    )
+    _write_dat_raw(world / "level.dat", amulet_nbt.CompoundTag({"Data": data}))
+
+
+def scoreboard_dat_for(world: Path) -> None:
+    import amulet_nbt
+
+    data = amulet_nbt.CompoundTag(
+        {
+            "Objectives": amulet_nbt.ListTag(
+                [
+                    amulet_nbt.CompoundTag(
+                        {
+                            "Name": amulet_nbt.StringTag("obj"),
+                            "CriteriaName": amulet_nbt.StringTag("dummy"),
+                            "DisplayName": amulet_nbt.StringTag("TT_OBJECTIVE_NAME"),
+                        }
+                    )
+                ]
+            ),
+            "Teams": amulet_nbt.ListTag(
+                [
+                    amulet_nbt.CompoundTag(
+                        {
+                            "Name": amulet_nbt.StringTag("team"),
+                            "DisplayName": amulet_nbt.StringTag("TT_TEAM_NAME"),
+                        }
+                    )
+                ]
+            ),
+        }
+    )
+    root = amulet_nbt.CompoundTag({"data": data, "DataVersion": amulet_nbt.IntTag(4671)})
+    _write_dat_raw(world / "data" / "scoreboard.dat", root)
+
+
+def datapack_for(world: Path) -> None:
+    import json
+
+    path = world / "datapacks" / "tt_probe" / "data" / "tt" / "advancement" / "quest.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"display": {"title": "TT_ADVANCEMENT_TITLE", "description": "TT_ADVANCEMENT_DESC"}}),
+        encoding="utf-8",
+    )
+
+
 @pytest.fixture
 def source_world(project):
     """一個 sandbox **之外**的世界，模擬使用者的 `.minecraft/saves`。
@@ -177,6 +259,9 @@ def source_world(project):
     shutil.copyfile(FIXTURE, world / "region" / "r.0.0.mca")
     write_region_file(world / "region", old_format_region(), "r.0.1.mca")
     write_region_file(world / "entities", entities_region(), "r.0.0.mca")
+    level_dat_for(world)
+    scoreboard_dat_for(world)
+    datapack_for(world)
     return world
 
 
@@ -242,6 +327,14 @@ TRANSLATIONS = {
     "TT_LECTERN_PAGE_1": "講台第一頁",
     # index + translate key
     "TT_ITEM_LORE_1": "第一行說明",
+    # level.dat / scoreboard.dat / datapack
+    "TT_LEVEL_NAME": "探測世界",
+    "TT_BOSSBAR_NAME": "頭目",
+    "TT_INVENTORY_ITEM_NAME": "背包裡的劍",
+    "TT_OBJECTIVE_NAME": "分數板",
+    "TT_TEAM_NAME": "隊伍",
+    "TT_ADVANCEMENT_TITLE": "進度標題",
+    "TT_ADVANCEMENT_DESC": "進度描述",
 }
 
 # `TRANSLATIONS` 裡每一筆該落在哪一格。**測試自己驗這張表真的湊滿四格**，
@@ -295,8 +388,34 @@ def test_the_whole_round_trip_writes_something(round_trip) -> None:
 
     assert counts["edits_written"] > 0
     # 三張檔案各一個 chunk：探測世界的 r.0.0、舊格式的 r.0.1、entities 的 r.0.0。
+    # chunks_touched 只算 region/entities chunk，不含 level.dat/scoreboard.dat/datapack。
     assert counts["chunks_touched"] == 3
-    assert counts["files_rewritten"] == 3
+    # 三張 region 檔 + level.dat + scoreboard.dat + 一個 advancement json。
+    assert counts["files_rewritten"] == 6
+
+
+def test_level_dat_scoreboard_and_datapack_are_all_written(round_trip) -> None:
+    import json
+
+    from mcmt.nbtio.datfile import read_dat
+    from mcmt.safety.paths import ensure_readable
+
+    world = round_trip["world"]
+    level = read_dat(ensure_readable(world / "level.dat"))
+    assert str(level.tag.compound["Data"]["LevelName"]) == "探測世界"
+
+    # `Objectives[].DisplayName` 走 translate key，DV 4671（native）寫回的是
+    # `{translate: key}` compound，不是裸字串。
+    scoreboard = read_dat(ensure_readable(world / "data" / "scoreboard.dat"))
+    objective_display = scoreboard.tag.compound["data"]["Objectives"][0]["DisplayName"]
+    assert isinstance(objective_display, amulet_nbt.CompoundTag)
+    assert str(objective_display["translate"]).startswith("mcmt.objective.")
+
+    # advancement `display.title` 同樣走 translate key，寫回的是 Python dict
+    # `{"translate": key}`，直接就是要 json.dump 出去的東西。
+    advancement_path = world / "datapacks" / "tt_probe" / "data" / "tt" / "advancement" / "quest.json"
+    document = json.loads(advancement_path.read_text("utf-8"))
+    assert document["display"]["title"]["translate"].startswith("mcmt.advancement_title.")
 
 
 def combinations_in(plan_document) -> set[tuple[str, str]]:
@@ -658,6 +777,12 @@ def written_encoding(edit) -> str:
 
     if edit["value"]["kind"] == "literal":
         return edit["expected_encoding"]
+    # datapack advancement JSON 沒有 chunk 世代這回事——`container.data_version`
+    # 合法地是 `None`（見 `scan/sources/datapack.py`），寫進去的一律是純 Python
+    # dict（`{"translate": key}`），對應 `datapack_apply.py` 的 `_sniff_json_value`
+    # 判成 `compound_tree`，不走 legacy/native 二分。
+    if edit["container"]["kind"] == "datapack_file":
+        return "compound_tree"
     if generation_of(edit["container"]["data_version"]).legacy_json_is_content:
         return "json_string_object"
     return "compound_tree"

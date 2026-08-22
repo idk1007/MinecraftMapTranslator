@@ -303,6 +303,32 @@ data/scoreboard.dat → data.Teams[].MemberNameSuffix        ← text component
 
 `Objectives[].Name`、`Teams[].Name`、`Objectives[].CriteriaName` 是**識別碼不是文字**，指令會引用，翻了會壞。
 
+### M13b 實測（2026-08-22）：level.dat 與 scoreboard.dat 的根鍵形狀
+
+對照 `Arena of Darkness`（DV 3700）與 `100 Ways To Die`（DV 4325）的真實 `level.dat`／
+`data/scoreboard.dat`：
+
+- `level.dat` 只有一個根鍵 `Data`，`DataVersion` **在它裡面**（`Data.DataVersion`）。
+- `scoreboard.dat` 的根是**兩個並列鍵** `data` 與 `DataVersion`（**不是**巢狀）。
+- `CustomBossEvents` 是用 boss id 當鍵的 compound，不是 list——`Data.CustomBossEvents.<id>.Name`。
+- legacy/native 二分在這兩個檔案裡與 chunk 完全對稱：AoD（legacy）的
+  `Objectives[].DisplayName`／`CustomBossEvents.<id>.Name` 都是 JSON 純量字串
+  （如 `'"ReFightTime"'`）；100WTD（native）都是裸字串／原生 compound。
+- `Teams[].MemberNamePrefix`/`MemberNameSuffix` 在 native 世代（100WTD）**整個
+  不存在**（不是空字串，是欄位本身省略）；legacy 世代（AoD）存在但兩張地圖的
+  17 支隊伍全部是空的 `'""'`。
+
+### M13b 實測（2026-08-22）：datapack 資料包的真實形態
+
+`Arena of Darkness` 的資料包全部是 **zip 檔**（`datapacks/*.zip`），而不是資料夾；
+`ArenaOfDarknessDatapack_10_15.zip` 用的是**複數** `data/worf/advancements/*.json`
+（1.20.4 舊式目錄名，早先「1.21 起改單數」的記錄在這裡得到反面對照）。
+`display.title` 觀察到的真實值是裸 JSON 字串（如 `"The Prelude"`），不是 component
+物件——與掃描層「值直接是三種 JSON 型別之一」的設計假設一致。
+
+`100 Ways To Die` 沒有任何 datapack（`extract` 掃出 0 個 `advancement_title`/
+`advancement_description`），所以這兩則發現只有 AoD 一張地圖的樣本。
+
 ### tab 玩家列表 [實測]
 
 tab 列表沒有專屬的文字欄位，它顯示的東西全部來自上面已列的路徑：
@@ -1071,6 +1097,8 @@ DataFixerUpper 沒能解析那個字串、整個 `CustomName` 欄位被丟棄了
 | ~~native 世代下的 `'""'` 如何算繪~~ | ~~1.21.11 寫入字面 `'""'` 肉眼確認~~ | **已完成（M0-4）**：顯示字面的兩個引號，不是空白 |
 | ~~自訂命名空間 translate key 是否由世界資源包解出~~ | ~~M0 手動注入~~ | **已完成（M0-1）**：正確顯示 |
 | ~~`pack_format` 過期是否只警告不拒載~~ | ~~刻意用過期號打包載入觀察~~ | **已完成（M0-5）**：無警告、無紅字、照常載入 |
+| `Teams[].MemberNamePrefix`/`MemberNameSuffix` 的 translate key 是否真的顯示 | 在一支隊伍上設定非空的前後綴、寫入 translate key、`/team list` 或 tab 列表肉眼確認 | 低 — 兩張語料地圖的實際內容全空，沒有實測動機驅動；`Objectives`/`Teams[].DisplayName` 本身已經是 [全部遊戲實測] |
+| `scoreboard.dat`（DV < 4325）的 legacy JSON 字串寫入是否被 DataFixer 正確解析 | 在一個 DV 3700 的 `scoreboard.dat` 寫入 JSON 字串型 translate key，1.21.11 開啟後看 `/scoreboard objectives list` 或側邊欄 | 中 — 與 chunk 層級的 M4-2 是同一個機制（DataFixerUpper 對任何版本化 NBT 文件一視同仁），但 `.dat` 檔本身沒有被單獨驗證過；寫入器完全沿用 M4 已驗證的 legacy.py，風險主要在「機制是否真的對 `.dat` 檔案一視同仁」這個推論本身 |
 
 ---
 
