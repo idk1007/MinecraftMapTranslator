@@ -202,7 +202,16 @@ def _guarded_encoding(tag, edit: dict, outcome: ApplyOutcome) -> str | None:
     except TypeError:
         refuse(outcome, edit, "unsupported_encoding", "這個節點不是文字節點")
         return None
-    if current != edit["expected_encoding"]:
+    expected = edit["expected_encoding"]
+    # `plain_string` 是欄位決定的形狀（`level_name` 等），不是值決定的形狀——
+    # `sniff()` 只看得到值本身，一個裸字串節點永遠回報 `bare_string`，絕不會
+    # 回報 `plain_string`（component.py 的說明）。所以這裡不能直接比對字串
+    # 相等：那會讓每一筆 `plain_string` 的 edit 在守門這關就被拒寫，不管世界
+    # 有沒有真的被改過。守門要問的是「形狀變了嗎」，而 `plain_string` 這個
+    # 欄位唯一合法的磁碟形狀就是 `bare_string`——兩者一致代表沒變。
+    if current == "bare_string" and expected == "plain_string":
+        current = expected
+    if current != expected:
         refuse(
             outcome,
             edit,

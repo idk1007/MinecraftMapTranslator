@@ -52,6 +52,33 @@ def edit_for_level_name(text: str, *, data_version=4671, expected_encoding="bare
     }
 
 
+def test_a_plain_string_expected_encoding_is_accepted_though_sniff_says_bare_string(
+    project,
+) -> None:
+    """**回歸測試**：M13b Task 8 的端到端測試在真實 fixture 上抓到的 bug。
+
+    `extract/build.py` 對 `level_name` category 把 `occurrence.encoding` 覆寫成
+    `plain_string`（避免 `sniff()` 把剛好以 `{`/`"`/`[` 開頭的世界名誤判成
+    JSON）。但 `sniff()` 本身**永遠不會**回報 `plain_string`——那是欄位決定的
+    形狀，不是值決定的形狀（`model/component.py`），一個裸字串節點永遠回報
+    `bare_string`。修好之前 `_guarded_encoding` 直接比對字串相等，於是每一筆
+    `level_name` 的 edit 在守門這關就被拒寫成 `node_changed`，不管世界有沒有
+    真的被改過——`LevelName` 事實上整個寫不出去。
+    """
+    world = project / "sandbox"
+    target = level_dat(world)
+    outcome = ApplyOutcome()
+    edit = edit_for_level_name("新的世界名", expected_encoding="plain_string")
+
+    with BackupSet(world) as backup:
+        apply_to_datfile(world, "level.dat", [edit], outcome, backup)
+
+    read_back = read_dat(ensure_readable(target))
+    assert str(read_back.tag.compound["Data"]["LevelName"]) == "新的世界名"
+    assert outcome.counts["edits_written"] == 1
+    assert outcome.unwritten == []
+
+
 def test_the_level_name_is_replaced_and_the_file_is_backed_up(project) -> None:
     world = project / "sandbox"
     target = level_dat(world)
