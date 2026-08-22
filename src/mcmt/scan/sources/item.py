@@ -265,7 +265,11 @@ def _scan_old_book(
     字串，`writable_book` 的頁是無包裝的純字串（只能 in_place）。只看路徑會把草稿書
     當成書處理，往它寫一個 translate key，而玩家看到的會是 key 本身。
     """
-    is_draft = item_id.endswith("writable_book")
+    # **邊界要在命名空間分隔符上**，不是 `endswith`——`modid:not_writable_book`
+    # 會被 `endswith("writable_book")` 誤判成草稿書，然後它的 JSON 字串頁面走
+    # `in_place` 被原形保留、譯文直接塞進 JSON 裡，寫回去是一坨壞掉的 component。
+    # `split(":")[-1]` 同時接受省略命名空間的 `writable_book`（[文件] 合法）。
+    is_draft = item_id.split(":")[-1] == "writable_book"
 
     if not is_draft:
         title = tag.get("title")

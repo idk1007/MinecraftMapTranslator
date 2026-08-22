@@ -288,6 +288,34 @@ def test_an_old_writable_book_is_a_draft_not_a_written_book():
     assert paths_and_categories(item) == {"Items/tag/pages/[0]": "draft_book_page"}
 
 
+def test_a_modded_id_that_merely_ends_in_writable_book_is_not_a_draft():
+    """`endswith` 沒有 `:` 邊界，`modid:not_writable_book` 會被誤判成草稿書。
+
+    誤判的方向是**寫入層**的問題而不是掃描層的：草稿書頁走 `in_place`，一個真的
+    成書被當成草稿書，它的 JSON 字串頁面會被原形保留、翻譯直接塞進 JSON 裡，寫回去
+    是一坨壞掉的 component。所以邊界要在 id 的命名空間分隔符上。
+    """
+    item = tag_item(
+        "modid:not_writable_book",
+        title=amulet_nbt.StringTag("Base Notes"),
+        pages=amulet_nbt.ListTag([amulet_nbt.StringTag('{"text":"第一頁"}')]),
+    )
+
+    assert paths_and_categories(item) == {
+        "Items/tag/title": "book_title",
+        "Items/tag/pages/[0]": "book_page",
+    }
+
+
+def test_a_namespaceless_writable_book_is_still_a_draft():
+    """[文件] 物品 id 省略 `minecraft:` 是合法的，指令與 datapack 常這樣寫。"""
+    item = tag_item(
+        "writable_book", pages=amulet_nbt.ListTag([amulet_nbt.StringTag("草稿內容")])
+    )
+
+    assert paths_and_categories(item) == {"Items/tag/pages/[0]": "draft_book_page"}
+
+
 def test_an_old_shulker_box_recurses_into_its_items():
     """[實測] Arena of Darkness 的三層巢狀就是這條路徑。"""
     inner = tag_item(

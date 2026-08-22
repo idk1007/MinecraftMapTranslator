@@ -14,8 +14,10 @@
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from mcmt.width import (
     FONT_DATA,
@@ -27,6 +29,7 @@ from mcmt.width import (
 )
 
 FONTDATA = Path(__file__).resolve().parents[2] / "src" / "mcmt" / "fontdata"
+CONTRACTS = Path(__file__).resolve().parents[2] / "docs" / "contracts"
 
 
 # --- 資料本身 -------------------------------------------------------------
@@ -181,3 +184,47 @@ def test_enforcement_falls_back_to_warn_if_a_category_is_un_calibrated(monkeypat
     monkeypatch.setitem(width.FONT_DATA["budgets"], "sign", uncalibrated)
 
     assert width.enforcement_for("sign") == "warn"
+
+
+# --- 字型資料 × 合約 ------------------------------------------------------
+
+
+def test_every_budget_produces_a_contract_valid_constraints_object() -> None:
+    """**把 `vanilla_v1.json` 的每一個預算拿去對合約的 `constraints` 驗一次。**
+
+    這一條的理由是這輪剛示範過的失敗模式：`book_page.wrap` 從 M8 起就是非法值
+    `"soft"`（schema 的 enum 只有 `none` / `auto`），埋了兩個里程碑沒人發現，
+    直到 M13a 的物品掃描第一次真的走到 `book_page` 才炸出來。
+
+    埋得住的原因是 schema 只驗**產出的文件**，而沒有 occurrence 落在某個 category 上
+    時，那個 category 的預算就永遠不會出現在任何一份 extract.json 裡。掃描廣度每擴一次
+    就多一批「從沒被驗過的預算」——那不是可以靠下次小心一點解決的問題。
+
+    所以驗的是資料本身，而且**走 emit 真正用的那條路**（`_constraints_for`），不是
+    在測試裡另外拼一份 dict——拼一份就等於允許那份 dict 和產線漂移。
+    """
+    from mcmt.extract.emit import _constraints_for
+
+    schema = json.loads((CONTRACTS / "extract.schema.json").read_text("utf-8"))
+    validator = Draft202012Validator(schema["$defs"]["constraints"])
+
+    broken = {}
+    for category in FONT_DATA["budgets"]:
+        constraints = _constraints_for(SimpleNamespace(category=category, plain="測試"))
+        errors = sorted(validator.iter_errors(constraints), key=str)
+        if errors:
+            broken[category] = [f"{list(e.path)}: {e.message}" for e in errors]
+
+    assert broken == {}
+
+
+def test_every_budgeted_category_is_one_the_scanner_can_actually_produce() -> None:
+    """預算掛在一個沒有人會產生的 category 上，等於一份永遠不會生效的設定。
+
+    上面那條驗「預算的形狀合法」，這條驗「預算掛對地方」。兩條一起才擋得住
+    `book_page` 那種——形狀非法**而且**沒有任何測試資料走得到它。
+    """
+    schema = json.loads((CONTRACTS / "extract.schema.json").read_text("utf-8"))
+    known = set(schema["$defs"]["category"]["enum"])
+
+    assert set(FONT_DATA["budgets"]) <= known

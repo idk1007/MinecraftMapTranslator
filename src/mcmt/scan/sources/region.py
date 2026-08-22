@@ -14,10 +14,12 @@
 * 方塊實體的 `CustomName`。
 * 容器裡的物品（`Items[]`）與講台的書（`Book`），遞迴交給 `item.py`。
 
-## 還沒掃的（M13 掃描廣度）
+實體不在這裡——它們從 1.17 起住在 `entities/*.mca`，由 `sources/entities.py` 負責。
 
-實體（在 `entities/` 而不是 `region/`）、`level.dat`、記分板、進度、指令方塊的
-`Command`、datapack 的 `.mcfunction`、`hover_event` 內的文字。**不是忘了，是還沒做。**
+## 還沒掃的（M13b 掃描廣度）
+
+`level.dat`、記分板、進度、指令方塊的 `Command`、datapack 的 `.mcfunction`、
+`hover_event` 內的文字。**不是忘了，是還沒做。**
 
 ## 刻意不去找的
 
@@ -39,7 +41,7 @@ from mcmt.safety.paths import ReadOnlyPath
 from mcmt.scan.node import ScannedNode, TextNode
 from mcmt.scan.sources.item import scan_item
 
-__all__ = ["TextNode", "dimension_of", "scan", "scan_chunk"]
+__all__ = ["dimension_of", "scan", "scan_chunk"]
 
 _SIGN_FACES = ("front_text", "back_text")
 _MESSAGES = "messages"
@@ -175,6 +177,12 @@ def scan(world: ReadOnlyPath, stats: Counter) -> Iterator[ScannedNode]:
 
 
 def _container(path, raw, data_version: int, world: ReadOnlyPath) -> dict:
+    """一個 chunk 的容器描述。
+
+    **回傳的 dict 是同一個 chunk 裡所有節點共用的一份**（上面每個 chunk 只建一次，
+    然後把同一個物件掛到每個 `ScannedNode` 上）。下游要改容器欄位就複製一份再改，
+    **不要就地修改**——就地改會連同那個 chunk 裡其他所有節點一起改掉。
+    """
     relative = path.relative_to(world).replace("\\", "/")
     return {
         "kind": "region_chunk",

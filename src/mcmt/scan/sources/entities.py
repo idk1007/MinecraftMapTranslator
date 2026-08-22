@@ -16,6 +16,7 @@
     Passengers[]        遞迴——[實測] 100WTD 有 102 個 text_display 掛在載具上
     Item / item         展示框、掉落物
     ArmorItems[] / HandItems[] / equipment / weapon   身上的裝備
+    Inventory[]         馬、驢、羊駝身上的箱子
 
 其餘一律不碰。[實測] `Tags[]` 在 100WTD 有 96,168 個，全是識別碼；`variant`、
 `profession`、`MainGene`、`billboard`、`Attributes[].Name` 同理。
@@ -76,6 +77,12 @@ def scan(world: ReadOnlyPath, stats: Counter) -> Iterator[ScannedNode]:
 
 
 def _container(path, raw, data_version: int, world: ReadOnlyPath) -> dict:
+    """一個 chunk 的容器描述。
+
+    **回傳的 dict 是同一個 chunk 裡所有節點共用的一份**（呼叫端每個 chunk 只建一次，
+    然後把同一個物件掛到每個 `ScannedNode` 上）。下游要改容器欄位就複製一份再改，
+    **不要就地修改**——就地改會連同那個 chunk 裡其他所有節點一起改掉。
+    """
     relative = path.relative_to(world).replace("\\", "/")
     return {
         "kind": "entities_chunk",
@@ -103,8 +110,12 @@ def scan_entities_chunk(root: amulet_nbt.CompoundTag) -> Iterator[TextNode]:
 def _scan_entity(entity: amulet_nbt.CompoundTag, path: NodePath) -> Iterator[TextNode]:
     anchor = _anchor(entity)
 
+    # **型別檢查而不是 `is not None`**，與 `region.py` 的 `CustomName` 一致：
+    # `is not None` 收得下 IntTag / ListTag / ByteArrayTag，而嗅探器對它們拋
+    # `TypeError`，那個例外沒有人接。實務上會不會有實體把這兩個鍵放成別的型別
+    # 不知道——「不知道」正是該用白名單型別的理由。
     custom_name = entity.get("CustomName")
-    if custom_name is not None:
+    if isinstance(custom_name, (amulet_nbt.StringTag, amulet_nbt.CompoundTag)):
         yield TextNode(
             path=path.child(key_step("CustomName")),
             tag=custom_name,
@@ -113,7 +124,7 @@ def _scan_entity(entity: amulet_nbt.CompoundTag, path: NodePath) -> Iterator[Tex
         )
 
     text = entity.get("text")
-    if text is not None:
+    if isinstance(text, (amulet_nbt.StringTag, amulet_nbt.CompoundTag)):
         yield TextNode(
             path=path.child(key_step("text")),
             tag=text,

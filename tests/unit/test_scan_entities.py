@@ -48,6 +48,22 @@ def test_a_named_entity_is_found():
     assert str(node.tag) == "守衛"
 
 
+def test_a_non_text_tag_in_those_two_keys_is_not_yielded():
+    """`is not None` 收得下 IntTag、ListTag、ByteArrayTag——嗅探器會對它們拋
+    `TypeError`，而那個例外沒有人接。
+
+    `region.py` 那邊的 `CustomName` 判的是 `isinstance(x, (StringTag, CompoundTag))`，
+    這裡要一致。實務上不會有 modded 實體把 `text` 放成別的型別嗎？不知道，而
+    「不知道」正是該用白名單型別檢查而不是 `is not None` 的理由。
+    """
+    root = chunk_with(
+        entity(CustomName=amulet_nbt.IntTag(7)),
+        entity("minecraft:text_display", text=amulet_nbt.ListTag([])),
+    )
+
+    assert list(scan_entities_chunk(root)) == []
+
+
 def test_a_text_display_is_found():
     """[實測] 現代冒險地圖大量用 text_display 取代盔甲座做浮空文字。"""
     root = chunk_with(

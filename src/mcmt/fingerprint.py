@@ -49,7 +49,7 @@ def world_fingerprint(world: Path | str) -> str:
     digest = blake2b(digest_size=_DIGEST_SIZE)
 
     # **region 與 entities 都算。** [預告於 nbtio/region.py] 掃描範圍擴大到實體
-    # 之後，「什麼算這個世界的內容」就得包含它們——不然使用者在遊戲裡動了盔馬座，
+    # 之後，「什麼算這個世界的內容」就得包含它們——不然使用者在遊戲裡動了盔甲座，
     # 指紋不變，extract_fingerprint 會說「世界沒變」而實際上變了。
     #
     # 兩份清單分開取再串起來（而不是 rglob 一次抓兩種），是為了讓順序穩定且
