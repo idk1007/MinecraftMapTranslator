@@ -1,91 +1,41 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""把 editplan 寫回世界（M11.2）。**高風險目錄。**
+"""把 editplan 寫回世界（M11.2 / M13b 分派重構）。**高風險目錄。**
 
 順序是不可協商的（CLAUDE.md §1.2）：
 
-    BackupSet.protect(region)  →  改  →  write_region
+    BackupSet.protect(檔案)  →  改  →  write_region / write_dat / 重寫 zip
 
-備份失敗就中止，**絕不允許「備份失敗但繼續寫」**。例外發生時 `BackupSet` 自動還原
-所有已備份的檔案，報告的 `outcome` 記成 `rolled_back`。
+備份失敗就中止，**絕不允許「備份失敗但繼續寫」**。
 
-**外科式寫入由 `write_region` 保證**：沒被改到的 chunk 帶著它從磁碟讀來的原始壓縮
-位元組原封送回去。報告裡的 `chunks_copied_verbatim` 就是這條規則的機器可檢查形式。
+**容器種類決定用哪個寫入器，顯式對照表，不是 if/elif。** 三種寫入器的保證等級不同：
 
-**寫什麼**由 `value.kind` 決定：`literal` 走 `in_place`，保留節點既有的形狀、只換
-裡面的字；`translate` / `component` 把節點換成 translate key，走 `legacy`/`native`
-的世代分派。**不是由 `node_path` 的最後一步決定**——那兩件事在 v1 碰巧一致（只掃了
-告示牌與 `CustomName`），M13a 之後不再一致。
+    region_chunk / entities_chunk   外科式——未改動的 chunk 原封複製原始壓縮位元組
+    level_dat / scoreboard_dat      整份重編——`.dat` 沒有外科式寫入這回事（M3.2）
+    datapack_file                   檔案重寫——資料夾直接覆寫、zip 整份重建
 
-`node_path` 的最後一步只決定**怎麼把新節點放回去**：`index` 要顧 list 同型規則，
-`key` 直接指派。
+這個不對稱**必須看得見**，一個共同介面會讓它們看起來一樣安全（`docs/ownership.md`
+「為什麼寫入層與輸出後端是分開的」同一條理由）。
 
-**每一筆寫入前都過 `expected_encoding` 守門。** 節點現在的形狀與 extract 當時記的不同
-就拒寫那一筆（`node_changed`）——[遊戲實測 M4-4] 使用者只要在中間玩過一次遊戲，
-DataFixer 就會把部分節點的形狀改掉。
+**節點層級「走到哪、寫什麼」的邏輯在 `write/common.py`**（`apply_edit_to_compound`）
+——那段與容器是 region 還是 `.dat` 無關，兩者共用同一份，不是巧合的重複。
 """
 
-from collections import Counter, defaultdict
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 import amulet_nbt
 
 from mcmt.errors import FormatError
-from mcmt.model import SCHEMA_VERSION
-from mcmt.model.component import sniff
-from mcmt.model.generation import generation_of
-from mcmt.model.node import NodePath
 from mcmt.nbtio.compression import decompress_chunk
 from mcmt.nbtio.region import ChunkWrite, read_region, write_region
 from mcmt.safety.backup import BackupSet
 from mcmt.safety.paths import ensure_readable, ensure_writable
-from mcmt.write import in_place, legacy, native
+from mcmt.write.common import ApplyOutcome, apply_edit_to_compound, refuse
+from mcmt.write.datfile_apply import apply_to_datfile
+from mcmt.write.datapack_apply import apply_to_datapack_file
 
 __all__ = ["ApplyOutcome", "apply_editplan"]
-
-
-@dataclass
-class ApplyOutcome:
-    outcome: str = "applied"
-    counts: Counter = field(default_factory=Counter)
-    unwritten: list[dict[str, Any]] = field(default_factory=list)
-    warnings: list[dict[str, Any]] = field(default_factory=list)
-    backup_directory: Path | None = None
-    backup_files: int = 0
-
-    def report(self, *, world: Path, fingerprint_before: str) -> dict[str, Any]:
-        return {
-            "format": "mcmt-apply-report",
-            "schema_version": SCHEMA_VERSION,
-            "generated_at": _now(),
-            "outcome": self.outcome,
-            "world": {
-                "path": str(world),
-                "world_fingerprint_before": fingerprint_before,
-                "world_fingerprint_after": None,
-                "extract_fingerprint": None,
-            },
-            "backup": (
-                {
-                    "directory": str(self.backup_directory),
-                    "file_count": self.backup_files,
-                }
-                if self.backup_directory
-                else None
-            ),
-            "counts": {
-                "edits_planned": self.counts["edits_planned"],
-                "edits_written": self.counts["edits_written"],
-                "chunks_touched": self.counts["chunks_touched"],
-                "chunks_copied_verbatim": self.counts["chunks_copied_verbatim"],
-                "files_rewritten": self.counts["files_rewritten"],
-                "list_promotions": self.counts["list_promotions"],
-            },
-            "unwritten": self.unwritten,
-            "warnings": self.warnings,
-        }
 
 
 def apply_editplan(
@@ -109,7 +59,16 @@ def apply_editplan(
 
     with BackupSet(world_path) as backup:
         for relative, edits in sorted(by_file.items()):
-            _apply_to_region(world_path, relative, edits, outcome, backup)
+            kind = edits[0]["container"]["kind"]
+            writer = _WRITERS.get(kind)
+            if writer is None:
+                for edit in edits:
+                    refuse(
+                        outcome, edit, "unsupported_encoding",
+                        f"沒有 {kind!r} 的寫入器",
+                    )
+                continue
+            writer(world_path, relative, edits, outcome, backup)
         outcome.backup_directory = backup.directory
         outcome.backup_files = backup.file_count
     return outcome
@@ -125,14 +84,14 @@ def _apply_to_region(
     path = world / relative
     if not path.exists():
         for edit in edits:
-            _refuse(outcome, edit, "node_missing", f"找不到 {relative}")
+            refuse(outcome, edit, "node_missing", f"找不到 {relative}")
         return
 
     try:
         chunks = list(read_region(ensure_readable(path)))
     except FormatError as exc:
         for edit in edits:
-            _refuse(outcome, edit, "chunk_unreadable", str(exc))
+            refuse(outcome, edit, "chunk_unreadable", str(exc))
         return
 
     by_chunk: dict[tuple[int, int], list[dict]] = defaultdict(list)
@@ -145,7 +104,6 @@ def _apply_to_region(
     for raw in chunks:
         pending = by_chunk.get((raw.local_x, raw.local_z))
         if not pending:
-            # **原封複製原始壓縮位元組**——連解碼都不做。
             writes.append(ChunkWrite.unchanged(raw))
             outcome.counts["chunks_copied_verbatim"] += 1
             continue
@@ -159,9 +117,8 @@ def _apply_to_region(
         touched += 1
 
     if not touched:
-        return  # 這張 region 沒有任何一筆真的寫成，不要動它
+        return
 
-    # **備份在寫入之前。** 順序反了就沒有備份。
     backup.protect(path)
     report = write_region(ensure_writable(path), writes)
     outcome.counts["chunks_touched"] += touched
@@ -180,18 +137,17 @@ def _apply_to_region(
 
 
 def _rewrite_chunk(raw, edits: list[dict], outcome: ApplyOutcome) -> bytes | None:
-    """套用一個 chunk 裡的所有 edit，回傳新的壓縮 payload（沒改成就回 None）。"""
     try:
         data = decompress_chunk(raw.payload, raw.compression_type, chunk_index=raw.index)
         root = amulet_nbt.load(data, compressed=False).compound
     except (FormatError, amulet_nbt.NBTLoadError) as exc:
         for edit in edits:
-            _refuse(outcome, edit, "chunk_unreadable", str(exc))
+            refuse(outcome, edit, "chunk_unreadable", str(exc))
         return None
 
     written = 0
     for edit in edits:
-        if _apply_edit(root, edit, outcome):
+        if apply_edit_to_compound(root, edit, outcome):
             written += 1
     if not written:
         return None
@@ -199,185 +155,6 @@ def _rewrite_chunk(raw, edits: list[dict], outcome: ApplyOutcome) -> bytes | Non
     outcome.counts["edits_written"] += written
     encoded = amulet_nbt.NamedTag(root, "").save_to(compressed=False)
     return _compress(encoded, raw.compression_type)
-
-
-def _apply_edit(root, edit: dict, outcome: ApplyOutcome) -> bool:
-    path = NodePath.from_json(edit["node_path"])
-    steps = list(path)
-    if not steps:
-        _refuse(outcome, edit, "node_missing", "node_path 是空的")
-        return False
-
-    # **node_path 的最後一步只決定「怎麼把新節點放回去」**，不決定「寫什麼」。
-    #
-    # `key` → 直接指派到父 compound。
-    # `index` → 換掉一個 list 元素，而 list 有同型規則要顧。
-    #
-    # 寫什麼由 `value.kind` 決定，兩條路徑各自再分一次（見底下）。
-    if steps[-1].t == "key":
-        return _apply_to_key(root, steps, edit, outcome)
-    if steps[-1].t != "index":
-        _refuse(outcome, edit, "unsupported_encoding", "v1 的寫入路徑不支援 decode 步驟")
-        return False
-
-    index = steps[-1].i
-    try:
-        container = _resolve(root, steps[:-1])
-    except (KeyError, IndexError) as exc:
-        _refuse(outcome, edit, "node_missing", str(exc))
-        return False
-
-    if not isinstance(container, amulet_nbt.ListTag):
-        _refuse(outcome, edit, "node_missing", "目標的父節點不是 list")
-        return False
-    if index >= len(container):
-        _refuse(outcome, edit, "node_missing", f"list 只有 {len(container)} 個元素")
-        return False
-
-    # **守門**：節點現在的形狀還是 extract 當時記的那個嗎？
-    current = _guarded_encoding(container[index], edit, outcome)
-    if current is None:
-        return False
-
-    # **literal 的節點走 in_place，即使它住在 list 裡。**
-    #
-    # 舊的分派只看 `node_path` 最後一步：index 就是告示牌四行、就換 translate key。
-    # 那在 v1 碰巧是對的（只掃了告示牌與 `CustomName`），M13a 之後是假的——舊格式
-    # 草稿書頁的路徑是 `…/tag/pages/[i]`（index 結尾）而 strategy 是 `in_place`。
-    # 走錯邊的後果是把 `StringTag("Hello world")` 寫成 `'{"text":"你好世界"}'`，
-    # 玩家打開草稿書看到的是字面的大括號。
-    #
-    # 型別安全的理由與 in_place 本來那條一樣：`current` 是**剛剛從這個元素嗅探出來
-    # 的形狀**，所以 `value_tag` 回傳的 NBT 型別必然與元素現在的型別相同
-    # （`bare_string`/`json_*` → StringTag、`*_compound` → CompoundTag），
-    # 不會把 compound 塞進 `list_data_type=8` 的 list。也因此不需要 list 提升，
-    # 其餘元素一個位元都不動。
-    if edit["value"].get("kind") == "literal":
-        try:
-            tag = in_place.value_tag(current, edit["value"])
-        except in_place.UnsupportedInPlaceShape as exc:
-            _refuse(outcome, edit, "unsupported_encoding", str(exc))
-            return False
-        container[index] = tag
-        return True
-
-    # translate / component：節點換成 `{translate: key}`，譯文住在資源包裡。
-    # **分派**：舊世代寫 JSON 字串，新世代寫 compound。這是兩份實作的分岔點。
-    writer = _translate_writer(edit)
-    result = writer.apply_to_list(container, index, writer.value_tag(edit["value"]))
-    _replace_list(root, steps[:-1], result.list)
-    if result.promoted:
-        outcome.counts["list_promotions"] += 1
-    return True
-
-
-def _apply_to_key(root, steps, edit: dict, outcome: ApplyOutcome) -> bool:
-    """直接指派一個 compound 的鍵。
-
-    守門與 list 那條路徑一模一樣，而且順序不能換：先確認節點還在、再確認它的形狀
-    還是 extract 當時記的那個，最後才決定寫什麼。[遊戲實測 M4-4] 使用者中間玩過
-    一次遊戲，DataFixer 就會把部分節點的形狀改掉。
-
-    **key 結尾不等於 in_place。** 這一格在 v1 碰巧成立（唯一以 key 結尾的節點是
-    `CustomName`），M13a 之後是假的：物品的 `minecraft:custom_name` / `item_name`、
-    實體的 `CustomName`、`text_display` 的 `text`、新格式書頁的 `pages[].raw` 全都
-    以 key 結尾，而它們**吃 translate key**。[實測] 把它們一律當成 in_place 的後果是
-    `Arena of Darkness` 3,788 個、`100 Ways To Die` 364 個 occurrence 全數落進
-    `unwritten`，理由寫著「這個欄位不吃 translate key」——那句話對 `block_entity_name`
-    是對的（[遊戲實測 M11-3]），對物品名是假的。
-
-    **擋住 `CustomName` 的那道牆是被搬走的，不是被拆掉的**：`edit` 裡沒有 category
-    也沒有 strategy（合約如此），所以寫入層看不出這個 key 是哪一個欄位。現在唯一
-    擋著的是上游的 `strategy_for("block_entity_name") == "in_place"`，它由
-    `tests/unit/test_write_apply.py` 的
-    `test_only_the_strategy_now_keeps_a_translate_key_out_of_custom_name` 釘住。
-    """
-    name = steps[-1].name
-    try:
-        parent = _resolve(root, steps[:-1])
-    except (KeyError, IndexError) as exc:
-        _refuse(outcome, edit, "node_missing", str(exc))
-        return False
-
-    if not isinstance(parent, amulet_nbt.CompoundTag) or name not in parent:
-        _refuse(outcome, edit, "node_missing", f"找不到鍵 {name}")
-        return False
-
-    current = _guarded_encoding(parent[name], edit, outcome)
-    if current is None:
-        return False
-
-    if edit["value"].get("kind") == "literal":
-        # **保留節點既有的 NBT 形狀**，只換裡面的字。
-        try:
-            tag = in_place.value_tag(current, edit["value"])
-        except in_place.UnsupportedInPlaceShape as exc:
-            _refuse(outcome, edit, "unsupported_encoding", str(exc))
-            return False
-        parent[name] = tag
-        return True
-
-    # translate / component：這裡沒有 list 同型規則要顧，所以直接指派。世代分派
-    # 仍然要做——`in_place` 不看 DataVersion（它保留形狀），這條路是新的，得自己分。
-    writer = _translate_writer(edit)
-    parent[name] = writer.value_tag(edit["value"])
-    return True
-
-
-def _translate_writer(edit: dict):
-    """DV < 4325 寫 JSON 字串、DV ≥ 4325 寫 compound。**兩份實作，不是一份加 if。**"""
-    return (
-        legacy
-        if generation_of(edit["container"]["data_version"]).legacy_json_is_content
-        else native
-    )
-
-
-def _guarded_encoding(tag, edit: dict, outcome: ApplyOutcome) -> str | None:
-    """節點現在的形狀，或 None（已經記進 unwritten）。
-
-    這道守門對兩條放回去的路徑一字不差，所以只寫一份——它不是 legacy/native 那種
-    規格層級的不對稱，只是同一個檢查在兩處被呼叫。
-    """
-    try:
-        current = sniff(tag).encoding.value
-    except TypeError:
-        _refuse(outcome, edit, "unsupported_encoding", "這個節點不是文字節點")
-        return None
-    if current != edit["expected_encoding"]:
-        _refuse(
-            outcome,
-            edit,
-            "node_changed",
-            f"預期 {edit['expected_encoding']}，現在是 {current}"
-            f"——世界在 extract 之後被改過了（多半是在遊戲裡開過）",
-        )
-        return None
-    return current
-
-
-def _resolve(root, steps):
-    current = root
-    for step in steps:
-        if step.t == "key":
-            if step.name not in current:
-                raise KeyError(f"找不到鍵 {step.name}")
-            current = current[step.name]
-        elif step.t == "index":
-            current = current[step.i]
-        else:
-            raise KeyError("v1 的寫入路徑不支援 decode 步驟")
-    return current
-
-
-def _replace_list(root, steps, new_list) -> None:
-    """list 提升會產生一個新的 ListTag，要把它接回父節點。"""
-    parent = _resolve(root, steps[:-1])
-    last = steps[-1]
-    if last.t == "key":
-        parent[last.name] = new_list
-    else:
-        parent[last.i] = new_list
 
 
 def _compress(data: bytes, compression_type: int) -> bytes:
@@ -393,16 +170,10 @@ def _compress(data: bytes, compression_type: int) -> bytes:
     raise ValueError(f"不支援寫入壓縮類型 {compression_type}")
 
 
-def _refuse(outcome: ApplyOutcome, edit: dict, reason: str, detail: str) -> None:
-    outcome.unwritten.append(
-        {
-            "unit_id": edit["unit_id"],
-            "occurrence_id": edit["occurrence_id"],
-            "reason": reason,
-            "detail": detail,
-        }
-    )
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+_WRITERS = {
+    "region_chunk": _apply_to_region,
+    "entities_chunk": _apply_to_region,
+    "level_dat": apply_to_datfile,
+    "scoreboard_dat": apply_to_datfile,
+    "datapack_file": apply_to_datapack_file,
+}
