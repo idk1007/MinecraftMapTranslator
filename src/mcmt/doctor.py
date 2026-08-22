@@ -17,8 +17,12 @@ mtime 與大小，讓「唯讀」不只是一句承諾。
 所以統計在這裡，格式化在 `cli/doctor.py`。
 
 **節點形狀分佈**（M1.4 的驗收條件之一）由 M5.6 接上：形狀一律問 `model/component.py`
-那個唯一權威，掃描一律走 `scan/sources/region.py`。doctor 自己不判斷任何形狀——
-它只是把那兩個模組的答案數起來。
+那個唯一權威，掃描一律走 `scan/sources/` 底下的來源（M13a 起是 `region.py` 與
+`entities.py` 兩份）。doctor 自己不判斷任何形狀——它只是把那些模組的答案數起來。
+
+**涵蓋範圍等於 apply 會寫的範圍。** `region/` 與 `entities/` 都要走：doctor 是拒絕
+處理的閘門，漏掉一種來源就等於那種來源的 `.mcc` 與不支援結構會通過健檢，然後在
+apply 備份之後才炸。`poi/` 不看——那是興趣點索引，沒有任何給人看的字。
 
 `legacy_json_in_native_chunk` 這個計數特別重要：它直接告訴使用者「這張地圖有多少
 節點我們會跳過不翻」，而那個決定的理由（[遊戲實測 M0-3] 那些節點在遊戲裡本來就是
@@ -38,10 +42,11 @@ from mcmt.errors import (
 )
 from mcmt.model.component import sniff
 from mcmt.model.generation import generation_of
-from mcmt.nbtio.region import read_region, region_files
+from mcmt.nbtio.region import entities_files, read_region, region_files
 from mcmt.nbtio.structure import ensure_supported_structure, load_chunk_root
 from mcmt.safety.paths import ensure_readable
 from mcmt.world import open_world, region_dirs_of
+from mcmt.scan.sources.entities import scan_entities_chunk
 from mcmt.scan.sources.region import scan_chunk
 
 __all__ = ["CorruptChunk", "WorldNotFoundError", "WorldSurvey", "survey_world"]
@@ -62,7 +67,9 @@ class WorldSurvey:
     world: Path
     region_dirs: list[str] = field(default_factory=list)  # 相對於世界根，用於報告
     region_files: int = 0
+    entities_files: int = 0
     chunks: int = 0
+    entity_chunks: int = 0
     data_versions: Counter = field(default_factory=Counter)
     compression_types: Counter = field(default_factory=Counter)
     external_chunks: int = 0
@@ -76,6 +83,12 @@ class WorldSurvey:
     legacy_json_in_native_chunk: int = 0
 
     @property
+    def total_chunks(self) -> int:
+        """兩種來源加起來。DataVersion 與壓縮類型的直方圖分母是這個，不是 `chunks`
+        ——那兩個計數器兩邊都在數，只拿方塊 chunk 當分母會算出超過 100% 的百分比。"""
+        return self.chunks + self.entity_chunks
+
+    @property
     def supported(self) -> bool:
         """v1 願不願意處理這個世界。
 
@@ -86,25 +99,41 @@ class WorldSurvey:
 
 
 def survey_world(world: Path | str) -> WorldSurvey:
-    """掃過世界的每一個 region 檔，回傳統計。唯讀。"""
+    """掃過世界的每一個 region 檔與實體 region 檔，回傳統計。唯讀。
+
+    **兩種來源都要走，而且理由不只是「統計比較完整」。** `doctor` 是拒絕處理的閘門，
+    它的涵蓋範圍必須等於 `apply` 會寫的範圍。M13a 之前它只走 `region_files()`，於是
+    `entities/` 裡的外部 `.mcc` 會通過健檢，然後 apply 在**備份之後**才拋
+    `ExternalChunkError`、靠 rollback 收場。那個失敗是安全的，但「拒絕處理」的保證
+    就不再是保證了。
+
+    形狀分佈同理：extract 掃 `entities/`，doctor 不掃，兩份數字就對不上，而使用者
+    看不出那個落差從哪來。
+    """
     world = Path(world)
     readable = open_world(world)
     survey = WorldSurvey(world=world, region_dirs=region_dirs_of(readable))
     for path in region_files(readable):
         survey.region_files += 1
         _survey_region(path, survey)
+    for path in entities_files(readable):
+        survey.entities_files += 1
+        _survey_region(path, survey, entities=True)
     return survey
 
 
-def _survey_region(path, survey: WorldSurvey) -> None:
+def _survey_region(path, survey: WorldSurvey, *, entities: bool = False) -> None:
     try:
         for raw in read_region(path):
-            survey.chunks += 1
+            if entities:
+                survey.entity_chunks += 1
+            else:
+                survey.chunks += 1
             survey.compression_types[raw.compression_type] += 1
             if raw.is_external:
                 survey.external_chunks += 1
                 continue
-            _survey_chunk(path, raw, survey)
+            _survey_chunk(path, raw, survey, entities=entities)
     except FormatError as exc:
         # region header 層級的損壞：這張 region 中止，其餘的繼續掃。
         survey.corrupt.append(
@@ -117,7 +146,7 @@ def _survey_region(path, survey: WorldSurvey) -> None:
         )
 
 
-def _survey_chunk(path, raw, survey: WorldSurvey) -> None:
+def _survey_chunk(path, raw, survey: WorldSurvey, *, entities: bool = False) -> None:
     try:
         root = load_chunk_root(raw)
         data_version = ensure_supported_structure(root, chunk_index=raw.index)
@@ -135,7 +164,11 @@ def _survey_chunk(path, raw, survey: WorldSurvey) -> None:
         )
     else:
         survey.data_versions[data_version] += 1
-        _survey_text_nodes(root, data_version, survey)
+        # 方塊 chunk 的文字在 `block_entities[]`、實體 chunk 的在 `Entities[]`。
+        # doctor 不自己走那兩棵樹——它問掃描層，就是 extract 問的同一個函式，
+        # 兩份數字才不會漂移。
+        source = scan_entities_chunk if entities else scan_chunk
+        _survey_text_nodes(source(root), data_version, survey)
 
 
 _LEGACY_JSON_SHAPES = frozenset(
@@ -143,8 +176,8 @@ _LEGACY_JSON_SHAPES = frozenset(
 )
 
 
-def _survey_text_nodes(root, data_version: int, survey: WorldSurvey) -> None:
-    for node in scan_chunk(root):
+def _survey_text_nodes(nodes, data_version: int, survey: WorldSurvey) -> None:
+    for node in nodes:
         try:
             shape = sniff(node.tag)
         except TypeError:

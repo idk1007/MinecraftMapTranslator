@@ -17,14 +17,16 @@ def format_survey(survey: WorldSurvey) -> str:
         f"維度：{len(survey.region_dirs)} 個 region 目錄"
         f"（{'、'.join(survey.region_dirs)}）",
         f"region 檔：{survey.region_files} 個 · chunk：{survey.chunks:,} 個",
+        f"實體 region 檔：{survey.entities_files} 個 · 實體 chunk："
+        f"{survey.entity_chunks:,} 個",
         "",
         "DataVersion 直方圖",
     ]
-    lines += _histogram(survey.data_versions, survey.chunks, str)
+    lines += _histogram(survey.data_versions, survey.total_chunks, str)
     lines += ["", "壓縮類型"]
     lines += _histogram(
         survey.compression_types,
-        survey.chunks,
+        survey.total_chunks,
         lambda t: f"{t} {COMPRESSION_NAMES.get(t, '?')}",
     )
     lines += ["", f"節點形狀分佈（文字節點 {survey.text_nodes:,} 個）"]

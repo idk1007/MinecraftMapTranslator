@@ -66,15 +66,74 @@ def test_walks_every_dimension_not_just_the_overworld(tmp_path) -> None:
     assert survey.region_files == 3
 
 
-def test_entities_and_poi_are_not_counted_as_chunk_data(tmp_path) -> None:
-    """`entities/` 與 `poi/` 也是 .mca，但不是方塊 chunk。v1 的 doctor 不看。"""
+def test_entities_are_counted_separately_from_block_chunks(tmp_path) -> None:
+    """`entities/` 也是 .mca，但不是方塊 chunk——數在自己的計數器裡。
+
+    M13a 之前 doctor 完全不看 `entities/`。那在 extract 也不看它的時候是一致的；
+    M13a 讓 extract 讀它、apply 寫它、fingerprint 把它算進世界身分之後，**唯獨拒絕
+    處理的閘門沒跟上**，`entities/` 裡的 `.mcc` 會通過 doctor，然後 apply 在備份
+    之後才拋 `ExternalChunkError`、靠 rollback 收場。
+    """
     world = build_world(tmp_path)
     write_region_file(
         world / "entities",
         RegionBuilder().add_chunk_nbt(0, modern_chunk()).build(),
     )
 
-    assert survey_world(world).chunks == 2
+    survey = survey_world(world)
+
+    assert survey.chunks == 2
+    assert survey.entity_chunks == 1
+    assert survey.entities_files == 1
+
+
+def test_poi_is_still_not_looked_at(tmp_path) -> None:
+    """`poi/` 是興趣點索引，沒有任何給人看的字。掃它只是多一個出錯的機會。"""
+    world = build_world(tmp_path)
+    write_region_file(
+        world / "poi", RegionBuilder().add_chunk_nbt(0, modern_chunk()).build()
+    )
+
+    survey = survey_world(world)
+
+    assert survey.chunks == 2
+    assert survey.entity_chunks == 0
+
+
+def test_an_external_chunk_in_entities_refuses_the_world(tmp_path) -> None:
+    """**拒絕處理的保證要涵蓋 apply 會寫的每一張檔案。**"""
+    world = build_world(tmp_path)
+    write_region_file(
+        world / "entities", RegionBuilder().add(0, b"", compression_byte=0x82).build()
+    )
+
+    survey = survey_world(world)
+
+    assert survey.external_chunks == 1
+    assert survey.supported is False
+
+
+def test_an_unsupported_structure_in_entities_refuses_the_world(tmp_path) -> None:
+    world = build_world(tmp_path)
+    write_region_file(
+        world / "entities", RegionBuilder().add_chunk_nbt(3, legacy_chunk()).build()
+    )
+
+    survey = survey_world(world)
+
+    assert survey.unsupported == {"level_wrapper": 1}
+    assert survey.supported is False
+
+
+def test_a_corrupt_entities_region_is_recorded(tmp_path) -> None:
+    world = build_world(tmp_path)
+    (world / "entities").mkdir(parents=True)
+    (world / "entities" / "r.0.0.mca").write_bytes(b"\x00" * 100)
+
+    survey = survey_world(world)
+
+    assert [entry.region for entry in survey.corrupt] == ["r.0.0.mca"]
+    assert survey.supported is False
 
 
 def test_counts_compression_types(tmp_path) -> None:
@@ -235,6 +294,36 @@ def test_the_survey_counts_categories(tmp_path) -> None:
     )
 
     assert survey_world(world).categories == {"sign": 4}
+
+
+def entities_chunk(*, data_version: int = 4671):
+    """一張 `entities/*.mca` 的 chunk：一個具名盔甲座加一個 text_display。"""
+    root = modern_chunk(data_version=data_version)
+    stand = amulet_nbt.CompoundTag({"id": amulet_nbt.StringTag("minecraft:armor_stand")})
+    stand["CustomName"] = amulet_nbt.StringTag("守衛")
+    display = amulet_nbt.CompoundTag({"id": amulet_nbt.StringTag("minecraft:text_display")})
+    display["text"] = amulet_nbt.CompoundTag({"text": amulet_nbt.StringTag("往這走")})
+    root["Entities"] = amulet_nbt.ListTag([stand, display])
+    return root
+
+
+def test_the_survey_counts_entity_text_nodes(tmp_path) -> None:
+    """**doctor 報的形狀分佈要與 extract 掃到的對得上。**
+
+    M13a 之前 doctor 只走 `region.scan_chunk`，所以它報的分佈少掉整個 `entities/`
+    ——使用者拿 doctor 的數字去對 extract 的數字會對不上，而那個落差沒有任何線索
+    說明它從哪來。
+    """
+    world = build_world(tmp_path)
+    write_region_file(
+        world / "entities", RegionBuilder().add_chunk_nbt(0, entities_chunk()).build()
+    )
+
+    survey = survey_world(world)
+
+    assert survey.categories == {"entity_name": 1, "text_display": 1}
+    assert survey.node_shapes == {"bare_string": 1, "text_compound": 1}
+    assert survey.text_nodes == 2
 
 
 def test_unparseable_nodes_are_counted_separately(tmp_path) -> None:
