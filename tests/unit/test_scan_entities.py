@@ -9,10 +9,11 @@
 `read_region` / `write_region`。差別只在裡面裝的是 `Entities[]`。
 """
 
+import zlib
 from collections import Counter
 
 import amulet_nbt
-from conftest import RegionBuilder, modern_chunk, write_region_file
+from conftest import RegionBuilder, modern_chunk, set_offset_entry, write_region_file
 
 from mcmt.safety.paths import ensure_readable
 from mcmt.scan.sources.entities import scan, scan_entities_chunk
@@ -151,3 +152,35 @@ def test_the_source_ignores_region_files(tmp_path) -> None:
     )
 
     assert list(scan(ensure_readable(world), Counter())) == []
+
+
+def test_a_clean_chunk_before_a_broken_one_is_not_lost(tmp_path) -> None:
+    """`read_region` 是產生器，`scan()` 不能先 `list()` 整份收集完再迭代。
+
+    這裡在同一張 entities region 裡放一個乾淨的具名實體 chunk（index 0）與一個
+    中途讀壞的 chunk（index 1，offset 被改指進 header 磁區）。`list(read_region(...))`
+    對一個中途拋例外的產生器不會回傳部分結果——已經成功讀到的 index 0 會連同壞掉的
+    index 1 一起被丟棄。真正的串流則會在例外發生前，把 index 0 已經處理好的節點
+    留在輸出裡。與 `tests/unit/test_scan_registry.py` 的
+    `test_a_clean_chunk_before_a_broken_one_is_not_lost` 是同一個回歸，這裡補上
+    `entities/` 那一側的版本。
+    """
+    root = chunk_with(entity(CustomName=amulet_nbt.StringTag("守衛")))
+    data = (
+        RegionBuilder()
+        .add_chunk_nbt(0, root)
+        .add(1, zlib.compress(b"whatever"))
+        .build()
+    )
+    # 把 index 1 的磁區偏移改成 1——落在 header（偏移表 + 時間戳表）裡，讀取時
+    # 會在 index 0 已經被 yield 之後才觸發 MalformedRegionError。
+    set_offset_entry(data, 1, sector=1, count=1)
+    world = tmp_path / "world"
+    write_region_file(world / "entities", data)
+    stats = Counter()
+
+    found = list(scan(ensure_readable(world), stats))
+
+    assert found, "index 0 的乾淨 chunk 不該因為 index 1 壞掉而憑空消失"
+    assert stats["entity_chunks"] == 1
+    assert stats["skipped_region"] == 1
