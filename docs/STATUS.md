@@ -3,7 +3,7 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-22**（M13a 完成：物品與 `entities/*.mca` 掃描廣度接上，寫入層零改動。下一步是 M13b）
+最後更新：**2026-08-22**（M13a 完成：物品與 `entities/*.mca` 掃描廣度接上。**`entities/` 的寫入層零改動，但物品暴露了 `apply.py` 的分派缺陷、已修**。下一步是 M13b）
 
 ---
 
@@ -574,14 +574,33 @@ T8 的 brief 抄了同一個 `list()` 反模式，**這次在 review 之前就�
 
 ## 下一步
 
-### 1. M13b（下一個計畫）
+### 1. M13b（下一個計畫）← **就是這一項**
 
-M13a 涵蓋了容器物品與 `entities/*.mca`。還沒掃的：`level.dat`、記分板、進度、
-指令方塊的 `Command`、datapack 的 `.mcfunction`、`hover_event` 內的文字
-（[實測] MP2 有 331 筆 `pages[]/raw/extra[]/hover_event/name`）。
+**設計已經寫好了**：`docs/superpowers/specs/2026-08-22-m13-scan-breadth-design.md`
+的第 8 節，M13.5–M13.9。M13a 做完了 M13.0–M13.4，剩下的是：
 
-**開工時要重新問一次「不翻術語」那個決定**——那時待翻項會含 `%1$s` 格式參數
+| # | 任務 | 需要的新東西 |
+|---|---|---|
+| M13.5 | `scan/sources/level_dat.py` + `write/datfile_apply.py` | **第一條非 region 的寫入路徑** |
+| M13.6 | `scan/sources/scoreboard.py` | 共用 M13.5 的寫入器 |
+| M13.7 | `scan/sources/datapack.py` + `write/datapack_apply.py` | 檔案／zip 寫入 |
+| M13.8 | 已在地化跳過（樹裡任何一處有 `translate` 就整個節點跳過） | |
+| M13.9 | 真實地圖驗證 + 文件 | |
+
+**指令方塊的 `Command` 與 datapack 的 `.mcfunction` 不在 M13b 範圍內**——那需要指令
+語法解析，架構計畫的「不做」清單早就列了（「工作量最難估」），`tree/codecs/command.py`
+也是明確拋 `NotImplementedError` 的。`hover_event` 內的文字（[實測] MP2 有 331 筆
+`pages[]/raw/extra[]/hover_event/name`）已經由攤平器處理，含 `hover_event` 的樹一律
+`collapsible: false`，不需要額外的掃描來源。
+
+**M13.8 開工時要重新問一次「不翻術語」那個決定**——那時待翻項會含 `%1$s` 格式參數
 （[實測] MP2 的 lang 值 37% 有），那是機器驗得出來的另一類（見上方「決定」那節）。
+
+> **spec 第 4 節有一項 M13a 沒做完、M13b 必須做的事**：寫入層要換成顯式的
+> `kind → writer` 對照表。M13a 只在 `apply.py` 裡把分派改成看 `value.kind`，
+> 容器種類（`region_chunk` / `level_dat` / `datapack_file`）的分派還沒建立——
+> 而 M13.5 加進 `level_dat` 的那一刻就需要它。**三種寫入器的保證等級不同**
+> （外科式 vs 整份重編 vs 檔案重寫），spec 說那個不對稱必須看得見。
 
 順帶會用到的東西已經備好：`level_name` / `book_title` / `book_author` /
 `draft_book_page` 四個 category 早就在 `IN_PLACE_CATEGORIES` 裡，`in_place` 的
@@ -613,6 +632,22 @@ M13a 涵蓋了容器物品與 `entities/*.mca`。還沒掃的：`level.dat`、�
   `json_empty_quoted`、2,261 棵帶 `extra` 的樹、331 筆 `hover_event`）目前只有
   M13a 之前的數字。留到 M13.8「已在地化跳過」落地之後再跑——在那之前 MP2 的
   原版 lang 條目會大量進待翻檔，數字沒有參考價值。
+* **`block_entity_name` 不被寫成 translate key，現在只剩上游一道防線。**
+  M13a 的 F2 把 `apply.py` 的分派改成看 `value.kind`，寫入層因此**再也分不出**
+  「方塊實體的 `CustomName`」與「物品的 `minecraft:custom_name`」——兩者路徑都以 key
+  結尾，而 `edit` 不帶 category 或 strategy。保證上移到了 `strategy_for()`，有 17 條
+  測試守著（把 `block_entity_name` 從 `IN_PLACE_CATEGORIES` 刪掉會全紅）。
+  [遊戲實測 M11-3] 那裡寫 translate key 玩家看到的是字面的大括號。
+  **有一個一行的補強沒做**：`backends/resourcepack/backend.py` 的 `_value_for` 讀的是
+  `unit["strategy"]`——一個**從磁碟上的 `extract.json` 讀來的值**，而同一個 unit 裡就有
+  `category`。改成 `strategy_for(unit["category"])` 不動合約、不動 `write/`，就能讓這個
+  不變式回到**行程內**，而不是隔著一個使用者打得開的檔案。乾淨的長期解是 `edit` 加一個
+  `strategy` 欄位，那是合約改動。
+* **`write/in_place.py` 的模組 docstring 還把自己框成「保護 `CustomName` 的那個東西」。**
+  那件事在 F2 之後已經只剩上游在做，測試檔的說明搬過去了、原始碼註解沒有。一行可補。
+* **native 的 `minecraft:block_entity_data` 沒進物品白名單。** 那是舊格式
+  `tag.BlockEntityTag` 在組件時代的對應物，所以 native 世界裡一個有自訂容器名的潛影盒
+  **物品**掃不到（方塊形式的潛影盒不受影響）。屬「漏抽看得見」方向，M13b 順手補。
 * **指紋的排序鍵用 OS 原生路徑字串。** `region_files()` / `entities_files()` 都是
   `sorted(..., key=str)`，Windows 是 `\`、POSIX 是 `/`，而指紋對順序敏感。摘要用的
   相對路徑已經正規化成 `/`（`world_fingerprint` 裡那行），**排序沒有**。目前的語料
@@ -625,6 +660,10 @@ M13a 涵蓋了容器物品與 `entities/*.mca`。還沒掃的：`level.dat`、�
   告示牌實際上只翻得到一行。修法要嘛在 chunk 內按 list 分組一次寫完，要嘛讓守門
   認得「這個形狀變化是我們自己剛剛造成的」。**列在這裡是因為它需要一個自己的計畫，
   不該夾在 fix wave 裡改一條寫入路徑。**
+  兩點別誤讀：**（a）機制不限告示牌**——任何 native 世界裡「同一個 list 收到 2 筆以上
+  edit」都會撞，`minecraft:lore` 同樣適用；「全部是告示牌」是 100WTD 的實測事實，
+  不是機制的邊界。**（b）使用者看到的診斷訊息是錯的**——它會說「世界在 extract 之後
+  被改過了（多半是在遊戲裡開過）」，而實際上是我們自己剛剛改的。修的時候訊息要一起改。
 
 ## 開工前該補掉的兩件事
 

@@ -409,7 +409,37 @@ discriminator = blake2b(hash_input.encode("utf-8"), digest_size=8).hexdigest()
 | 「`.mcc` 順手支援一下」 | 該寫入路徑 0 樣本、完全未測 |
 | 「把 `resources.zip` 自動複製回 `.minecraft/saves`」 | 違反安全規則 1 |
 | 「`sandbox/` 檢查在測試裡很麻煩，加個 `--force`」 | 不加。測試用 `sandbox/` 底下的臨時目錄 |
+| 「掃描範圍擴大而已，寫入層不必改」 | [M13a] 寫入層的分派可能建立在**舊範圍碰巧成立的等價關係**上。擴範圍時要列出新的 `(strategy, node_path 形狀)` 組合，不是只列新的 category |
+| 「這段程式碼在別處是對的，複製過來就好」 | [M13a] 它依賴的不變式可能只在原本的脈絡下成立。複製前先問：這段程式碼假設了什麼？新的地方還成立嗎？ |
 | 「規則引擎跑不完就先停下來回傳現有結果」 | 靜默少抽節點是最難查的 bug。必須報錯 |
+
+### 最危險的一類 bug：舊範圍下碰巧成立的不變式
+
+**[M13a 的教訓]** 那一輪的 code review 抓到**七個計畫層級的 bug**，其中五個是同一種：
+**複製了一段在舊脈絡下正確的程式碼，而它依賴的不變式在範圍擴大之後靜默失效。**
+
+三個實例，都不是「寫錯」而是「原本對，後來不對了」：
+
+| 東西 | 在舊範圍下為什麼是對的 | 擴大後為什麼錯了 |
+|---|---|---|
+| `chunks = list(read_region(path))` | 只有一個消費端時沒人會踩到 | `read_region` 是產生器，中途拋例外時 `list()` 把**已經讀成功**的 chunk 一起丟棄，損壞世界的部分搶救能力消失 |
+| `apply.py`：「路徑 key 結尾 ⇒ `in_place`、index 結尾 ⇒ `translate_key`」 | v1 只掃告示牌（index+translate）與 `CustomName`（key+in_place），剛好是四種組合的兩種 | M13a 加進另外兩種：草稿書頁被寫成 JSON 字串**弄壞存檔**，物品名 4,152 個 occurrence 一個字都寫不出去 |
+| `doctor` 只走 `region_files()` | v1 只讀 `region/`，閘門是完整的 | extract 開始讀 `entities/` 之後，那裡的外部 `.mcc` 會通過 doctor，apply 到**備份之後**才炸 |
+
+**這一類靠逐任務 review 幾乎抓不到**，因為每個任務單獨看都自洽。它只在
+「舊不變式的證人」（既有測試、既有閘門、既有 fixture）與**新範圍**對照時才現形。
+
+**唯一有效的防線是端到端測試跟著範圍長。** M13a 的 spec 明文要求擴充 `test_end_to_end.py`，
+那一項被跳過了，於是那一輪的盲點一個都沒被自動抓到——最後是靠整支分支的 review 才發現。
+補上之後，把修正前的 `apply.py` 換回去會讓 **13 條**端到端測試變紅。
+
+所以擴大任何範圍（掃描來源、寫入路徑、支援的格式）時：
+
+1. **列出新的組合**，不是只列新的項目。四種 `(strategy, 路徑形狀)` 組合，v1 只有兩種。
+2. **端到端測試要涵蓋每一種新組合**，而且要有一條測試斷言「所有組合都被涵蓋了」
+   （`test_the_round_trip_actually_exercises_all_four_dispatch_combinations`）。
+3. **問一次：這個範圍裡還有哪些地方假設了舊範圍？** 閘門（`doctor`）、身分
+   （`world_fingerprint`）、統計（`result.chunks`）都是常見的落點。
 
 ### 卡住的處理
 
