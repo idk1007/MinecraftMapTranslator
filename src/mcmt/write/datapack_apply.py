@@ -23,6 +23,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from mcmt.errors import DatapackWriteVerificationError
 from mcmt.model.node import NodePath
 from mcmt.safety.backup import BackupSet
 from mcmt.safety.paths import ensure_readable, ensure_writable
@@ -134,10 +135,10 @@ def _apply_to_zip_entry(
     if not written:
         return
 
-    entries[entry_name] = (info, json.dumps(document, ensure_ascii=False).encode("utf-8"))
+    entries[entry_name] = (info, _encode_entry(document))
     outcome.counts["edits_written"] += written
     backup.protect(path)
-    _rewrite_zip(ensure_writable(path), entries)
+    _rewrite_zip(ensure_writable(path), entries, verify_entry=entry_name)
     outcome.counts["files_rewritten"] += 1
 
 
@@ -165,10 +166,25 @@ def _apply_edit_to_json(document: dict, edit: dict, outcome: ApplyOutcome) -> bo
     if current_encoding is None:
         refuse(outcome, edit, "unsupported_encoding", "這個節點不是文字節點")
         return False
-    if current_encoding != edit["expected_encoding"]:
+    expected = edit["expected_encoding"]
+    # `plain_string` 是**欄位**決定的形狀，不是值決定的形狀——任何看值的判斷
+    # （`model/component.py` 的 `sniff()`、下面的 `_sniff_json_value()`）都永遠
+    # 不會回報它，一個裸字串節點永遠回報 `bare_string`。所以這裡不能直接比對
+    # 字串相等：那會讓每一筆 `plain_string` 的 edit 在守門這關就被拒寫，不管
+    # 檔案有沒有真的被改過。
+    #
+    # 這**不是**新發現的問題——`write/common.py` 的 `_guarded_encoding` 在
+    # commit 18e0c67 修的就是同一個 bug（`level_name` 整個寫不出去）。兩個寫入器
+    # 的守門必須是同一套語意，否則哪天有一個 datapack 來源的 category 走上
+    # `plain_string`，同一個 bug 會在這裡原封不動地再爆一次，而且一樣是「拒寫，
+    # 但理由寫成『資料包被改過了』」這種會把人帶去查錯方向的失敗。
+    # 放寬的範圍與那邊一字不差：只有 `bare_string → plain_string` 這一組。
+    if current_encoding == "bare_string" and expected == "plain_string":
+        current_encoding = expected
+    if current_encoding != expected:
         refuse(
             outcome, edit, "node_changed",
-            f"預期 {edit['expected_encoding']}，現在是 {current_encoding}"
+            f"預期 {expected}，現在是 {current_encoding}"
             f"——資料包在 extract 之後被改過了",
         )
         return False
@@ -203,28 +219,82 @@ def _resolve(document, steps):
     return current
 
 
+def _encode_entry(document: dict) -> bytes:
+    """一個 zip 條目的最終位元組。
+
+    抽成函式的理由和 `nbtio/datfile.py::_encode` 一模一樣：不然沒有辦法在測試裡
+    製造「編碼器吐出壞位元組」這個情境，而那正是回讀驗證要驗的那一件事。
+    """
+    return json.dumps(document, ensure_ascii=False).encode("utf-8")
+
+
 def _write_json_atomically(path: Path, document: dict) -> None:
-    temporary = path.with_name(path.name + ".mcmt-tmp")
+    # **衍生出來的暫存路徑要自己再過一次 `ensure_writable`。**
+    # `nbtio/datfile.py::write_dat` 立的就是這個規矩。「父路徑驗過了，所以從它
+    # 衍生的東西都安全」是一個沒有人強制的隱性推論，而 CLAUDE.md 把這種推論在
+    # 安全關鍵路徑上明文列為不接受——`.with_name()` 的參數哪天變成別的東西，
+    # 這裡就是一個沒有圍籬的寫入點。
+    temporary = ensure_writable(path.with_name(path.name + ".mcmt-tmp"))
     data = json.dumps(document, ensure_ascii=False, indent=2).encode("utf-8")
     temporary.write_bytes(data)
     try:
         json.loads(temporary.read_bytes().decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as exc:
         temporary.unlink()
-        raise ValueError(f"寫出去的 JSON 讀不回來，已中止：{path}") from exc
+        raise DatapackWriteVerificationError(
+            f"寫出去的 JSON 讀不回來，已中止：{path}。原檔沒有被動過。"
+        ) from exc
     temporary.replace(path)
 
 
-def _rewrite_zip(path: Path, entries: dict[str, tuple]) -> None:
-    temporary = path.with_name(path.name + ".mcmt-tmp")
+def _rewrite_zip(path: Path, entries: dict[str, tuple], *, verify_entry: str) -> None:
+    """整份重建一個 zip：**暫存 → 回讀驗證 → 原子替換。**
+
+    驗證這一步原本沒有，而 zip 是這個里程碑裡爆炸半徑最大的一次寫入——`.dat`
+    編壞了是一個檔案沒了，zip 編壞了是**整份壓縮檔裡的每一個條目**都沒了，包括
+    我們根本沒要改的 `pack.mcmeta`、`function/`、`loot_table/`。它卻是這個檔案
+    三個寫入器裡驗證最弱的一個：`write_dat` 有回讀解析、`_write_json_atomically`
+    有重新 parse，只有這裡是寫完就直接替換。
+
+    驗兩件事，兩件缺一不可：
+
+    * `testzip()` —— 整份壓縮檔的 CRC。回傳 `None` 代表全對，否則回傳第一個
+      對不上的條目名。這一項驗的是「我們沒改的那些條目也還好好的」。
+    * 剛改過的那個條目重新 `json.loads` —— CRC 對不代表內容對，一份 CRC 完全
+      正確的壞 JSON 照樣會讓遊戲載不了這個資料包。
+
+    失敗時**原檔一個位元都沒有被動過**，因為 `replace` 還沒發生；暫存檔在
+    `finally` 清掉，不留給下一次寫入撞上。
+    """
+    temporary = ensure_writable(path.with_name(path.name + ".mcmt-tmp"))
     try:
         with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as archive:
             for name, (info, data) in sorted(entries.items()):
                 archive.writestr(info, data)
+        _verify_zip(temporary, path, verify_entry)
         temporary.replace(path)
     finally:
         if temporary.exists():
             temporary.unlink()
+
+
+def _verify_zip(temporary: Path, target: Path, entry_name: str) -> None:
+    try:
+        with zipfile.ZipFile(str(ensure_readable(temporary))) as archive:
+            broken = archive.testzip()
+            if broken is not None:
+                raise DatapackWriteVerificationError(
+                    f"重建出來的 zip 有條目 CRC 對不上（{broken}），已中止："
+                    f"{target}。原檔沒有被動過。"
+                )
+            json.loads(archive.read(entry_name).decode("utf-8"))
+    except DatapackWriteVerificationError:
+        raise
+    except Exception as exc:  # noqa: BLE001 —— 任何讀不回來的理由都一樣致命
+        raise DatapackWriteVerificationError(
+            f"重建出來的 zip 讀不回來，已中止：{target}。原檔沒有被動過。"
+            f"原因：{type(exc).__name__}: {exc}"
+        ) from exc
 
 
 def _split(world: Path, relative: str) -> tuple[str | None, str | None]:

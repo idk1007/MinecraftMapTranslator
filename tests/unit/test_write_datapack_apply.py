@@ -11,6 +11,8 @@ import json
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from mcmt.safety.backup import BackupSet
 from mcmt.write.common import ApplyOutcome
 from mcmt.write.datapack_apply import apply_to_datapack_file
@@ -195,3 +197,176 @@ def test_a_literal_edit_with_style_keeps_its_style(project) -> None:
     document = json.loads(path.read_text("utf-8"))
     assert document["display"]["title"] == {"text": "已改的標題", "color": "gold"}
     assert outcome.counts["edits_written"] == 1
+
+
+# --- 最終 review：守門、zip 回讀驗證、暫存路徑圍籬 -------------------------
+
+
+def test_a_plain_string_edit_is_written_against_a_bare_string_on_disk(project) -> None:
+    """**Finding 1 第二部分。** `plain_string` 是欄位決定的形狀，`sniff()` 這種
+    看值的判斷永遠不會回報它——磁碟上一個裸字串節點永遠是 `bare_string`。守門
+    若直接比對字串相等，每一筆 `plain_string` 的 edit 都會被拒寫成
+    `node_changed`，不管檔案有沒有真的被改過。這就是 `write/common.py` 在
+    commit 18e0c67 修過的同一個 bug；兩個寫入器的守門語意必須一致，否則哪天
+    有一個 datapack 來源的 category 走這條路，同一個 bug 會在這裡再爆一次。"""
+    world = project / "sandbox"
+    relative = "datapacks/p/data/n/advancement/quest.json"
+    path = folder_advancement(world, relative)
+    outcome = ApplyOutcome()
+    edit = literal_edit_for(relative, "譯出來的標題", expected="plain_string")
+
+    with BackupSet(world) as backup:
+        apply_to_datapack_file(world, relative, [edit], outcome, backup)
+
+    # 重點是**沒有被拒寫**。寫出去的形狀由 `component_for` 決定（`{"text": …}`，
+    # CLAUDE.md「寫入一律用 text 形狀」），那不是這條測試要釘的東西。
+    assert outcome.unwritten == []
+    assert outcome.counts["edits_written"] == 1
+    assert json.loads(path.read_text("utf-8"))["display"]["title"] == {
+        "text": "譯出來的標題"
+    }
+
+
+def test_a_genuinely_changed_shape_is_still_refused(project) -> None:
+    """橋接只放寬 `bare_string → plain_string` 這一組，不是把守門關掉。"""
+    world = project / "sandbox"
+    relative = "datapacks/p/data/n/advancement/quest.json"
+    path = world / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"display": {"title": {"text": "已經被改成 compound 了"}}}),
+        encoding="utf-8",
+    )
+    outcome = ApplyOutcome()
+    edit = literal_edit_for(relative, "譯文", expected="plain_string")
+
+    with BackupSet(world) as backup:
+        apply_to_datapack_file(world, relative, [edit], outcome, backup)
+
+    assert outcome.counts["edits_written"] == 0
+    assert outcome.unwritten[0]["reason"] == "node_changed"
+
+
+def _zip_world(project, *, relative="datapacks/p.zip/data/n/advancement/quest.json"):
+    world = project / "sandbox"
+    zip_path = world / "datapacks" / "p.zip"
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr(
+            "data/n/advancement/quest.json",
+            json.dumps({"display": {"title": "原標題"}}),
+        )
+        archive.writestr("data/n/function/hello.mcfunction", "say hi")
+        archive.writestr("pack.mcmeta", '{"pack":{"pack_format":10}}')
+    return world, zip_path, relative
+
+
+def test_a_corrupt_zip_encode_leaves_the_original_zip_untouched(project, monkeypatch) -> None:
+    """**Finding 6。** zip 是這個里程碑裡爆炸半徑最大的一次寫入——一次壞掉毀掉
+    的是整份壓縮檔裡的**每一個**條目，不是被改的那一個節點。而它原本是這個檔案
+    裡三個寫入器中驗證最弱的一個：`nbtio/datfile.py::write_dat` 有回讀驗證、
+    同一個檔案的資料夾路徑也重新 parse 過 JSON，只有 zip 是寫完就直接替換。"""
+    from mcmt.errors import DatapackWriteVerificationError
+    from mcmt.write import datapack_apply
+
+    world, zip_path, relative = _zip_world(project)
+    before = zip_path.read_bytes()
+    monkeypatch.setattr(datapack_apply, "_encode_entry", lambda document: b"{ not json")
+
+    outcome = ApplyOutcome()
+    edit = edit_for(relative, "mcmt.advancement_title.cccccccccccccccc")
+
+    with pytest.raises(DatapackWriteVerificationError):
+        with BackupSet(world) as backup:
+            apply_to_datapack_file(world, relative, [edit], outcome, backup)
+
+    assert zip_path.read_bytes() == before
+    assert list(zip_path.parent.glob("*.mcmt-tmp")) == []
+
+
+def test_a_zip_that_fails_its_crc_check_is_refused(project, monkeypatch) -> None:
+    """`testzip()` 回傳第一個 CRC 對不上的條目名。真的製造壞 CRC 很難，這裡驗
+    的是「這條線真的接上了」——回傳非 None 就必須中止，不是照樣替換。"""
+    from mcmt.errors import DatapackWriteVerificationError
+    from mcmt.write import datapack_apply
+
+    world, zip_path, relative = _zip_world(project)
+    before = zip_path.read_bytes()
+    monkeypatch.setattr(
+        zipfile.ZipFile, "testzip", lambda self: "data/n/function/hello.mcfunction"
+    )
+
+    outcome = ApplyOutcome()
+    edit = edit_for(relative, "mcmt.advancement_title.cccccccccccccccc")
+
+    with pytest.raises(DatapackWriteVerificationError):
+        with BackupSet(world) as backup:
+            apply_to_datapack_file(world, relative, [edit], outcome, backup)
+
+    assert zip_path.read_bytes() == before
+    assert list(zip_path.parent.glob("*.mcmt-tmp")) == []
+
+
+def test_both_temporary_paths_go_through_ensure_writable(project, monkeypatch) -> None:
+    """**Finding 7。** `nbtio/datfile.py::write_dat` 立的規矩是**衍生出來的暫存
+    路徑要自己再過一次 `ensure_writable`**，不是「父路徑驗過了所以從它衍生的
+    東西都安全」——CLAUDE.md 把後者這種隱性推論列為安全關鍵路徑上不接受的。"""
+    from mcmt.safety import paths as paths_module
+    from mcmt.write import datapack_apply
+
+    seen = []
+    real = paths_module.ensure_writable
+
+    def recording(path):
+        seen.append(str(path))
+        return real(path)
+
+    monkeypatch.setattr(datapack_apply, "ensure_writable", recording)
+
+    world = project / "sandbox"
+    relative = "datapacks/p/data/n/advancement/quest.json"
+    folder_advancement(world, relative)
+    outcome = ApplyOutcome()
+    with BackupSet(world) as backup:
+        apply_to_datapack_file(
+            world, relative, [edit_for(relative, "mcmt.advancement_title.a" * 1)], outcome, backup
+        )
+    assert any(p.endswith("quest.json.mcmt-tmp") for p in seen), seen
+
+    seen.clear()
+    world, zip_path, zip_relative = _zip_world(project)
+    outcome = ApplyOutcome()
+    with BackupSet(world) as backup:
+        apply_to_datapack_file(
+            world, zip_relative, [edit_for(zip_relative, "mcmt.advancement_title.b")], outcome, backup
+        )
+    assert any(p.endswith("p.zip.mcmt-tmp") for p in seen), seen
+
+
+def test_rewrite_zip_alone_leaves_the_original_untouched(project) -> None:
+    """上面那條走完整的 `apply_to_datapack_file`，所以原檔活下來也可能是
+    `BackupSet` 還原的功勞。這一條直接呼叫 `_rewrite_zip`，**沒有備份層在旁邊
+    接著**——驗的是「替換發生在驗證之後」這個保證本身。"""
+    from mcmt.errors import DatapackWriteVerificationError
+    from mcmt.safety.paths import ensure_writable
+    from mcmt.write.datapack_apply import _rewrite_zip
+
+    world, zip_path, _ = _zip_world(project)
+    before = zip_path.read_bytes()
+
+    with zipfile.ZipFile(zip_path) as archive:
+        entries = {i.filename: (i, archive.read(i.filename)) for i in archive.infolist()}
+    entries["data/n/advancement/quest.json"] = (
+        entries["data/n/advancement/quest.json"][0],
+        b"{ this is not json",
+    )
+
+    with pytest.raises(DatapackWriteVerificationError):
+        _rewrite_zip(
+            ensure_writable(zip_path),
+            entries,
+            verify_entry="data/n/advancement/quest.json",
+        )
+
+    assert zip_path.read_bytes() == before
+    assert list(zip_path.parent.glob("*.mcmt-tmp")) == []

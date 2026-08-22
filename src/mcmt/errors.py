@@ -193,6 +193,17 @@ class DatWriteVerificationError(FormatError):
     """
 
 
+class DatapackWriteVerificationError(FormatError):
+    """datapack 的 zip 重寫出來讀不回來——原檔沒有被動過。
+
+    和 `DatWriteVerificationError` 是同一條理由，但**爆炸半徑更大**：`.dat` 編壞
+    了是一個檔案沒了，zip 編壞了是**整份壓縮檔裡的每一個條目**都沒了——包括我們
+    根本沒要改的 `pack.mcmeta`、`function/`、`loot_table/`。所以替換之前要確認
+    兩件事：整份 zip 的 CRC 全對（`testzip()`），而且我們剛改過的那個條目仍然是
+    讀得回來的 JSON。
+    """
+
+
 class ChunkTooLargeError(FormatError):
     """chunk 大到一個 region 槽放不下（超過 255 個磁區）。
 
