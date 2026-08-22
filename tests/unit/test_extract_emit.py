@@ -343,3 +343,97 @@ def test_a_source_that_already_overflows_is_reported_not_hidden(tmp_path) -> Non
     _, extract, _ = documents(world)
 
     assert extract["units"][0]["constraints"]["source_width_px"] > 60
+
+
+# --- 非 chunk 容器的 where 與統計（最終 review Finding 4 / 5） -------------
+
+
+def _world_with_level_dat_and_advancement(tmp_path, *, name="世界名稱"):
+    """一個沒有 region、只有 `level.dat` 與一個資料夾式資料包的世界。"""
+    import gzip
+    import json as _json
+
+    world = tmp_path / "w"
+    (world / "region").mkdir(parents=True)
+
+    data = amulet_nbt.CompoundTag(
+        {
+            "LevelName": amulet_nbt.StringTag(name),
+            "DataVersion": amulet_nbt.IntTag(4671),
+            "CustomBossEvents": amulet_nbt.CompoundTag(
+                {
+                    "minecraft:boss": amulet_nbt.CompoundTag(
+                        {"Name": amulet_nbt.StringTag("最終首領")}
+                    )
+                }
+            ),
+        }
+    )
+    tag = amulet_nbt.NamedTag(amulet_nbt.CompoundTag({"Data": data}), "")
+    (world / "level.dat").write_bytes(gzip.compress(tag.save_to(compressed=False)))
+
+    advancement = world / "datapacks" / "p" / "data" / "n" / "advancement" / "a.json"
+    advancement.parent.mkdir(parents=True)
+    advancement.write_text(
+        _json.dumps({"display": {"title": "進度標題"}}), encoding="utf-8"
+    )
+    return world
+
+
+def test_every_non_chunk_entry_still_says_where_it_is(tmp_path) -> None:
+    """**review Finding 5 的重現。** `_where_for` 用
+    `container.get("dimension", "")` 取維度——但非 chunk 容器的 `dimension`
+    鍵**存在而值是 `None`**，`.get` 的預設值永遠不會生效，於是 `where` 是
+    `None`，`build_translations_document` 的 `if where:` 把它當成假值，
+    整個 `where` 欄位就從待翻檔裡消失了。M13b 新加的每一個 category 都是。
+    CLAUDE.md 零之二要求「每筆自帶原文、位置與提示」。"""
+    world = _world_with_level_dat_and_advancement(tmp_path)
+    _, _, translations = documents(world)
+
+    by_category = {}
+    for unit_id, entry in translations["entries"].items():
+        by_category[unit_id.split(":")[1]] = entry
+
+    assert set(by_category) >= {"level_name", "bossbar", "advancement_title"}
+    for category, entry in by_category.items():
+        assert entry.get("where"), f"{category} 的 where 不見了：{entry}"
+
+    assert by_category["level_name"]["where"] == "level.dat"
+    assert by_category["bossbar"]["where"] == "level.dat"
+    assert by_category["advancement_title"]["where"] == (
+        "datapacks/p/data/n/advancement/a.json"
+    )
+
+
+def test_a_chunk_entry_keeps_its_dimension_and_coordinates(tmp_path) -> None:
+    """退路只在沒有維度可講時生效，不能把原本就對的那條路蓋掉。"""
+    world = world_with(tmp_path, chunk_with(sign("歡迎光臨", "", "", "", x=123, y=64, z=-45)))
+    _, _, translations = documents(world)
+
+    (entry,) = translations["entries"].values()
+
+    assert entry["where"] == "minecraft:overworld 123,64,-45"
+
+
+def test_the_new_skip_counters_reach_the_extract_document(tmp_path) -> None:
+    """**review Finding 4 的重現。** 這四個計數器原本只累積在 `result.stats`
+    裡，`extract.json` 與 CLI 摘要都沒有它們——一個壞掉的 `level.dat` 看起來和
+    「這個世界沒有東西可翻」一模一樣。"""
+    world = tmp_path / "broken"
+    (world / "region").mkdir(parents=True)
+    # `1f8b` 開頭 → 走 gzip 分支 → 解不開 → DatFormatError（不是「檔案不存在」）。
+    (world / "level.dat").write_bytes(b"\x1f\x8bnot a real gzip stream".ljust(40, b"\x00"))
+    (world / "data").mkdir()
+    (world / "data" / "scoreboard.dat").write_bytes(
+        b"\x1f\x8bnot a real gzip stream".ljust(40, b"\x00")
+    )
+    (world / "datapacks").mkdir()
+    (world / "datapacks" / "broken.zip").write_bytes(b"PK\x03\x04 not a real zip")
+
+    result, extract, _ = documents(world)
+
+    assert extract["stats"]["skipped_level_dat"] == 1
+    assert extract["stats"]["skipped_scoreboard_dat"] == 1
+    assert extract["stats"]["skipped_datapack_zip"] == 1
+    assert extract["stats"]["skipped_advancement_unparseable"] == 0
+    assert extract["stats"]["skipped_advancement_shape"] == 0

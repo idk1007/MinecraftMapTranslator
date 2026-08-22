@@ -208,3 +208,142 @@ def test_a_non_advancement_file_in_the_pack_is_ignored(tmp_path) -> None:
     stats = Counter()
 
     assert list(datapack.scan(world, stats)) == []
+
+
+# --- 巢狀陣列與單一檔案的例外隔離（最終 review Finding 2） -----------------
+
+
+def _plain(tag):
+    import amulet_nbt
+
+    if isinstance(tag, amulet_nbt.StringTag):
+        return str(tag)
+    if isinstance(tag, amulet_nbt.CompoundTag):
+        return {str(k): _plain(v) for k, v in tag.items()}
+    if isinstance(tag, amulet_nbt.ListTag):
+        return [_plain(v) for v in tag]
+    return str(tag)
+
+
+def test_a_nested_component_array_does_not_crash_the_scan(tmp_path) -> None:
+    """**review Finding 2 的重現。** `["a", ["b"]]` 是合法的文字 component 語法
+    ——一個 component 陣列的 extra 元素本身可以是另一個陣列。Task 5 的同質化只
+    處理 `str`／`dict` 混用，遇到巢狀 `list` 時 `amulet_nbt.ListTag` 照樣在建構
+    當下 `TypeError`，而且沒有任何一層接得住它。"""
+    path = tmp_path / "datapacks" / "p" / "data" / "n" / "advancement" / "a.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"display": {"title": ["a", ["b"]]}}), encoding="utf-8"
+    )
+    world = ensure_readable(tmp_path)
+    stats = Counter()
+
+    (title,) = [
+        n.node for n in datapack.scan(world, stats) if n.node.category == "advancement_title"
+    ]
+
+    from mcmt.model.segments import flatten
+
+    flattened = flatten(_plain(title.tag))
+    assert flattened.plain == "ab"
+
+
+def test_a_deeply_nested_component_array_flattens_like_the_original(tmp_path) -> None:
+    """三層巢狀。同質化升格必須與原本的巢狀語意攤平出同一份文字，不然我們是
+    在悄悄改寫地圖作者寫的東西。"""
+    from mcmt.model.segments import flatten
+    from mcmt.scan.sources.datapack import _to_amulet
+
+    original = ["a", ["b", ["c", "d"]], {"text": "e"}]
+
+    assert flatten(_plain(_to_amulet(original))).plain == flatten(original).plain
+
+
+def test_one_unconvertible_advancement_does_not_kill_the_rest_of_the_scan(
+    tmp_path, monkeypatch
+) -> None:
+    """一個檔案壞掉不該帶走整次掃描——`sources/region.py` 對一張壞掉的 region
+    就是這樣處理的。這裡用注入的方式製造「同質化之後仍然轉不出去」的形狀，
+    因為修好之後真實的巢狀陣列已經轉得出去了。"""
+    base = tmp_path / "datapacks" / "p" / "data" / "n" / "advancement"
+    base.mkdir(parents=True)
+    (base / "aaa_broken.json").write_text(
+        json.dumps({"display": {"title": "會被弄壞的"}}), encoding="utf-8"
+    )
+    (base / "zzz_good.json").write_text(
+        json.dumps({"display": {"title": "正常的標題"}}), encoding="utf-8"
+    )
+
+    original = datapack._to_amulet
+
+    def exploding(value):
+        if value == "會被弄壞的":
+            raise TypeError("Invalid type ListTag for ListTag(list_data_type=8)")
+        return original(value)
+
+    monkeypatch.setattr(datapack, "_to_amulet", exploding)
+
+    world = ensure_readable(tmp_path)
+    stats = Counter()
+    found = [n.node for n in datapack.scan(world, stats)]
+
+    titles = [str(n.tag) for n in found if n.category == "advancement_title"]
+    assert titles == ["正常的標題"]
+    assert stats["skipped_advancement_shape"] == 1
+
+
+# --- 巢狀資料夾（最終 review Finding 3） -----------------------------------
+
+
+def test_a_folder_datapack_finds_advancements_in_subdirectories(tmp_path) -> None:
+    """**review Finding 3 的重現。** 原版自己的進度就是分在 `story/`、`nether/`、
+    `end/` 這些子資料夾裡。`glob` 的 `*` 不跨目錄分隔符，所以
+    `data/n/advancement/story/root.json` 對資料夾式資料包完全隱形——而 zip 式
+    的子字串比對找得到它，兩種形式的行為不一致。"""
+    write_advancement(
+        tmp_path / "datapacks" / "p" / "data" / "n" / "advancement" / "story" / "root.json",
+        title="故事的開始",
+    )
+    world = ensure_readable(tmp_path)
+    stats = Counter()
+
+    found = [n for n in datapack.scan(world, stats) if n.node.category == "advancement_title"]
+
+    assert [str(n.node.tag) for n in found] == ["故事的開始"]
+    assert found[0].container["path"] == (
+        "datapacks/p/data/n/advancement/story/root.json"
+    )
+
+
+def test_a_zip_datapack_finds_advancements_in_subdirectories(tmp_path) -> None:
+    zip_path = tmp_path / "datapacks" / "p.zip"
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr(
+            "data/n/advancement/story/root.json",
+            json.dumps({"display": {"title": "壓縮包裡的故事"}}),
+        )
+    world = ensure_readable(tmp_path)
+    stats = Counter()
+
+    found = [n for n in datapack.scan(world, stats) if n.node.category == "advancement_title"]
+
+    assert [str(n.node.tag) for n in found] == ["壓縮包裡的故事"]
+
+
+def test_a_zip_entry_that_only_contains_the_word_advancement_is_not_scanned(
+    tmp_path,
+) -> None:
+    """`data/n/not_advancement_related/x.json` 含有子字串 `advancement`，但它
+    不是進度目錄。兩種形式要用同一條「路徑片段」規則，不是子字串比對。"""
+    zip_path = tmp_path / "datapacks" / "p.zip"
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr(
+            "data/n/advancement_helpers/advancements/x.json",
+            json.dumps({"display": {"title": "不該被掃到"}}),
+        )
+    world = ensure_readable(tmp_path)
+    stats = Counter()
+
+    assert list(datapack.scan(world, stats)) == []

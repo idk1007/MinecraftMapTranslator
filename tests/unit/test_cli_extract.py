@@ -142,3 +142,20 @@ def test_replace_overwrites(project) -> None:
     main(["extract", str(world)])
 
     assert main(["extract", str(world), "--replace"]) == 0
+
+
+def test_a_corrupt_level_dat_is_reported_not_silently_ignored(project, capsys) -> None:
+    """**review Finding 4 的重現。** `skipped_level_dat` 只累積在 `result.stats`
+    裡，沒有任何一條路把它帶到使用者眼前——一個讀不下去的 `level.dat` 印出來的
+    摘要和「這個世界沒有東西可翻」一模一樣，而前者代表世界名、boss 條、玩家
+    背包**整個沒被掃到**。"""
+    world = build_world(project, name="corrupt")
+    (world / "level.dat").write_bytes(b"\x1f\x8bnot a real gzip stream".ljust(40, b"\x00"))
+
+    assert main(["extract", str(world)]) == 0
+
+    out = capsys.readouterr().out
+    assert "level.dat 讀不下去" in out
+
+    extract = json.loads((out_dir(project, "corrupt") / "extract.json").read_text("utf-8"))
+    assert extract["stats"]["skipped_level_dat"] == 1

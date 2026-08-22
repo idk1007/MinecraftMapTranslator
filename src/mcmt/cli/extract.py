@@ -101,6 +101,16 @@ def format_result(summary: dict) -> str:
         ("已在地化（地圖自己的 translate key，翻了會蓋掉別人做好的多語言支援）",
          stats["skipped_already_localised"]),
         ("空白節點", result.stats["skipped_empty"]),
+        # **讀不下去的來源檔要看得見。** 這幾行不在的時候，一個壞掉的
+        # `level.dat` 印出來的摘要和「這個世界沒有東西可翻」一模一樣——使用者
+        # 沒有任何跡象可以知道有一整個檔案根本沒被讀到。
+        ("level.dat 讀不下去（世界名／boss 條／玩家背包整個沒掃到）",
+         result.stats["skipped_level_dat"]),
+        ("scoreboard.dat 讀不下去（記分板顯示名與隊伍前後綴整個沒掃到）",
+         result.stats["skipped_scoreboard_dat"]),
+        ("資料包 zip 打不開（整包進度沒掃到）", result.stats["skipped_datapack_zip"]),
+        ("進度 JSON 解析失敗", result.stats["skipped_advancement_unparseable"]),
+        ("進度的文字形狀轉不出去", result.stats["skipped_advancement_shape"]),
     ]
     listed = [(name, n) for name, n in skipped if n]
     if listed:

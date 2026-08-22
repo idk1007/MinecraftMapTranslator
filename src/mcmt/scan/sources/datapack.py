@@ -64,42 +64,78 @@ def scan(world: ReadOnlyPath, stats: Counter) -> Iterator[ScannedNode]:
 
 def _scan_folder_pack(world, pack_dir: ReadOnlyPath, stats: Counter) -> Iterator[ScannedNode]:
     for dir_name in _ADVANCEMENT_DIR_NAMES:
-        for path in pack_dir.glob(f"data/*/{dir_name}/*.json"):
+        # **`**` 不能省。** `glob` 的 `*` 不跨目錄分隔符，而原版自己的進度就是分
+        # 在 `story/`、`nether/`、`end/` 這些子資料夾裡；只寫 `*.json` 的話那些
+        # 檔案對資料夾式資料包**完全隱形**，症狀和「這個資料包沒有進度」一模
+        # 一樣。zip 那邊本來就是遞迴找得到的，兩種形式必須是同一條規則。
+        for path in pack_dir.glob(f"data/*/{dir_name}/**/*.json"):
             relative = path.relative_to(world)
             try:
                 document = json.loads(path.read_bytes().decode("utf-8"))
             except (ValueError, UnicodeDecodeError):
                 stats["skipped_advancement_unparseable"] += 1
                 continue
-            container = _container(relative)
-            stats["advancement_files"] += 1
-            for node in scan_advancement(document):
-                yield ScannedNode(node=node, container=container)
+            yield from _scan_one(document, _container(relative), stats)
 
 
 def _scan_zip_pack(world, zip_path: ReadOnlyPath, stats: Counter) -> Iterator[ScannedNode]:
     zip_relative = zip_path.relative_to(world)
     try:
         with zipfile.ZipFile(str(zip_path)) as archive:
-            names = [
-                name
-                for name in archive.namelist()
-                if name.endswith(".json")
-                and any(f"/{d}/" in f"/{name}" for d in _ADVANCEMENT_DIR_NAMES)
-                and name.split("/")[0] == "data"
-            ]
+            names = [name for name in archive.namelist() if _is_advancement_entry(name)]
             for name in sorted(names):
                 try:
                     document = json.loads(archive.read(name).decode("utf-8"))
                 except (ValueError, UnicodeDecodeError):
                     stats["skipped_advancement_unparseable"] += 1
                     continue
-                container = _container(f"{zip_relative}/{name}")
-                stats["advancement_files"] += 1
-                for node in scan_advancement(document):
-                    yield ScannedNode(node=node, container=container)
+                yield from _scan_one(document, _container(f"{zip_relative}/{name}"), stats)
     except (zipfile.BadZipFile, OSError):
         stats["skipped_datapack_zip"] += 1
+
+
+def _is_advancement_entry(name: str) -> bool:
+    """zip 條目路徑是不是 `data/<ns>/advancement(s)/…/*.json`。
+
+    **比對的是路徑片段，不是子字串。** 原本寫的是
+    `any(f"/{d}/" in f"/{name}" …)`，那會讓
+    `data/n/advancement_helpers/advancements/x.json` 這種名字裡剛好含有
+    `/advancement…/` 的路徑一起中獎；更重要的是它和資料夾式那邊的
+    `data/*/<dir>/…` 不是同一條規則，兩種形式對同一個資料包會給出不同的答案。
+    """
+    parts = name.split("/")
+    return (
+        name.endswith(".json")
+        and len(parts) >= 4
+        and parts[0] == "data"
+        and parts[2] in _ADVANCEMENT_DIR_NAMES
+    )
+
+
+def _scan_one(document, container: dict, stats: Counter) -> Iterator[ScannedNode]:
+    """掃一個 advancement 檔案，**把它的例外關在自己這一個檔案裡**。
+
+    `sources/region.py` 對一張讀不下去的 region 就是這樣處理的：壞掉的世界更
+    需要能先掃出能掃的部分。這裡的具體風險是 `_to_amulet()` 的 `ListTag` 建構
+    ——`amulet_nbt` 要求 list 元素同型，而文字 component 陣列語法天生允許異質。
+    同質化已經把已知的形狀處理掉了，但「一個沒想到的形狀就帶走整個資料包的
+    掃描」這個結構本身才是問題，所以這裡接住的是任何例外，不是某一種。
+
+    `scan_advancement` 是產生器，例外會在迭代當下才浮出來，所以要一個一個取。
+    例外之前已經 yield 出去的節點（例如 title 好的、description 壞的）保留，
+    這和 `list()` 整份收集完再迭代的差別正是 CLAUDE.md 點名過的那一條。
+    """
+    stats["advancement_files"] += 1
+    iterator = scan_advancement(document)
+    while True:
+        try:
+            node = next(iterator)
+        except StopIteration:
+            return
+        except Exception:  # noqa: BLE001 —— 任何轉不出去的形狀都一樣：算一筆，跳過
+            stats["skipped_advancement_shape"] += 1
+            return
+        yield ScannedNode(node=node, container=container)
 
 
 def scan_advancement(document: dict[str, Any]) -> Iterator[TextNode]:
@@ -138,14 +174,21 @@ def _to_amulet(value: Any):
     子在真實資料上會立刻炸掉（`TypeError: Invalid type CompoundTag for
     ListTag(list_data_type=8)`）。
 
-    做法：先照常遞迴轉換每個元素；若轉換後的清單同時含有 `CompoundTag` 與其他
-    型別（也就是還不同質），把清單裡的 `StringTag` 元素升格成
-    `CompoundTag({"text": <原字串內容>})`，讓整份清單都是 `CompoundTag` 之後
-    再建構 `ListTag`。這個升格語意無損：`model/segments.py` 的 `_walk()` 對
-    `{"text": s}`（沒有其他鍵）與裸字串 `s` 的處理完全等價——兩者的 `style`
-    都算出空字典、`inherited_sigma` 也不變，最終都呼叫
-    `_emit_string(literal=s, style={}, node_type="text")`，`flatten()` 輸出
-    位元組相同。
+    做法：先照常遞迴轉換每個元素；若轉換後的清單**不同質**，把每個不是
+    `CompoundTag` 的元素升格成 `CompoundTag`，讓整份清單都是 `CompoundTag`
+    之後再建構 `ListTag`。
+
+    升格有兩種，兩種都是語意無損的：
+
+    * **裸字串** `s` → `{"text": s}`。`model/segments.py` 的 `_walk()` 對兩者
+      的處理完全等價——`style` 都算出空字典、`inherited_sigma` 也不變，最終都
+      呼叫 `_emit_string(literal=s, style={}, node_type="text")`。
+    * **巢狀陣列** `[p, *rest]` → 它本來就是一棵 component 樹（第一元素是父級、
+      其餘是 extra），所以升格成「父級 + `extra`」的 compound 形式。這是原本
+      漏掉的一種：Task 5 的條件寫成「同時含有 `CompoundTag` 與其他型別」，而
+      `["a", ["b"]]` 的型別集合是 `{StringTag, ListTag}`——沒有 `CompoundTag`，
+      條件不成立，於是原封不動地送進 `ListTag(...)` 當場 `TypeError`，而且
+      **沒有任何一層接得住**，一個檔案就帶走整個資料包的掃描。
     """
     if isinstance(value, str):
         return amulet_nbt.StringTag(value)
@@ -153,16 +196,36 @@ def _to_amulet(value: Any):
         return amulet_nbt.CompoundTag({str(k): _to_amulet(v) for k, v in value.items()})
     if isinstance(value, list):
         elements = [_to_amulet(v) for v in value]
-        types = {type(e) for e in elements}
-        if len(types) > 1 and amulet_nbt.CompoundTag in types:
-            elements = [
-                amulet_nbt.CompoundTag({"text": amulet_nbt.StringTag(str(e))})
-                if isinstance(e, amulet_nbt.StringTag)
-                else e
-                for e in elements
-            ]
+        if len({type(e) for e in elements}) > 1:
+            elements = [_as_component_compound(e) for e in elements]
         return amulet_nbt.ListTag(elements)
     return amulet_nbt.StringTag(str(value))
+
+
+def _as_component_compound(tag):
+    """任一個文字 component 標籤 → `CompoundTag` 形式，攤平結果不變。
+
+    巢狀陣列那一支要特別小心父級**自己也有 `extra`** 的情況：
+    `[{"text":"x","extra":[A]}, B]` 的 `A` 與 `B` 都會被 `_walk()` 走到、都會
+    貢獻文字，所以合併時要 `A` 在前、`B` 在後，不能用 `B` 蓋掉 `A`——蓋掉的話
+    `A` 那段文字就從 `source.text` 裡消失了，而那是地圖作者寫的字。
+    """
+    if isinstance(tag, amulet_nbt.CompoundTag):
+        return tag
+    if isinstance(tag, amulet_nbt.StringTag):
+        return amulet_nbt.CompoundTag({"text": amulet_nbt.StringTag(str(tag))})
+    if isinstance(tag, amulet_nbt.ListTag):
+        elements = list(tag)
+        if not elements:
+            return amulet_nbt.CompoundTag({"text": amulet_nbt.StringTag("")})
+        parent = _as_component_compound(elements[0])
+        extra = [_as_component_compound(e) for e in parent.get("extra", []) or []]
+        extra += [_as_component_compound(e) for e in elements[1:]]
+        merged = amulet_nbt.CompoundTag({str(k): v for k, v in parent.items()})
+        if extra:
+            merged["extra"] = amulet_nbt.ListTag(extra)
+        return merged
+    return amulet_nbt.CompoundTag({"text": amulet_nbt.StringTag(str(tag))})
 
 
 def _container(relative_path) -> dict:

@@ -619,6 +619,18 @@ M13.0–M13.4，這一輪做完 M13.5–M13.9：
 確認 `editplan.json` 裡三個新 `container.kind`（`level_dat`／`scoreboard_dat`／
 `datapack_file`）都產得出真正的 edit。
 
+**T7「已在地化整個跳過」的實跑代價**（2026-08-23，最終 review 修正時量的）：
+
+| | Arena of Darkness | 100 Ways To Die |
+|---|---:|---:|
+| `skipped_already_localised` | **5** | **0** |
+
+也就是這條規則在這兩張地圖上幾乎不花成本——它保護的是 MP2 那種**自己帶一整套
+中文化系統**的地圖（[實測] 50,959 個 lang 值），那張還沒用 M13b 之後的掃描跑過。
+順帶一提，這條規則把 CLAUDE.md 與 `model/segments.py` 用了整個專案的那棵示範樹
+（`{"translate":"mcp.Cost_", …}`）從「攤平後翻譯」變成「整棵跳過」，兩份文件都
+已按「推翻前人結論要保留原文並說明」的規矩加了註記，沒有直接改掉。
+
 已知缺口（新增，見下方「已知缺口」清單）：`team_affix`／`scoreboard.dat` 的
 legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字），**沒有**
 `[遊戲實測]`——兩張地圖的內容都不足以驅動這兩項的進遊戲驗證。

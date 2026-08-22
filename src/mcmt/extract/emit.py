@@ -80,6 +80,18 @@ def build_extract_document(
                 "skipped_non_collapsible_in_place"
             ],
             "skipped_already_localised": result.stats["skipped_already_localised"],
+            # **讀不下去的來源檔也要有數字。** 這幾個計數器原本只活在
+            # `result.stats` 裡，沒有任何一條路把它們帶到使用者眼前——一個壞掉
+            # 的 `level.dat` 產出的報告和「這個世界沒有東西可翻」一模一樣，那是
+            # 靜默失敗。`stats` 的 schema 是 `additionalProperties: true`，加欄位
+            # 不動合約。
+            "skipped_level_dat": result.stats["skipped_level_dat"],
+            "skipped_scoreboard_dat": result.stats["skipped_scoreboard_dat"],
+            "skipped_datapack_zip": result.stats["skipped_datapack_zip"],
+            "skipped_advancement_unparseable": result.stats[
+                "skipped_advancement_unparseable"
+            ],
+            "skipped_advancement_shape": result.stats["skipped_advancement_shape"],
             "by_category": _by_category(result.units),
         },
         "units": units,
@@ -265,10 +277,25 @@ def _note_for(unit: Unit) -> str:
 
 
 def _where_for(unit: Unit) -> str:
+    """譯者眼裡「這句話在哪」。**每一筆都要有值**（CLAUDE.md 零之二）。
+
+    `_hint_for` 上面那段自承在這裡原封不動地重演了一次：非 chunk 容器的
+    `dimension` 鍵**存在而值是 `None`**，所以 `.get("dimension", "")` 的預設值
+    永遠不會生效，`where` 拿到的是 `None`；再加上這些容器的 anchor 沒有座標，
+    整個函式回傳 `None`，而 `build_translations_document` 的 `if where:` 把它
+    當成假值——`where` 欄位就從 M13b 新加的**每一個** category 的待翻條目裡
+    整個消失了。同一個 bug 修了兩次，是因為兩個函式各自從 container 讀
+    `dimension`，而「dimension 一定有值」這個假設在舊範圍下從沒被踩過。
+
+    沒有維度也沒有座標時退回**檔案路徑**：`level.dat`、
+    `datapacks/x.zip/data/n/advancement/a.json` 對譯者比容器種類具體得多——
+    他要找到那句話就是去開那個檔案。連 path 都沒有才退到 kind。
+    """
+    container = unit.occurrences[0].container
     anchor = unit.occurrences[0].anchor or {}
-    dimension = unit.occurrences[0].container.get("dimension", "")
+    dimension = container.get("dimension") or ""
     if anchor.get("x") is None:
-        return dimension
+        return dimension or container.get("path") or container.get("kind", "")
     return f"{dimension} {anchor['x']},{anchor['y']},{anchor['z']}"
 
 

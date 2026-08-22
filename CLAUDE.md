@@ -223,6 +223,14 @@ CompoundTag({"text": "文字"})          # 官方文件形狀
 
 **`{"text":"","extra":[{"text":"X","italic":false}]}` 這個慣用法要特別小心**——空父節點加帶格式子節點是用來壓掉物品名預設斜體的。重建時漏掉 `italic:false`，物品名會變回斜體。
 
+> **[M13b] 上面那棵示範樹，現在會被整棵跳過不翻。原文保留，因為攤平機制本身沒有變，被推翻的只有這個例子的結論。**
+>
+> M13b 加了一條「**已在地化就整個跳過**」規則（`extract/build.py` 的 `_contains_translate`，計入 `stats.skipped_already_localised`）：攤平後的骨架裡**任何一處**有 `translate` 節點，這個單位就不抽出來。上面那棵樹的根節點和它的 extra 子節點都是 `translate`，所以它正是這條規則要擋的東西——不是「攤平成 `[[0]]Cost:[[1]] 5 Coins` 然後翻譯」，是**根本不進待翻檔**。
+>
+> 理由：那兩個 `mcp.*` key 是**地圖自己的多語言系統**。我們重建這棵樹時會把它們換成我們的 key，於是一張本來支援 5 種語言的地圖，退化成只支援我們寫進去的那一種——而且是靜默地退化。`fallback` 看起來像「可以翻的字」，它其實是別人在地化系統的預設值。用「任何一處」而不是「根節點是」，是為了連半文字半 key 的樹一起擋（`{"text":"Hello ","extra":[{"translate":"mcp.X"}]}` 重建時一樣會蓋掉那個巢狀 key）。
+>
+> 所以這一節的攤平／`[[n]]`／`collapsible` 規則**全部仍然有效**，只是適用對象縮小成「不含任何 `translate` 節點的樹」。真實數字（`mcmt extract`，2026-08-23）：`Arena of Darkness` 跳過 **5** 個、`100 Ways To Die` 跳過 **0** 個；MP2 那種自帶中文化的地圖才是這條規則真正要保護的對象。
+
 ### hover_event 內的文字在掃描範圍內
 
 [實測] MP2 有 331 筆 `pages[]/raw/extra[]/hover_event/name`。category 為 `hover_text`，`node_path` 照常走 key 步驟即可。含 hover_event 的樹一律 `collapsible: false`。
