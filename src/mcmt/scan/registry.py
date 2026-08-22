@@ -17,10 +17,11 @@
 什麼」是報告的一部分，不能只存在於某個來源的內部。
 """
 
-from mcmt.scan.sources import region
+from mcmt.scan.sources import entities, region
 
 __all__ = ["SOURCES"]
 
 SOURCES = [
     region.scan,
+    entities.scan,
 ]

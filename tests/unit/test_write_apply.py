@@ -304,3 +304,61 @@ def test_sector_realignment_is_reported(project) -> None:
 
     kinds = [w["kind"] for w in outcome.warnings]
     assert "sector_realignment" in kinds
+
+
+# --- entities/*.mca（M13.4）-------------------------------------------------
+
+
+def test_an_entities_chunk_is_written_by_the_same_surgical_path(project) -> None:
+    """**`entities/*.mca` 不需要新的寫入器。**
+
+    它就是 region 格式——同一套 header、同一套壓縮——所以 `write_region` 直接可用，
+    外科式保證原封不動。`_apply_to_region` 是用 container["path"] 去
+    `world / relative` 讀寫的，`entities/r.0.0.mca` 就這樣走進同一條路。
+    """
+    world = project / "sandbox" / "world"
+    root = modern_chunk(data_version=4671)
+    holder = amulet_nbt.CompoundTag({"id": amulet_nbt.StringTag("minecraft:armor_stand")})
+    holder["CustomName"] = amulet_nbt.StringTag("守衛")
+    root["Entities"] = amulet_nbt.ListTag([holder])
+    write_region_file(
+        world / "entities", RegionBuilder().add_chunk_nbt(0, root).build(), "r.0.0.mca"
+    )
+
+    plan_document = {
+        "edits": [
+            {
+                "occurrence_id": "o:00001",
+                "unit_id": "u:entity_name:0123456789abcdef",
+                "container": {
+                    "kind": "entities_chunk",
+                    "path": "entities/r.0.0.mca",
+                    "dimension": "minecraft:overworld",
+                    "chunk": {"cx": 0, "cz": 0},
+                    "data_version": 4671,
+                    "compression": 2,
+                    "external": False,
+                },
+                "node_path": [
+                    {"t": "key", "name": "Entities"},
+                    {"t": "index", "i": 0},
+                    {"t": "key", "name": "CustomName"},
+                ],
+                "expected_encoding": "bare_string",
+                "value": {"kind": "literal", "text": "衛兵", "style": None},
+            }
+        ],
+        "unwritten": [],
+    }
+
+    outcome = apply_editplan(world, plan_document)
+
+    chunk = next(
+        c
+        for c in read_region(ensure_readable(world / "entities" / "r.0.0.mca"))
+        if c.index == 0
+    )
+    data = decompress_chunk(chunk.payload, chunk.compression_type, chunk_index=chunk.index)
+    written = amulet_nbt.load(data, compressed=False).compound
+    assert outcome.counts["edits_written"] == 1
+    assert str(written["Entities"][0]["CustomName"]) == "衛兵"

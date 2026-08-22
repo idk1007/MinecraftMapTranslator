@@ -3,16 +3,17 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-21**（M8 校準完成、legacy `CustomName` 驗完。**沒有任何一項卡在進遊戲了**，下一步是 M13 掃描廣度）
+最後更新：**2026-08-22**（M13a 完成：物品與 `entities/*.mca` 掃描廣度接上，寫入層零改動。下一步是 M13b）
 
 ---
 
 ## 一句話現況
 
-**M0–M8、M10–M12 完成，而且沒有任何一項卡在「要進遊戲」了。** 整條鏈
-（`import → extract → 人工翻譯 → apply`）有自動化測試釘住，兩條寫入路徑
-（translate key 與 in_place）都走得通，字寬預算是量出來的、`enforcement` 已經是
-`error` 而且真的會擋。下一步是 **M13 掃描廣度**——目前只掃告示牌與 `CustomName`。
+**M0–M8、M10–M13a 完成，而且沒有任何一項卡在「要進遊戲」了。** 整條鏈
+（`import → extract → 人工翻譯 → apply`）有自動化測試釘住，三條寫入路徑
+（translate key、in_place、legacy JSON）都走得通，字寬預算是量出來的、`enforcement`
+已經是 `error` 而且真的會擋。**M13a 把掃描廣度擴到容器物品與 `entities/*.mca`**——
+下一步是 **M13b**（`level.dat`、記分板、指令方塊、datapack、`hover_event`）。
 
 ~~M1 只差「節點形狀分佈」~~ → **M5.6 已補上**，`doctor` 現在會報形狀分佈與「有多少節點會被跳過不翻」。
 
@@ -29,8 +30,9 @@ mcmt apply <sandbox 世界> --translations …   → resources.zip + 外科式�
                                        （--dry-run 完全不碰存檔，只產 editplan.json）
 ```
 
-實跑數字：`Arena of Darkness`（88,969 chunk）extract 出 **607 個翻譯單位**（涵蓋
-10,421 次出現，94% 是重複的）。apply 在探測世界上改動 1 個 chunk、**原封複製 929 個**。
+實跑數字（M13a 接上物品與實體之後）：`Arena of Darkness`（88,969 chunk）extract 出
+**902 個翻譯單位**、`100 Ways To Die`（6,465 chunk）**1,348 個**——細節見下方 M13a 節。
+apply 在探測世界上改動 1 個 chunk、**原封複製 929 個**。
 
 `sandbox/` 現有三份副本可用：`100 Ways To Die`(95M)、`Arena of Darkness`(378M)、
 `roundtrip`(18M，**已翻好且驗證過的探測世界**)。不需要就整個資料夾刪掉。
@@ -304,7 +306,7 @@ MP2 全掃 12,262,582 個字串節點、96% 被擋、**0 漏**。
 
 | 世界 | chunk | 文字節點 | 翻譯單位 | 出現次數 | 時間 |
 |---|---:|---:|---:|---:|---:|
-| 100 Ways To Die | 6,465 | 8,315 | **937** | 1,691 | 2 秒 |
+| 100 Ways To Die | 6,465 | 8,315 | **937**（M13a 後修正為 936，見下方 M13a 節） | 1,691 | 2 秒 |
 | Arena of Darkness | 88,969 | 15,563 | **607** | 10,421 | 31 秒 |
 
 **去重省下的量才是這個工作流的重點**：Arena of Darkness 的譯者要打 607 條，不是 10,421 條。
@@ -499,13 +501,68 @@ CJK 9px、粗體 +1（吊掛上 10 個粗體 `M` 只顯示 8 個——若粗體�
 
 ---
 
+### M13a — 掃描廣度：物品與實體（2026-08-22）✅
+
+八個任務八個 commit（分支 `m13a`，計畫見
+`docs/superpowers/plans/2026-08-22-m13a-items-and-entities.md`，逐任務記錄在
+`.superpowers/sdd/2026-08-22-m13a-items-and-entities/progress.md`）。**寫入層一行都
+沒改**——`entities/*.mca` 與物品都走既有的 legacy/native/in_place 三條路徑，只是
+掃描層現在找得到它們。
+
+| 任務 | 產出 |
+|---|---|
+| T1 | `datfile.py` 驗證修正（`_verify` 死碼 bug，review 抓到） |
+| T2 | denylist 補新版命名空間鍵名（`minecraft:can_break` 等）+ 真實地圖驗證 |
+| T3 | `entities_files(world)`（`nbtio/region.py`），fingerprint 涵蓋 `entities/` |
+| T4 | `scan/registry.py` 來源清單抽象（純重構，region 一個來源） |
+| T5/T6 | `scan/sources/item.py`：`components`（1.20.5+）與 `tag`（舊格式）雙形狀白名單，容器/收納袋/成書/草稿書遞迴 |
+| T7 | 接上 `region.py` 的 `Items[]`/`Book`；順手修 `fontdata/vanilla_v1.json` 的 `book_page.wrap` 從非法值 `"soft"` 改成 `"auto"`（M8 遺留，schema 從沒驗過它，掃到 book_page 才炸開） |
+| T8 | `scan/sources/entities.py`：`CustomName`/`text_display`/`Passengers[]` 遞迴/裝備物品，**證明 `entities/*.mca` 走同一條外科式寫入路徑不必改** |
+
+**兩個計畫層級的 bug 被 review 抓到**（連同 M13a 之前的五個，累計七個）：T4 的
+`chunks = list(read_region(path))` 會讓串流搶救退化成全有全無（已修，用 try 包住整個
+for 迴圈）；T6 的 `_OLD_CONTAINER_KEYS` 漏了 spec 明列的 `ChargedProjectiles`（已補）。
+T8 的 brief 抄了同一個 `list()` 反模式，**這次在 review 之前就發現並改掉**，實作採用
+與 T4 修正後一致的串流寫法。
+
+**真實地圖最終數字**（M13a 全部接上後，`mcmt extract --lang zh_tw`）：
+
+| | Arena of Darkness | 100 Ways To Die |
+|---|---:|---:|
+| chunk | 88,969 | 6,465 |
+| 文字節點 | 19,903 | 9,039 |
+| 翻譯單位 | **902** | **1,348** |
+| custom_name | 141 | 21 |
+| entity_name | 54 | 11 |
+| text_display | 40 | 160 |
+| book_page/title/author | 45 | 179 |
+| sign/hanging_sign | 587 | 933 |
+
+與清點的相異數對照都在「小幅出入」範圍內（攤平會合併或拆開部分節點），**沒有出現
+「抽太多/抽太少」的方向性訊號**，白名單與 denylist 判斷為正確。
+
+**修正一個過期數字**：`docs/STATUS.md`（M7 那節）先前寫「100 Ways To Die 937 個
+翻譯單位」，那是 M7 當時（`CustomName` 改走 `in_place` 之前）的數字。`in_place` 落地
+後，帶 `extra` 樹的 `CustomName` 節點會計進
+`stats.skipped_non_collapsible_in_place`（`in_place` 沒有「每段一個 key」的位置，
+與「不可塌縮 ⇒ 每段一個 key」的規則互斥），真正只掃 region 來源時是 **936**，
+差的 1 個已計數、有報告，不是靜默漏掉。
+
+已知缺口（見各任務 review 的 deferred minors，累計進下面「已知缺口」）：
+`minecraft:use_remainder` 等內嵌單一 ItemStack 的組件未列白名單、
+`filtered`（聊天過濾）文字未抽（語料 0 樣本，且屬寫入層該同步 key 的事）、
+`EntityTag`（生怪蛋具名實體）新舊格式都未涵蓋、`json_string_array` 的 `in_place`
+仍拒寫。全部是「漏抽看得見」方向，不是「誤翻看不見」方向。
+
+---
+
 ## 下一步
 
-### 1. M13 掃描廣度 ← **現在就是這一項**
+### 1. M13b（下一個計畫）
 
-目前只掃告示牌與 `CustomName`。還沒掃的：容器裡的物品（`Items[]` 的
-`custom_name`/`lore`/書本）、實體（在 `entities/` 而非 `region/`）、`level.dat`、
-記分板、進度、指令方塊、datapack、`hover_event` 內的文字。
+M13a 涵蓋了容器物品與 `entities/*.mca`。還沒掃的：`level.dat`、記分板、進度、
+指令方塊的 `Command`、datapack 的 `.mcfunction`、`hover_event` 內的文字
+（[實測] MP2 有 331 筆 `pages[]/raw/extra[]/hover_event/name`）。
 
 **開工時要重新問一次「不翻術語」那個決定**——那時待翻項會含 `%1$s` 格式參數
 （[實測] MP2 的 lang 值 37% 有），那是機器驗得出來的另一類（見上方「決定」那節）。
@@ -545,8 +602,8 @@ CJK 9px、粗體 +1（吊掛上 10 個粗體 `M` 只顯示 8 個——若粗體�
 - **語料地圖在版本隔離的資料夾**：`%APPDATA%\.minecraft\versions\1.21.10\saves`，不是 `%APPDATA%\.minecraft\saves`。找不到 Minecraft Party 2 就是找錯地方了。
 - `spike/.venv` 與 `spike/.venv_alt` 共 134 MB，已 gitignore。
 - `claude-code-stats/` 是**放在同一個資料夾裡的第三方工具**，與 mcmt 無關，已 gitignore。
-- 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 46 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
-- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 502 passed）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
+- 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 47 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
+- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 642 passed）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
 - 跑 CLI：`.venv\Scripts\python -X utf8 -m mcmt.cli {doctor|sandbox import|extract|apply} …`。
 - **heredoc 會吃掉反斜線**：用 `bash << 'PY'` 寫含 `
 `、``、` ` 的 Python 原始碼會被破壞（曾寫出 NUL byte 讓檔案無法解析）。含跳脫序列的檔案改用 Write 工具，或用 `chr(92)` 組出反斜線。
