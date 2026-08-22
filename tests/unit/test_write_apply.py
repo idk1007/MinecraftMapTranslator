@@ -362,3 +362,112 @@ def test_an_entities_chunk_is_written_by_the_same_surgical_path(project) -> None
     written = amulet_nbt.load(data, compressed=False).compound
     assert outcome.counts["edits_written"] == 1
     assert str(written["Entities"][0]["CustomName"]) == "衛兵"
+
+
+# --- 分派：literal 的節點一律走 in_place，不管 node_path 長什麼樣（M13a F1）----
+#
+# 舊的分派只看 `node_path` 最後一步是 `key` 還是 `index`。在 M13a 之前那碰巧是對的
+# ——v1 只掃告示牌（index + translate_key）與 `CustomName`（key + in_place），剛好
+# 是四種組合裡的兩種。M13a 把另外兩種也掃了進來，等價關係就假了。
+#
+# **真正的判準是 `value["kind"]`**：literal 要保留節點既有的形狀（in_place），
+# translate / component 才換成 translate key。
+
+
+def draft_book_chest(*pages, item_id="minecraft:writable_book"):
+    """舊格式（1.20.5 之前的 `tag`）的草稿書，裝在箱子的 `Items[]` 裡。
+
+    草稿書頁**本來就是無包裝的純字串**，不是 component。[實測] `Arena of Darkness`
+    有 9 個這種 occurrence。
+    """
+    book = amulet_nbt.CompoundTag({"id": amulet_nbt.StringTag(item_id)})
+    book["tag"] = amulet_nbt.CompoundTag(
+        {"pages": amulet_nbt.ListTag([amulet_nbt.StringTag(p) for p in pages])}
+    )
+    chest = amulet_nbt.CompoundTag({"id": amulet_nbt.StringTag("minecraft:chest")})
+    for name in ("x", "y", "z"):
+        chest[name] = amulet_nbt.IntTag(1)
+    chest["Items"] = amulet_nbt.ListTag([book])
+    return chest
+
+
+def page_edit(*, index=0, encoding="bare_string", data_version=3700, text="你好世界"):
+    """草稿書頁的 edit：**路徑以 index 結尾，但 value 是 literal。**"""
+    return {
+        "occurrence_id": "o:00002",
+        "unit_id": "u:draft_book_page:0123456789abcdef",
+        "container": {
+            "kind": "region_chunk",
+            "path": "region/r.0.0.mca",
+            "dimension": "minecraft:overworld",
+            "chunk": {"cx": 0, "cz": 0},
+            "data_version": data_version,
+            "compression": 2,
+            "external": False,
+        },
+        "node_path": [
+            {"t": "key", "name": "block_entities"},
+            {"t": "index", "i": 0},
+            {"t": "key", "name": "Items"},
+            {"t": "index", "i": 0},
+            {"t": "key", "name": "tag"},
+            {"t": "key", "name": "pages"},
+            {"t": "index", "i": index},
+        ],
+        "expected_encoding": encoding,
+        "value": {"kind": "literal", "text": text, "style": None},
+    }
+
+
+def pages_of(world, chunk_index=0):
+    path = world / "region" / "r.0.0.mca"
+    chunk = {c.index: c for c in read_region(ensure_readable(path))}[chunk_index]
+    data = decompress_chunk(chunk.payload, chunk.compression_type, chunk_index=chunk.index)
+    root = amulet_nbt.load(data, compressed=False).compound
+    return root["block_entities"][0]["Items"][0]["tag"]["pages"]
+
+
+def test_a_draft_book_page_keeps_its_bare_string_shape(project) -> None:
+    """**F1（Critical）**：草稿書頁不能被寫成 JSON 字串。
+
+    `draft_book_page` 的 strategy 是 `in_place`，但它的 `node_path` 以 index 結尾。
+    舊的分派只看路徑形狀，於是把它送進 `legacy.apply_to_list`，寫出來的是
+    `'{"text":"你好世界"}'`——玩家打開草稿書看到的是字面的大括號。
+    """
+    world = build_world(project, (0, draft_book_chest("Hello world", "page two"), 3700))
+
+    outcome = apply_editplan(world, plan(page_edit()))
+
+    written = pages_of(world)
+    assert outcome.counts["edits_written"] == 1
+    assert isinstance(written[0], amulet_nbt.StringTag)
+    assert str(written[0]) == "你好世界"
+
+
+def test_a_draft_book_page_does_not_promote_the_page_list(project) -> None:
+    """同一個節點在 native chunk 也不能被提升成 compound 的 list。
+
+    native 那條路徑更糟：`apply_to_list` 會把**整個 `pages` list 提升**成 compound，
+    連沒被要求改的那幾頁一起重新編碼。
+    """
+    world = build_world(project, (0, draft_book_chest("Hello world", "page two"), 4671))
+
+    outcome = apply_editplan(world, plan(page_edit(data_version=4671)))
+
+    written = pages_of(world)
+    assert outcome.counts["list_promotions"] == 0
+    assert all(isinstance(page, amulet_nbt.StringTag) for page in written)
+    assert [str(page) for page in written] == ["你好世界", "page two"]
+
+
+def test_a_draft_book_page_still_passes_the_encoding_guard(project) -> None:
+    """守門不因為換了一條路徑就鬆掉。"""
+    world = build_world(project, (0, draft_book_chest("Hello world"), 3700))
+
+    outcome = apply_editplan(
+        world, plan(page_edit(encoding="json_string_object"))
+    )
+
+    assert outcome.counts["edits_written"] == 0
+    assert outcome.unwritten[0]["reason"] == "node_changed"
+    assert str(pages_of(world)[0]) == "Hello world"

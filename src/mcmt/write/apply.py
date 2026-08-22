@@ -11,9 +11,13 @@
 **外科式寫入由 `write_region` 保證**：沒被改到的 chunk 帶著它從磁碟讀來的原始壓縮
 位元組原封送回去。報告裡的 `chunks_copied_verbatim` 就是這條規則的機器可檢查形式。
 
-**兩條寫入路徑**，由 `node_path` 的最後一步分派：最後一步是 `index` 就是 list 元素
-（告示牌四行），走 `legacy`/`native` 的世代分派；最後一步是 `key` 就是直接指派
-（`CustomName` 這類不吃 translate key 的欄位），走 `in_place`，保留節點既有的形狀。
+**寫什麼**由 `value.kind` 決定：`literal` 走 `in_place`，保留節點既有的形狀、只換
+裡面的字；`translate` / `component` 把節點換成 translate key，走 `legacy`/`native`
+的世代分派。**不是由 `node_path` 的最後一步決定**——那兩件事在 v1 碰巧一致（只掃了
+告示牌與 `CustomName`），M13a 之後不再一致。
+
+`node_path` 的最後一步只決定**怎麼把新節點放回去**：`index` 要顧 list 同型規則，
+`key` 直接指派。
 
 **每一筆寫入前都過 `expected_encoding` 守門。** 節點現在的形狀與 extract 當時記的不同
 就拒寫那一筆（`node_changed`）——[遊戲實測 M4-4] 使用者只要在中間玩過一次遊戲，
@@ -246,6 +250,28 @@ def _apply_edit(root, edit: dict, outcome: ApplyOutcome) -> bool:
             f"——世界在 extract 之後被改過了（多半是在遊戲裡開過）",
         )
         return False
+
+    # **literal 的節點走 in_place，即使它住在 list 裡。**
+    #
+    # 舊的分派只看 `node_path` 最後一步：index 就是告示牌四行、就換 translate key。
+    # 那在 v1 碰巧是對的（只掃了告示牌與 `CustomName`），M13a 之後是假的——舊格式
+    # 草稿書頁的路徑是 `…/tag/pages/[i]`（index 結尾）而 strategy 是 `in_place`。
+    # 走錯邊的後果是把 `StringTag("Hello world")` 寫成 `'{"text":"你好世界"}'`，
+    # 玩家打開草稿書看到的是字面的大括號。
+    #
+    # 型別安全的理由與 in_place 本來那條一樣：`current` 是**剛剛從這個元素嗅探出來
+    # 的形狀**，所以 `value_tag` 回傳的 NBT 型別必然與元素現在的型別相同
+    # （`bare_string`/`json_*` → StringTag、`*_compound` → CompoundTag），
+    # 不會把 compound 塞進 `list_data_type=8` 的 list。也因此不需要 list 提升，
+    # 其餘元素一個位元都不動。
+    if edit["value"].get("kind") == "literal":
+        try:
+            tag = in_place.value_tag(current, edit["value"])
+        except in_place.UnsupportedInPlaceShape as exc:
+            _refuse(outcome, edit, "unsupported_encoding", str(exc))
+            return False
+        container[index] = tag
+        return True
 
     # **分派**：舊世代寫 JSON 字串，新世代寫 compound。這是兩份實作的分岔點。
     writer = (
