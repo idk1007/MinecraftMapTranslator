@@ -505,9 +505,24 @@ CJK 9px、粗體 +1（吊掛上 10 個粗體 `M` 只顯示 8 個——若粗體�
 
 八個任務八個 commit（分支 `m13a`，計畫見
 `docs/superpowers/plans/2026-08-22-m13a-items-and-entities.md`，逐任務記錄在
-`.superpowers/sdd/2026-08-22-m13a-items-and-entities/progress.md`）。**寫入層一行都
-沒改**——`entities/*.mca` 與物品都走既有的 legacy/native/in_place 三條路徑，只是
-掃描層現在找得到它們。
+`.superpowers/sdd/2026-08-22-m13a-items-and-entities/progress.md`）。
+
+**`entities/*.mca` 確實一行寫入層都不必改**——它就是 region 格式（同一套 header、
+同一套壓縮），`write_region` 直接可用。
+
+**但物品暴露了 `apply.py` 的一個分派缺陷，最終 fix wave 才修掉。** 舊的
+`_apply_edit` 只看 `node_path` 最後一步是 `key` 還是 `index`。在 M13a 之前那是對的
+——v1 只掃告示牌（index + translate key）與 `CustomName`（key + literal），剛好是
+四種組合裡的兩種，所以「key ⇒ in_place、index ⇒ translate key」碰巧成立。M13a 把
+另外兩種也掃了進來，等價關係就假了：
+
+| 組合 | 例子 | M13a 開工時的行為 |
+|---|---|---|
+| index + literal | 舊格式草稿書頁 `tag/pages/[i]` | **寫成 JSON 字串，弄壞存檔**（AoD 9 筆） |
+| key + translate | 物品 `custom_name` / `item_name`、`entity_name`、`text_display`、新格式 `pages[].raw` | 全數拒寫（AoD 3,788、100WTD 364） |
+
+真正的判準是 `edit["value"]["kind"]`，不是路徑形狀。已修（兩個 write/ 獨立 commit），
+真實地圖重驗：AoD 14,285 筆 edit 全寫成、`unwritten` 0 筆。
 
 | 任務 | 產出 |
 |---|---|
@@ -545,8 +560,9 @@ T8 的 brief 抄了同一個 `list()` 反模式，**這次在 review 之前就�
 翻譯單位」，那是 M7 當時（`CustomName` 改走 `in_place` 之前）的數字。`in_place` 落地
 後，帶 `extra` 樹的 `CustomName` 節點會計進
 `stats.skipped_non_collapsible_in_place`（`in_place` 沒有「每段一個 key」的位置，
-與「不可塌縮 ⇒ 每段一個 key」的規則互斥），真正只掃 region 來源時是 **936**，
-差的 1 個已計數、有報告，不是靜默漏掉。
+與「不可塌縮 ⇒ 每段一個 key」的規則互斥），**M13a 開工前**（region 來源尚未接上
+物品與實體掃描）是 **936**，差的 1 個已計數、有報告，不是靜默漏掉。M13a 全部接上後
+是 1,348（見上表），那是現在的數字。
 
 已知缺口（見各任務 review 的 deferred minors，累計進下面「已知缺口」）：
 `minecraft:use_remainder` 等內嵌單一 ItemStack 的組件未列白名單、
@@ -569,8 +585,16 @@ M13a 涵蓋了容器物品與 `entities/*.mca`。還沒掃的：`level.dat`、�
 
 順帶會用到的東西已經備好：`level_name` / `book_title` / `book_author` /
 `draft_book_page` 四個 category 早就在 `IN_PLACE_CATEGORIES` 裡，`in_place` 的
-`plain_string` 形狀也實作好了（有單元測試，但**還沒有任何 region 路徑走得到它**
-——那四個欄位都在 `level.dat` 或物品裡）。
+`plain_string` 形狀也實作好了。
+
+> **這裡原本寫「還沒有任何 region 路徑走得到它」，M13a 推翻了那句話。** 物品掃描
+> 一接上，`book_title` / `book_author` / `draft_book_page` 就從 region 走得到了
+> ——[實測] AoD `book_title` 25、`book_author` 26、`draft_book_page` 9。而那句話
+> 正是 F1（草稿書頁被寫成 JSON 字串）沒被更早發現的原因：以為走不到的路徑，
+> 沒有人會去想它走對了沒有。剩下真的只在 `level.dat` 的是 `level_name`。
+>
+> `plain_string` 這個 encoding 仍然只有 `level.dat` 產得出來——region 掃到的
+> 草稿書頁嗅探出來是 `bare_string`（形狀一律逐節點嗅探，不由欄位推導）。
 
 ### 2. M14 CLI／報告／文件
 
@@ -585,6 +609,22 @@ M13a 涵蓋了容器物品與 `entities/*.mca`。還沒掃的：`level.dat`、�
 * **`book_page` 的寬度還沒校準**（114px 是 `[文件]`）。v1 還沒掃到書本，所以連一個
   真實資料點都沒有；M13 掃到之後要照 `docs/m8-checklist.md` 再跑一次校準。
 * **`json_string_array` 形狀的 `in_place` 仍拒寫**，沒測過。實務上罕見。
+* **MP2 還沒用 M13a 之後的掃描跑過。** 語料裡形狀最雜的一張（2,340 個
+  `json_empty_quoted`、2,261 棵帶 `extra` 的樹、331 筆 `hover_event`）目前只有
+  M13a 之前的數字。留到 M13.8「已在地化跳過」落地之後再跑——在那之前 MP2 的
+  原版 lang 條目會大量進待翻檔，數字沒有參考價值。
+* **指紋的排序鍵用 OS 原生路徑字串。** `region_files()` / `entities_files()` 都是
+  `sorted(..., key=str)`，Windows 是 `\`、POSIX 是 `/`，而指紋對順序敏感。摘要用的
+  相對路徑已經正規化成 `/`（`world_fingerprint` 裡那行），**排序沒有**。目前的語料
+  排不出差異，但「同一個世界在兩台機器上算出同一個指紋」這句承諾現在靠的是運氣。
+* **native 世界上的 list 提升會自撞。** [實測] 100 Ways To Die 一次 apply 有 325 筆
+  `node_changed`，全部是告示牌：同一面告示牌的第一行寫進去時整個 `messages` list
+  被提升成 compound，於是同一份 plan 裡後面幾行的 `expected_encoding`（`bare_string`）
+  就對不上了。**這不是 M13a 造成的**——那條路徑從 M11 起一字未改，legacy 世界
+  （AoD 全部 DV 3700）不提升所以看不到。失敗是安全的（拒寫、進報告），但一面
+  告示牌實際上只翻得到一行。修法要嘛在 chunk 內按 list 分組一次寫完，要嘛讓守門
+  認得「這個形狀變化是我們自己剛剛造成的」。**列在這裡是因為它需要一個自己的計畫，
+  不該夾在 fix wave 裡改一條寫入路徑。**
 
 ## 開工前該補掉的兩件事
 
