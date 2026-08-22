@@ -168,20 +168,29 @@ def test_a_missing_node_is_refused(project) -> None:
     assert outcome.unwritten[0]["reason"] == "node_missing"
 
 
-def test_a_translate_value_on_an_in_place_node_is_refused(project) -> None:
+def test_value_tag_itself_still_refuses_a_translate_value() -> None:
     """[遊戲實測 M11-3] 這裡放 translate key，玩家看到的是 key 本身。
 
-    後端不會產生這種計畫，但寫入層不靠上游的自律。
+    **這條測試在 M13a 縮小了範圍，那個縮小本身是這輪的一個取捨。** 原本它跑的是
+    `apply_editplan`：整份 plan 餵進去，寫入層看到 key 結尾就走 `in_place`，`in_place`
+    看到非 literal 就拒絕。M13a 之後 `apply.py` 依 `value.kind` 分派，所以同一份 plan
+    會走 translate key 那條路寫進去——**寫入層再也看不出這個 key 是 `CustomName`
+    還是物品的 `custom_name`**（`edit` 裡沒有 category 也沒有 strategy）。
+
+    不得不這樣：舊的那道牆同時擋住了 3,788 個本來該寫的物品名。牆搬到了上游的
+    `strategy_for`，由 `tests/unit/test_write_apply.py` 的
+    `test_only_the_strategy_now_keeps_a_translate_key_out_of_custom_name` 釘住。
+
+    `in_place.value_tag` 自己這條不變，而且必須不變：它是「這個形狀只收字面文字」
+    的那份宣告，不是「這個欄位是哪一個」的判斷。
     """
-    world = build_world(project, chest(amulet_nbt.StringTag("Supply Crate")))
-    bad = edit()
-    bad["value"] = {"kind": "translate", "key": "mcmt.block_entity_name.0123456789abcdef"}
+    from mcmt.write.in_place import UnsupportedInPlaceShape, value_tag
 
-    outcome = apply_editplan(world, plan(bad))
-
-    assert outcome.counts["edits_written"] == 0
-    assert outcome.unwritten[0]["reason"] == "unsupported_encoding"
-    assert str(custom_name_of(world)) == "Supply Crate"
+    with pytest.raises(UnsupportedInPlaceShape):
+        value_tag(
+            "bare_string",
+            {"kind": "translate", "key": "mcmt.block_entity_name.0123456789abcdef"},
+        )
 
 
 def test_placeholder_residue_rejects_the_whole_plan(project) -> None:

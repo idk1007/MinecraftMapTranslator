@@ -460,6 +460,185 @@ def test_a_draft_book_page_does_not_promote_the_page_list(project) -> None:
     assert [str(page) for page in written] == ["你好世界", "page two"]
 
 
+def named_item_chest(name_tag, *, key="minecraft:custom_name"):
+    """一個帶自訂名稱的物品（新格式 `components`），裝在箱子的 `Items[]` 裡。"""
+    item = amulet_nbt.CompoundTag({"id": amulet_nbt.StringTag("minecraft:diamond_sword")})
+    item["components"] = amulet_nbt.CompoundTag({key: name_tag})
+    chest = amulet_nbt.CompoundTag({"id": amulet_nbt.StringTag("minecraft:chest")})
+    for coordinate in ("x", "y", "z"):
+        chest[coordinate] = amulet_nbt.IntTag(1)
+    chest["Items"] = amulet_nbt.ListTag([item])
+    return chest
+
+
+def old_named_item_chest(name_tag):
+    """同一件事的舊格式（1.20.5 之前的 `tag.display.Name`）。
+
+    [實測] `Arena of Darkness`（1.20.4）全是這一套，3,696 個 `Items[].tag.display.Name`。
+    """
+    item = amulet_nbt.CompoundTag({"id": amulet_nbt.StringTag("minecraft:diamond_sword")})
+    item["tag"] = amulet_nbt.CompoundTag(
+        {"display": amulet_nbt.CompoundTag({"Name": name_tag})}
+    )
+    chest = amulet_nbt.CompoundTag({"id": amulet_nbt.StringTag("minecraft:chest")})
+    for coordinate in ("x", "y", "z"):
+        chest[coordinate] = amulet_nbt.IntTag(1)
+    chest["Items"] = amulet_nbt.ListTag([item])
+    return chest
+
+
+_COMPONENT_NAME_PATH = [
+    {"t": "key", "name": "block_entities"},
+    {"t": "index", "i": 0},
+    {"t": "key", "name": "Items"},
+    {"t": "index", "i": 0},
+    {"t": "key", "name": "components"},
+    {"t": "key", "name": "minecraft:custom_name"},
+]
+
+_OLD_NAME_PATH = [
+    {"t": "key", "name": "block_entities"},
+    {"t": "index", "i": 0},
+    {"t": "key", "name": "Items"},
+    {"t": "index", "i": 0},
+    {"t": "key", "name": "tag"},
+    {"t": "key", "name": "display"},
+    {"t": "key", "name": "Name"},
+]
+
+
+def name_edit(*, node_path=None, encoding="text_compound", data_version=4671, value=None):
+    """物品名的 edit：**路徑以 key 結尾，但 value 是 translate key。**"""
+    return {
+        "occurrence_id": "o:00003",
+        "unit_id": "u:custom_name:0123456789abcdef",
+        "container": {
+            "kind": "region_chunk",
+            "path": "region/r.0.0.mca",
+            "dimension": "minecraft:overworld",
+            "chunk": {"cx": 0, "cz": 0},
+            "data_version": data_version,
+            "compression": 2,
+            "external": False,
+        },
+        "node_path": node_path or _COMPONENT_NAME_PATH,
+        "expected_encoding": encoding,
+        "value": value
+        or {
+            "kind": "translate",
+            "key": "mcmt.custom_name.0123456789abcdef",
+            "style": None,
+        },
+    }
+
+
+def item_name_node(world, path_keys, chunk_index=0):
+    path = world / "region" / "r.0.0.mca"
+    chunk = {c.index: c for c in read_region(ensure_readable(path))}[chunk_index]
+    data = decompress_chunk(chunk.payload, chunk.compression_type, chunk_index=chunk.index)
+    root = amulet_nbt.load(data, compressed=False).compound
+    node = root["block_entities"][0]["Items"][0]
+    for key in path_keys:
+        node = node[key]
+    return node
+
+
+def test_an_item_custom_name_accepts_a_translate_key(project) -> None:
+    """**F2**：以 key 結尾的 translate_key 節點不該被整批拒寫。
+
+    `_apply_in_place` 對 `kind != "literal"` 一律拋 `UnsupportedInPlaceShape`，理由是
+    「這個欄位不吃 translate key」。那句話對 `block_entity_name` 是對的（[遊戲實測
+    M11-3]），對**物品的 `custom_name`** 是假的——[實測] Arena of Darkness 3,788 個、
+    100 Ways To Die 364 個 occurrence 全數落進 `unwritten`。
+    """
+    world = build_world(
+        project,
+        (
+            0,
+            named_item_chest(
+                amulet_nbt.CompoundTag({"text": amulet_nbt.StringTag("Sword")})
+            ),
+            4671,
+        ),
+    )
+
+    outcome = apply_editplan(world, plan(name_edit()))
+
+    written = item_name_node(world, ["components", "minecraft:custom_name"])
+    assert outcome.unwritten == []
+    assert outcome.counts["edits_written"] == 1
+    assert isinstance(written, amulet_nbt.CompoundTag)
+    assert str(written["translate"]) == "mcmt.custom_name.0123456789abcdef"
+
+
+def test_an_old_format_item_name_gets_a_json_string(project) -> None:
+    """世代分派也要跟上：DV < 4325 的 chunk 寫 JSON 字串，不是 compound。
+
+    key 結尾的節點過去只走 `in_place`，`in_place` 完全不看 DataVersion（它保留形狀），
+    所以 translate key 這條路一接上，世代分派就必須自己做。
+    """
+    world = build_world(
+        project,
+        (0, old_named_item_chest(amulet_nbt.StringTag('{"text":"Xyphia"}')), 3700),
+    )
+
+    outcome = apply_editplan(
+        world,
+        plan(
+            name_edit(
+                node_path=_OLD_NAME_PATH,
+                encoding="json_string_object",
+                data_version=3700,
+            )
+        ),
+    )
+
+    written = item_name_node(world, ["tag", "display", "Name"])
+    assert outcome.counts["edits_written"] == 1
+    assert isinstance(written, amulet_nbt.StringTag)
+    assert json.loads(str(written))["translate"] == "mcmt.custom_name.0123456789abcdef"
+
+
+def test_only_the_strategy_now_keeps_a_translate_key_out_of_custom_name() -> None:
+    """**一個誠實的缺口，寫成測試而不是註解。**
+
+    [遊戲實測 M11-3] 方塊實體的 `CustomName` 寫進 `{translate:…}`，容器 GUI 顯示的是
+    字面的大括號。分派改成看 `value.kind` 之前，擋住這件事的是**寫入層**：key 結尾
+    一律走 `in_place`，而 `in_place` 拒收非 literal。
+
+    改成看 `value.kind` 之後那道牆沒了——`edit` 裡沒有 category 也沒有 strategy
+    （見 `docs/contracts/editplan.schema.json`），所以寫入層**看不出**這個 key 結尾的
+    節點是 `CustomName` 還是物品的 `custom_name`。那道牆是被搬走的，不是被拆掉的：
+    現在唯一擋著的是上游的 `strategy_for`。
+
+    這是必要的取捨——舊的那道牆同時擋住了 3,788 個本來該寫的物品名（F2）。但取捨
+    要看得見，所以把新的那道牆釘在這裡。
+    """
+    from mcmt.model.strategy import strategy_for
+
+    assert strategy_for("block_entity_name") == "in_place"
+    assert strategy_for("custom_name") == "translate_key"
+
+
+def test_a_key_ended_translate_edit_still_passes_the_encoding_guard(project) -> None:
+    """守門不因為換了一條路徑就鬆掉。"""
+    world = build_world(
+        project,
+        (
+            0,
+            named_item_chest(
+                amulet_nbt.CompoundTag({"text": amulet_nbt.StringTag("Sword")})
+            ),
+            4671,
+        ),
+    )
+
+    outcome = apply_editplan(world, plan(name_edit(encoding="bare_string")))
+
+    assert outcome.counts["edits_written"] == 0
+    assert outcome.unwritten[0]["reason"] == "node_changed"
+
+
 def test_a_draft_book_page_still_passes_the_encoding_guard(project) -> None:
     """守門不因為換了一條路徑就鬆掉。"""
     world = build_world(project, (0, draft_book_chest("Hello world"), 3700))

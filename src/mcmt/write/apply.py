@@ -208,15 +208,14 @@ def _apply_edit(root, edit: dict, outcome: ApplyOutcome) -> bool:
         _refuse(outcome, edit, "node_missing", "node_path 是空的")
         return False
 
-    # **兩條寫入路徑，由 node_path 的最後一步分派。**
+    # **node_path 的最後一步只決定「怎麼把新節點放回去」**，不決定「寫什麼」。
     #
-    # 最後一步是 `index` → list 元素（告示牌四行），走 legacy/native 的世代分派，
-    # 節點換成 `{translate: key}`，譯文住在資源包裡。
+    # `key` → 直接指派到父 compound。
+    # `index` → 換掉一個 list 元素，而 list 有同型規則要顧。
     #
-    # 最後一步是 `key` → 直接指派（`CustomName` 這類不吃 translate key 的欄位），
-    # 保留節點既有的形狀、只換裡面的字。[遊戲實測 M11-3]
+    # 寫什麼由 `value.kind` 決定，兩條路徑各自再分一次（見底下）。
     if steps[-1].t == "key":
-        return _apply_in_place(root, steps, edit, outcome)
+        return _apply_to_key(root, steps, edit, outcome)
     if steps[-1].t != "index":
         _refuse(outcome, edit, "unsupported_encoding", "v1 的寫入路徑不支援 decode 步驟")
         return False
@@ -236,19 +235,8 @@ def _apply_edit(root, edit: dict, outcome: ApplyOutcome) -> bool:
         return False
 
     # **守門**：節點現在的形狀還是 extract 當時記的那個嗎？
-    try:
-        current = sniff(container[index]).encoding.value
-    except TypeError:
-        _refuse(outcome, edit, "unsupported_encoding", "這個節點不是文字節點")
-        return False
-    if current != edit["expected_encoding"]:
-        _refuse(
-            outcome,
-            edit,
-            "node_changed",
-            f"預期 {edit['expected_encoding']}，現在是 {current}"
-            f"——世界在 extract 之後被改過了（多半是在遊戲裡開過）",
-        )
+    current = _guarded_encoding(container[index], edit, outcome)
+    if current is None:
         return False
 
     # **literal 的節點走 in_place，即使它住在 list 裡。**
@@ -273,12 +261,9 @@ def _apply_edit(root, edit: dict, outcome: ApplyOutcome) -> bool:
         container[index] = tag
         return True
 
+    # translate / component：節點換成 `{translate: key}`，譯文住在資源包裡。
     # **分派**：舊世代寫 JSON 字串，新世代寫 compound。這是兩份實作的分岔點。
-    writer = (
-        legacy
-        if generation_of(edit["container"]["data_version"]).legacy_json_is_content
-        else native
-    )
+    writer = _translate_writer(edit)
     result = writer.apply_to_list(container, index, writer.value_tag(edit["value"]))
     _replace_list(root, steps[:-1], result.list)
     if result.promoted:
@@ -286,12 +271,26 @@ def _apply_edit(root, edit: dict, outcome: ApplyOutcome) -> bool:
     return True
 
 
-def _apply_in_place(root, steps, edit: dict, outcome: ApplyOutcome) -> bool:
-    """直接指派一個 compound 的鍵。**保留節點既有的 NBT 形狀。**
+def _apply_to_key(root, steps, edit: dict, outcome: ApplyOutcome) -> bool:
+    """直接指派一個 compound 的鍵。
 
     守門與 list 那條路徑一模一樣，而且順序不能換：先確認節點還在、再確認它的形狀
     還是 extract 當時記的那個，最後才決定寫什麼。[遊戲實測 M4-4] 使用者中間玩過
     一次遊戲，DataFixer 就會把部分節點的形狀改掉。
+
+    **key 結尾不等於 in_place。** 這一格在 v1 碰巧成立（唯一以 key 結尾的節點是
+    `CustomName`），M13a 之後是假的：物品的 `minecraft:custom_name` / `item_name`、
+    實體的 `CustomName`、`text_display` 的 `text`、新格式書頁的 `pages[].raw` 全都
+    以 key 結尾，而它們**吃 translate key**。[實測] 把它們一律當成 in_place 的後果是
+    `Arena of Darkness` 3,788 個、`100 Ways To Die` 364 個 occurrence 全數落進
+    `unwritten`，理由寫著「這個欄位不吃 translate key」——那句話對 `block_entity_name`
+    是對的（[遊戲實測 M11-3]），對物品名是假的。
+
+    **擋住 `CustomName` 的那道牆是被搬走的，不是被拆掉的**：`edit` 裡沒有 category
+    也沒有 strategy（合約如此），所以寫入層看不出這個 key 是哪一個欄位。現在唯一
+    擋著的是上游的 `strategy_for("block_entity_name") == "in_place"`，它由
+    `tests/unit/test_write_apply.py` 的
+    `test_only_the_strategy_now_keeps_a_translate_key_out_of_custom_name` 釘住。
     """
     name = steps[-1].name
     try:
@@ -304,11 +303,47 @@ def _apply_in_place(root, steps, edit: dict, outcome: ApplyOutcome) -> bool:
         _refuse(outcome, edit, "node_missing", f"找不到鍵 {name}")
         return False
 
+    current = _guarded_encoding(parent[name], edit, outcome)
+    if current is None:
+        return False
+
+    if edit["value"].get("kind") == "literal":
+        # **保留節點既有的 NBT 形狀**，只換裡面的字。
+        try:
+            tag = in_place.value_tag(current, edit["value"])
+        except in_place.UnsupportedInPlaceShape as exc:
+            _refuse(outcome, edit, "unsupported_encoding", str(exc))
+            return False
+        parent[name] = tag
+        return True
+
+    # translate / component：這裡沒有 list 同型規則要顧，所以直接指派。世代分派
+    # 仍然要做——`in_place` 不看 DataVersion（它保留形狀），這條路是新的，得自己分。
+    writer = _translate_writer(edit)
+    parent[name] = writer.value_tag(edit["value"])
+    return True
+
+
+def _translate_writer(edit: dict):
+    """DV < 4325 寫 JSON 字串、DV ≥ 4325 寫 compound。**兩份實作，不是一份加 if。**"""
+    return (
+        legacy
+        if generation_of(edit["container"]["data_version"]).legacy_json_is_content
+        else native
+    )
+
+
+def _guarded_encoding(tag, edit: dict, outcome: ApplyOutcome) -> str | None:
+    """節點現在的形狀，或 None（已經記進 unwritten）。
+
+    這道守門對兩條放回去的路徑一字不差，所以只寫一份——它不是 legacy/native 那種
+    規格層級的不對稱，只是同一個檢查在兩處被呼叫。
+    """
     try:
-        current = sniff(parent[name]).encoding.value
+        current = sniff(tag).encoding.value
     except TypeError:
         _refuse(outcome, edit, "unsupported_encoding", "這個節點不是文字節點")
-        return False
+        return None
     if current != edit["expected_encoding"]:
         _refuse(
             outcome,
@@ -317,16 +352,8 @@ def _apply_in_place(root, steps, edit: dict, outcome: ApplyOutcome) -> bool:
             f"預期 {edit['expected_encoding']}，現在是 {current}"
             f"——世界在 extract 之後被改過了（多半是在遊戲裡開過）",
         )
-        return False
-
-    try:
-        tag = in_place.value_tag(current, edit["value"])
-    except in_place.UnsupportedInPlaceShape as exc:
-        _refuse(outcome, edit, "unsupported_encoding", str(exc))
-        return False
-
-    parent[name] = tag
-    return True
+        return None
+    return current
 
 
 def _resolve(root, steps):
