@@ -98,6 +98,8 @@ def format_result(summary: dict) -> str:
         ("新世代 chunk 裡的舊式 JSON（遊戲裡本來就是亂碼）",
          stats["skipped_legacy_json_in_native_chunk"]),
         ("JSON 解析失敗", stats["skipped_unparseable"]),
+        ("已在地化（地圖自己的 translate key，翻了會蓋掉別人做好的多語言支援）",
+         stats["skipped_already_localised"]),
         ("空白節點", result.stats["skipped_empty"]),
     ]
     listed = [(name, n) for name, n in skipped if n]

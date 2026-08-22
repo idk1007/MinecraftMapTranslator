@@ -204,6 +204,14 @@ def _consider(node, data_version: int, result: ExtractResult):
             value = _plain(value)
 
     flattened = flatten(value)
+
+    if _contains_translate(flattened.skeleton):
+        # 半文字半 key 的樹一樣要擋——重建時會覆蓋掉那個巢狀 key，讓一張支援
+        # 多語言的地圖（自己的 translate key + lang 檔）退化成只支援我們寫進去
+        # 的那一種。用「任何一處」而不是「根節點是」正是為了這種情況。
+        result.stats["skipped_already_localised"] += 1
+        return None
+
     if not flattened.plain.strip():
         result.stats["skipped_empty"] += 1
         return None
@@ -262,3 +270,13 @@ def _plain(tag):
         return int(tag)
     except Exception:
         return str(tag)
+
+
+def _contains_translate(skeleton: dict[str, Any] | None) -> bool:
+    """攤平後的骨架裡任何一處有 `translate` 節點——半文字半 key 的樹也要抓到，
+    重建時一樣會覆蓋掉那個巢狀 key。"""
+    if not isinstance(skeleton, dict):
+        return False
+    if skeleton.get("type") == "translate":
+        return True
+    return any(_contains_translate(child) for child in skeleton.get("extra", []))

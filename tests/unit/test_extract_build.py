@@ -52,3 +52,76 @@ def test_a_level_name_that_looks_like_json_is_not_mistaken_for_one(project) -> N
     assert len(level_name_units) == 1
     assert level_name_units[0].occurrences[0].encoding == "plain_string"
     assert result.stats["skipped_unparseable"] == 0
+
+
+def test_a_node_that_is_already_localised_via_translate_is_skipped(tmp_path, project) -> None:
+    """MP2 這類自己有中文化系統的地圖，`{translate:"mcp.X"}` 不該被我們的 key
+    覆蓋掉——翻了會讓一張支援 5 種語言的地圖退化成只支援一種。"""
+    import amulet_nbt
+
+    from mcmt.extract.build import build_units
+    from mcmt.sandbox import import_world
+
+    source = tmp_path / "outside" / "TT_ALREADY_LOCALISED"
+    (source / "region").mkdir(parents=True)
+    sign = amulet_nbt.CompoundTag({"id": amulet_nbt.StringTag("minecraft:oak_sign")})
+    for coordinate in ("x", "y", "z"):
+        sign[coordinate] = amulet_nbt.IntTag(1)
+    localised = amulet_nbt.CompoundTag(
+        {"translate": amulet_nbt.StringTag("mcp.SignStartSlot"), "fallback": amulet_nbt.StringTag("Start")}
+    )
+    blank = amulet_nbt.CompoundTag({"text": amulet_nbt.StringTag("")})
+    face = amulet_nbt.CompoundTag(
+        {"messages": amulet_nbt.ListTag([localised, blank, blank, blank])}
+    )
+    sign["front_text"] = face
+    from conftest import RegionBuilder, modern_chunk, write_region_file
+
+    root = modern_chunk(data_version=4671)
+    root["block_entities"] = amulet_nbt.ListTag([sign])
+    write_region_file(source / "region", RegionBuilder().add_chunk_nbt(0, root).build())
+
+    imported = import_world(source, name="already_localised")
+    result = build_units(imported.target, world_root=ensure_readable(imported.target))
+
+    assert all("mcp.SignStartSlot" not in u.text for u in result.units)
+    assert result.stats["skipped_already_localised"] == 1
+
+
+def test_a_half_localised_tree_is_also_skipped(tmp_path, project) -> None:
+    """半文字半 key 的樹——重建時一樣會覆蓋掉那個巢狀 key，所以「任何一處」
+    而不是「根節點是」。"""
+    import amulet_nbt
+
+    from mcmt.extract.build import build_units
+    from mcmt.sandbox import import_world
+
+    source = tmp_path / "outside" / "TT_HALF_LOCALISED"
+    (source / "region").mkdir(parents=True)
+    sign = amulet_nbt.CompoundTag({"id": amulet_nbt.StringTag("minecraft:oak_sign")})
+    for coordinate in ("x", "y", "z"):
+        sign[coordinate] = amulet_nbt.IntTag(1)
+    nested = amulet_nbt.CompoundTag(
+        {
+            "text": amulet_nbt.StringTag("Hello "),
+            "extra": amulet_nbt.ListTag(
+                [amulet_nbt.CompoundTag({"translate": amulet_nbt.StringTag("mcp.X")})]
+            ),
+        }
+    )
+    blank = amulet_nbt.CompoundTag({"text": amulet_nbt.StringTag("")})
+    face = amulet_nbt.CompoundTag(
+        {"messages": amulet_nbt.ListTag([nested, blank, blank, blank])}
+    )
+    sign["front_text"] = face
+    from conftest import RegionBuilder, modern_chunk, write_region_file
+
+    root = modern_chunk(data_version=4671)
+    root["block_entities"] = amulet_nbt.ListTag([sign])
+    write_region_file(source / "region", RegionBuilder().add_chunk_nbt(0, root).build())
+
+    imported = import_world(source, name="half_localised")
+    result = build_units(imported.target, world_root=ensure_readable(imported.target))
+
+    assert result.stats["skipped_already_localised"] == 1
+    assert result.units == []

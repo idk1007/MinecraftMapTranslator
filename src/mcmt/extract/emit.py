@@ -79,6 +79,7 @@ def build_extract_document(
             "skipped_non_collapsible_in_place": result.stats[
                 "skipped_non_collapsible_in_place"
             ],
+            "skipped_already_localised": result.stats["skipped_already_localised"],
             "by_category": _by_category(result.units),
         },
         "units": units,
