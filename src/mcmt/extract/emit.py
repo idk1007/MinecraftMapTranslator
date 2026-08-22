@@ -221,8 +221,14 @@ def _context_for(unit: Unit) -> dict[str, Any]:
 
 
 def _hint_for(unit: Unit) -> str:
+    """`container.dimension` 只有 region/entities chunk 才有值——`level_dat`
+    這類非 chunk 容器（M13.5）合約明講是 `null`（不在任何維度裡），不是漏填。
+    **原本這裡把 `None` 直接塞進 `str.join`**：舊範圍下每個來源都是 chunk，
+    這個假設從沒被踩過；`level_dat.scan` 掛上後第一個 `level_name` 單位就是
+    `TypeError`。沒有維度可講時退回容器種類（`level_dat` 之類）。"""
     count = len(unit.occurrences)
-    where = "、".join(sorted({o.container.get("dimension", "") for o in unit.occurrences}))
+    dimensions = sorted({o.container.get("dimension") for o in unit.occurrences} - {None})
+    where = "、".join(dimensions) if dimensions else unit.occurrences[0].container.get("kind", "")
     if count > 1:
         return f"{unit.category}；這段文字在世界裡出現 {count} 次（{where}）"
     return f"{unit.category}（{where}）"

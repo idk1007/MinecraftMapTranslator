@@ -76,7 +76,9 @@ def test_the_translation_file_is_ready_to_edit(project) -> None:
         (out_dir(project) / "translations.zh_tw.json").read_text("utf-8")
     )
     sources = {e["source"] for e in document["entries"].values()}
-    assert sources == {"歡迎光臨", "前方危險"}
+    # `build_world` 的 level.dat 帶 `LevelName: "world"`——M13.5 掛上
+    # `level_dat.scan` 之後這個欄位第一次被掃到，多出一個 `level_name` 單位。
+    assert sources == {"歡迎光臨", "前方危險", "world"}
     assert all(e["target"] == "" for e in document["entries"].values())
 
 

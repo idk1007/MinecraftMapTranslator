@@ -29,7 +29,7 @@ from typing import Any
 
 import amulet_nbt
 
-from mcmt.model.component import Encoding, sniff
+from mcmt.model.component import Encoding, Sniffed, sniff
 from mcmt.model.generation import generation_of
 from mcmt.model.segments import flatten
 from mcmt.model.strategy import IN_PLACE_ENCODINGS, strategy_for
@@ -47,6 +47,15 @@ _LEGACY_JSON = {
     Encoding.JSON_STRING_SCALAR,
     Encoding.JSON_EMPTY_QUOTED,
 }
+
+# 這幾個欄位根本不是 component——`sniff()` 只認值的形狀，猜不出「這個欄位不該
+# 被當 JSON 猜」。世界名剛好以 `{`/`"`/`[` 開頭時，sniff() 會誤判成 JSON 並嘗試
+# 解析，解析失敗就整個被當 unparseable_json 跳過不翻。`level_dat.py` 是第一個
+# 用到這個覆寫的來源；book_title/book_author/draft_book_page 目前仍然沿用
+# sniff() 判成的 bare_string——改變它們的既有行為超出這個任務的範圍，需要自己
+# 的一輪（它們的寫入端行為不受影響：write/in_place.py 對 bare_string 與
+# plain_string 是同一個函式 `_bare`）。
+_PLAIN_STRING_CATEGORIES = frozenset({"level_name"})
 
 
 @dataclass
@@ -167,6 +176,14 @@ def _consider(node, data_version: int, result: ExtractResult):
     except TypeError:
         result.stats["skipped_not_text"] += 1
         return None
+
+    if node.category in _PLAIN_STRING_CATEGORIES and isinstance(node.tag, amulet_nbt.StringTag):
+        # **不管值長得像不像 JSON，這個欄位都不是 component。** 覆寫掉
+        # sniff() 的猜測，而不是先讓它跑一輪再事後修正——跑過再修正的話，值
+        # 剛好解析失敗時已經被標成 unparseable_json，圖窮匕見前這個節點就已經
+        # 在 _consider() 的下一段被跳過了。
+        text = str(node.tag)
+        shape = Sniffed(encoding=Encoding.PLAIN_STRING, raw=text, parsed=text)
 
     if shape.problem == "unparseable_json":
         # 絕不當裸文字翻掉——翻了會寫回非法 JSON，而遊戲對非法 JSON 的行為未定義。
