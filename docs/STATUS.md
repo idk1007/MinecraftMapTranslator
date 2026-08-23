@@ -696,6 +696,24 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
   `pack_format` 下限修正（M4-5 的教訓）沒有類比套用到 datapack 自己的 `pack.mcmeta`——
   這次沒有寫入 datapack 自己的 `pack.mcmeta`（只改了 advancement JSON），所以不觸發
   這個問題，但如果未來要支援翻譯 datapack 的其他部分要記得重新檢查。
+* **`world_fingerprint` 沒有涵蓋 `level.dat`／`data/scoreboard.dat`／`datapacks/**`。**
+  [M13b 最終 review 發現，2026-08-23] `fingerprint.py` 的 docstring 自己就寫著擴大掃描
+  範圍時「什麼算世界的內容」要跟著長——M13 擴到 `entities/` 時真的照做了，M13b 擴到這
+  三個非 chunk 來源時沒有。後果：使用者在 extract 之後把世界名改掉，指紋不變，
+  `extract_fingerprint` 會說「世界沒變」而實際上變了；同一趟只改 `.dat`／datapack 的
+  apply，`apply_report.world.world_fingerprint_after` 會跟 before **完全相同**，報告
+  主動說謊。per-node 的 `expected_encoding` 守門是最後一道防線，但對「形狀沒變、內容
+  變了」這種情況（例如使用者把世界名從一個裸字串改成另一個裸字串）完全看不到——這正是
+  上面 `occurrence.raw_snapshot` 那條缺口的另一個入口。刻意沒有在 M13b 的 fix wave 裡
+  處理：擴大指紋涵蓋範圍是它自己的一個任務，不該在最終 review 修正裡順手改一個安全性
+  相關的核心函式。
+* **`doctor` 的健檢範圍沒有涵蓋 `level.dat`／`scoreboard.dat`／datapack。**
+  [M13b 最終 review 發現，2026-08-23] `doctor.py` 的 docstring 是 M13a 那輪被抓到之後
+  寫上去的宣告：「doctor 是拒絕處理的閘門，它的涵蓋範圍必須等於 apply 會寫的範圍」。
+  M13b 讓 apply 寫這三個新來源，doctor 一行沒改——讀不下去的 `level.dat`／損毀的
+  `scoreboard.dat`／壞掉的 datapack zip，doctor 完全看不到，`extract` 目前也只是各自
+  的來源函式自己吞掉例外並計數（見上方三個新增的 `skipped_*` 統計），使用者要跑過
+  `extract` 才會發現，不是跑 `doctor` 就先知道。與上一條同一個理由，留給自己的任務。
 
 ## 開工前該補掉的兩件事
 
