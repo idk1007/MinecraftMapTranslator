@@ -15,6 +15,12 @@ DV ≥ 4325 寫 NBT compound，因為遊戲會不會跑 DataFixerUpper 是世代
 只換裡面的字。所以分派的依據是 `encoding` 而不是 `data_version`，這是第三種操作，
 不是把那兩份合起來。
 
+**這個模組不是「擋著 `block_entity_name` 別被塌成 `{translate: key}`」的主線防
+禦。** 那道防線在上游的 `model/strategy.py`（`strategy_for()` 由 category 決
+定，backend 的 `_value_for()` 據此分派）——這裡收到非 `literal` 的 `kind` 時報
+錯只是防禦性的兜底（M13a 之前 `write/apply.py` 曾經只靠路徑形狀分派，那時這裡
+確實是唯一防線；F2 把分派改成看 `value.kind` 之後，主線就上移了）。
+
 ## 保留形狀，兩條理由
 
 1. **不把 `TAG_String` 提升成 compound。** 告示牌那邊整個 list 提升過（M11-1 實測
