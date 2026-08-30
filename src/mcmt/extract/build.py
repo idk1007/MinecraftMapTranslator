@@ -99,6 +99,7 @@ class Occurrence:
     segment_styles: list[dict[str, Any]]
     skeleton: dict[str, Any] | None
     list_context: dict[str, Any] | None
+    raw_snapshot: str | None = None
     excluded: dict[str, Any] | None = None
 
 
@@ -143,7 +144,7 @@ def build_units(
             built = _consider(node, scanned.container["data_version"], result)
             if built is None:
                 continue
-            flattened, encoding = built
+            flattened, encoding, raw_snapshot = built
 
             discriminator = registry.register(node.category, flattened.text)
             uid = f"u:{node.category}:{discriminator}"
@@ -182,6 +183,7 @@ def build_units(
                     segment_styles=list(flattened.styles),
                     skeleton=flattened.skeleton,
                     list_context=node.list_context,
+                    raw_snapshot=raw_snapshot,
                     excluded=_exclusion_for(node.category, encoding),
                 )
             )
@@ -270,7 +272,29 @@ def _consider(node, data_version: int | None, result: ExtractResult):
         result.stats["skipped_non_collapsible_in_place"] += 1
         return None
 
-    return flattened, shape.encoding
+    return flattened, shape.encoding, _raw_snapshot(node.tag, shape)
+
+
+def _raw_snapshot(tag, shape: Sniffed) -> str | None:
+    """`occurrence.raw_snapshot`：這個節點**在這一刻**的字面值，byte-exact。
+
+    只有「這個節點就是一段孤立的文字」時才有意義——`compound_tree` 帶著
+    `extra`／`click_event` 之類的結構，沒有單一字串能代表整個節點，硬塞一個
+    會造成守門拿它去比對時，改了樣式（不改文字）也被誤判成「內容變了」。
+
+    `shape.raw` 對所有字串形狀的節點（`bare_string`／`plain_string`／四種
+    `json_*`）已經是磁碟上的原始字元——`sniff()` 為了同一個理由自己就留著它
+    （`model/component.py` 的 `_sniff_string`）。**只有兩種 compound 形狀不是
+    字串節點，要自己把內層那個唯一的文字鍵挖出來**：`{"": …}` 與
+    `{"text": …}`——這兩者才是「單一字串，只是包了一層」，`compound_tree` 不是。
+    """
+    if shape.raw is not None:
+        return shape.raw
+    if shape.encoding is Encoding.EMPTY_KEY_COMPOUND:
+        return str(tag[""])
+    if shape.encoding is Encoding.TEXT_COMPOUND:
+        return str(tag["text"])
+    return None
 
 
 def _exclusion_for(category: str, encoding: Encoding) -> dict[str, Any] | None:

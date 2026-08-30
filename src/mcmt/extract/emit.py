@@ -193,7 +193,7 @@ def _occurrence_json(occurrence) -> dict[str, Any]:
         "encoding": occurrence.encoding,
         "segment_styles": occurrence.segment_styles,
         "skeleton": occurrence.skeleton,
-        "raw_snapshot": None,
+        "raw_snapshot": occurrence.raw_snapshot,
     }
     if occurrence.list_context:
         document["list_context"] = occurrence.list_context
