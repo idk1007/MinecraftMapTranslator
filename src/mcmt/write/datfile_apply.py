@@ -26,7 +26,7 @@ from mcmt.errors import FormatError
 from mcmt.nbtio.datfile import read_dat, write_dat
 from mcmt.safety.backup import BackupSet
 from mcmt.safety.paths import ensure_readable, ensure_writable
-from mcmt.write.common import ApplyOutcome, apply_edit_to_compound, refuse
+from mcmt.write.common import ApplyOutcome, apply_edits, refuse
 
 __all__ = ["apply_to_datfile"]
 
@@ -52,10 +52,7 @@ def apply_to_datfile(
         return
 
     root = dat.tag.compound
-    written = 0
-    for edit in edits:
-        if apply_edit_to_compound(root, edit, outcome):
-            written += 1
+    written = apply_edits(root, edits, outcome)
     if not written:
         return
 

@@ -12,10 +12,20 @@ editplan 的 value 該長成什麼 component（合約定義的），以及佔位
 region chunk 還是 `.dat` 檔完全無關，兩者共用同一份，不是巧合的重複。把它們搬
 到這裡而不是留在 `write/apply.py`，是因為 `write/datfile_apply.py` 也要用同一份
 （見 `docs/ownership.md`「為什麼寫入層與輸出後端是分開的」同一條理由）。
+
+**`apply_edits()`（複數）才是呼叫端該用的入口。** 同一個 native list（告示牌
+`messages[]`、`minecraft:lore` 之類）收到兩筆以上 edit 時不能逐筆呼叫
+`apply_edit_to_compound()`：第一筆把 list 從 String 提升成 Compound 後，root
+上的 list 已經變形，第二筆的 `expected_encoding`（extract 當下量的舊形狀）在
+守門那關會被誤判成「世界被改過了」——實際上是**這一次 apply 自己造成的**，不
+是使用者在遊戲裡動的（2026-08-31 補的已知缺口）。`apply_edits()` 把同一個
+list 的所有 edit 分成一組，用「這次 apply 開始前」的快照統一過守門，再依序
+寫入，讓「守門認得這個形狀變化是我們自己剛剛造成的」成立。`apply_edit_to_compound()`
+仍然保留給只有一筆 edit、或呼叫端自己已經分好組的情境用。
 """
 
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,6 +42,7 @@ from mcmt.model.node import NodePath
 __all__ = [
     "ApplyOutcome",
     "apply_edit_to_compound",
+    "apply_edits",
     "component_for",
     "refuse",
     "refuse_residue",
@@ -135,21 +146,129 @@ def apply_edit_to_compound(
     if current is None:
         return False
 
+    working, written = _write_index_edit(container, index, edit, current, outcome)
+    if written:
+        _replace_list(root, steps[:-1], working)
+    return written
+
+
+def apply_edits(
+    root: amulet_nbt.CompoundTag, edits: list[dict[str, Any]], outcome: ApplyOutcome
+) -> int:
+    """`apply_edit_to_compound()` 的批次版本——**呼叫端該用這個，不是逐筆呼叫**。
+
+    同一個 native list（告示牌 `messages[]`、`minecraft:lore` 之類）收到兩筆以上
+    edit 時，第一筆會把整個 list 從 String 提升成 Compound（`write/native.py`）。
+    逐筆呼叫 `apply_edit_to_compound()` 的話，第二筆讀到的 `container[index]`
+    已經是提升後的形狀，跟它自己的 `expected_encoding`（extract 當下量的舊形狀）
+    對不上，在 `_guarded_encoding` 這關被誤判成「世界在 extract 之後被使用者
+    改過了」而拒寫——**實際上是這一次 apply 自己造成的**，不是外部改動。
+
+    修法是把同一個 list 的所有 edit 分成一組，用「這次 apply 開始前」的快照
+    統一過守門，再依序寫入（見 `_apply_index_group`）。`key` 結尾的 edit 沒有
+    這個問題——每一筆都是整節點替換，不會被同批次裡的另一筆改變形狀。
+    """
+    written = 0
+    index_groups: dict[NodePath, list[dict]] = defaultdict(list)
+
+    for edit in edits:
+        steps = list(NodePath.from_json(edit["node_path"]))
+        if not steps:
+            refuse(outcome, edit, "node_missing", "node_path 是空的")
+            continue
+        if steps[-1].t == "key":
+            if _apply_to_key(root, steps, edit, outcome):
+                written += 1
+            continue
+        if steps[-1].t != "index":
+            refuse(outcome, edit, "unsupported_encoding", "v1 的寫入路徑不支援 decode 步驟")
+            continue
+        index_groups[NodePath(steps[:-1])].append(edit)
+
+    for parent, group in index_groups.items():
+        written += _apply_index_group(root, parent, group, outcome)
+
+    return written
+
+
+def _apply_index_group(
+    root: amulet_nbt.CompoundTag,
+    parent: NodePath,
+    edits: list[dict[str, Any]],
+    outcome: ApplyOutcome,
+) -> int:
+    parent_steps = list(parent)
+    try:
+        container = _resolve(root, parent_steps)
+    except (KeyError, IndexError) as exc:
+        for edit in edits:
+            refuse(outcome, edit, "node_missing", str(exc))
+        return 0
+
+    if not isinstance(container, amulet_nbt.ListTag):
+        for edit in edits:
+            refuse(outcome, edit, "node_missing", "目標的父節點不是 list")
+        return 0
+
+    # **快照在任何一筆寫入之前。** 這一批次裡每一筆 edit 的守門都要對照這份
+    # 快照，不能對照批次裡另一筆 edit 剛剛造成的形狀變化——那正是本函式存在
+    # 的理由。
+    original = list(container)
+
+    pending: list[tuple[int, dict, str]] = []
+    for edit in edits:
+        index = list(NodePath.from_json(edit["node_path"]))[-1].i
+        if index >= len(original):
+            refuse(outcome, edit, "node_missing", f"list 只有 {len(original)} 個元素")
+            continue
+        current = _guarded_encoding(original[index], edit, outcome)
+        if current is None:
+            continue
+        pending.append((index, edit, current))
+
+    if not pending:
+        return 0
+
+    working = container
+    written = 0
+    for index, edit, current in pending:
+        working, ok = _write_index_edit(working, index, edit, current, outcome)
+        if ok:
+            written += 1
+
+    _replace_list(root, parent_steps, working)
+    return written
+
+
+def _write_index_edit(
+    working: amulet_nbt.ListTag,
+    index: int,
+    edit: dict[str, Any],
+    current: str,
+    outcome: ApplyOutcome,
+) -> tuple[amulet_nbt.ListTag, bool]:
+    """把一筆 index 結尾的 edit 寫進 `working`，回傳（可能是新物件的）list 與是否寫成。
+
+    `current` 是這個索引**在快照當下**的形狀（由 `_guarded_encoding` 算出），
+    不是呼叫當下 `working[index]` 的形狀——兩者在批次處理的第二筆以後會不一樣，
+    但 `in_place.value_tag` 該收的就是快照那個。
+    """
+    from mcmt.write import in_place  # 延遲匯入，避免與 in_place.py 互相匯入成環
+
     if edit["value"].get("kind") == "literal":
         try:
             tag = in_place.value_tag(current, edit["value"])
         except in_place.UnsupportedInPlaceShape as exc:
             refuse(outcome, edit, "unsupported_encoding", str(exc))
-            return False
-        container[index] = tag
-        return True
+            return working, False
+        working[index] = tag
+        return working, True
 
     writer = _translate_writer(edit)
-    result = writer.apply_to_list(container, index, writer.value_tag(edit["value"]))
-    _replace_list(root, steps[:-1], result.list)
+    result = writer.apply_to_list(working, index, writer.value_tag(edit["value"]))
     if result.promoted:
         outcome.counts["list_promotions"] += 1
-    return True
+    return result.list, True
 
 
 def _apply_to_key(root, steps, edit: dict, outcome: ApplyOutcome) -> bool:

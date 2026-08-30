@@ -31,7 +31,7 @@ from mcmt.nbtio.compression import decompress_chunk
 from mcmt.nbtio.region import ChunkWrite, read_region, write_region
 from mcmt.safety.backup import BackupSet
 from mcmt.safety.paths import ensure_readable, ensure_writable
-from mcmt.write.common import ApplyOutcome, apply_edit_to_compound, refuse
+from mcmt.write.common import ApplyOutcome, apply_edits, refuse
 from mcmt.write.datfile_apply import apply_to_datfile
 from mcmt.write.datapack_apply import apply_to_datapack_file
 
@@ -145,10 +145,10 @@ def _rewrite_chunk(raw, edits: list[dict], outcome: ApplyOutcome) -> bytes | Non
             refuse(outcome, edit, "chunk_unreadable", str(exc))
         return None
 
-    written = 0
-    for edit in edits:
-        if apply_edit_to_compound(root, edit, outcome):
-            written += 1
+    # **同一批呼叫，不是逐筆呼叫。** 同一個 chunk 裡同一個 native list（告示牌
+    # 四行）收到兩筆以上 edit 時，逐筆呼叫會讓第一筆的 list 提升污染第二筆的
+    # 守門——見 `apply_edits()` 的說明。
+    written = apply_edits(root, edits, outcome)
     if not written:
         return None
 

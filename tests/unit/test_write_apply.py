@@ -128,6 +128,122 @@ def test_a_native_string_list_is_promoted_and_counted(project) -> None:
     assert str(written[1]["text"]) == "第二行"  # 其餘行的字一模一樣
 
 
+def test_two_lines_of_the_same_native_sign_both_get_written(project) -> None:
+    """[已知缺口] 同一面告示牌兩行都要翻時，第一筆把 list 提升成 compound 後，
+    第二筆的 `expected_encoding`（`bare_string`，extract 當下量的）就對不上
+    「提升後」的形狀（`text_compound`），在守門這關被誤判成「世界被改過了」
+    而拒寫——實際上是我們自己這次 apply 造成的形狀變化，不是使用者在遊戲裡
+    動過世界。守門必須認得這個差異，而不是把同一批次內自己造成的形狀變化
+    當成外部改動。"""
+    world = build_world(project, (0, sign("第一行", "第二行", "", ""), 4671))
+
+    outcome = apply_editplan(
+        world,
+        plan(
+            edit(
+                index=0,
+                value={"kind": "translate", "key": "mcmt.sign.0000000000000000", "style": None},
+            ),
+            edit(
+                index=1,
+                value={"kind": "translate", "key": "mcmt.sign.1111111111111111", "style": None},
+            ),
+        ),
+    )
+
+    assert outcome.unwritten == []
+    assert outcome.counts["edits_written"] == 2
+    assert outcome.counts["list_promotions"] == 1  # 提升只發生一次，不是兩次
+
+    written = messages_of(world)
+    assert str(written[0]["translate"]) == "mcmt.sign.0000000000000000"
+    assert str(written[1]["translate"]) == "mcmt.sign.1111111111111111"
+
+
+def test_all_four_lines_of_the_same_sign_get_written_in_one_pass(project) -> None:
+    """不是只有兩筆——批次要撐得住整面告示牌四行一起翻。"""
+    world = build_world(project, (0, sign("一", "二", "三", "四"), 4671))
+
+    outcome = apply_editplan(
+        world,
+        plan(*(
+            edit(
+                index=i,
+                value={"kind": "translate", "key": f"mcmt.sign.{i:016d}", "style": None},
+            )
+            for i in range(4)
+        )),
+    )
+
+    assert outcome.unwritten == []
+    assert outcome.counts["edits_written"] == 4
+    assert outcome.counts["list_promotions"] == 1
+
+    written = messages_of(world)
+    for i in range(4):
+        assert str(written[i]["translate"]) == f"mcmt.sign.{i:016d}"
+
+
+def test_an_already_compound_list_with_two_edits_needs_no_promotion(project) -> None:
+    """已經是 compound 的 list（例如遊戲自己升級過的告示牌）收到兩筆 edit，
+    批次處理不該把 `list_promotions` 誤報成非零——沒有形狀變化可言。"""
+    world = build_world(
+        project, (0, sign("一", "二", "", "", compounds=True), 4671)
+    )
+
+    outcome = apply_editplan(
+        world,
+        plan(
+            edit(
+                index=0,
+                encoding="text_compound",
+                value={"kind": "translate", "key": "mcmt.sign.0000000000000000", "style": None},
+            ),
+            edit(
+                index=1,
+                encoding="text_compound",
+                value={"kind": "translate", "key": "mcmt.sign.1111111111111111", "style": None},
+            ),
+        ),
+    )
+
+    assert outcome.unwritten == []
+    assert outcome.counts["edits_written"] == 2
+    assert outcome.counts["list_promotions"] == 0
+
+
+def test_a_genuinely_pre_promoted_list_is_still_refused_not_overwritten(project) -> None:
+    """批次處理不能把真正的外部改動也放行——只有「我們自己這次造成的」形狀
+    變化才該被原諒。**`TAG_List` 在格式層強制單一元素型別**（CLAUDE.md 二節），
+    所以「一行真的被外部改過、其餘沒動」在磁碟上不可能存在；能存在的外部改動
+    是**整個 list** 已經是 compound（例如使用者玩過一次遊戲，遊戲把整面告示牌
+    升級了），而我們的 edit 仍然帶著 extract 當下量的 `bare_string`。這種情況
+    下每一筆都該被拒寫，一個字都不能被覆蓋。"""
+    world = build_world(
+        project, (0, sign("原文一", "原文二", "", "", compounds=True), 4671)
+    )
+
+    outcome = apply_editplan(
+        world,
+        plan(
+            edit(
+                index=0,
+                value={"kind": "translate", "key": "mcmt.sign.0000000000000000", "style": None},
+            ),
+            edit(
+                index=1,
+                value={"kind": "translate", "key": "mcmt.sign.1111111111111111", "style": None},
+            ),
+        ),
+    )
+
+    assert outcome.counts["edits_written"] == 0
+    assert {u["reason"] for u in outcome.unwritten} == {"node_changed"}
+    written = messages_of(world)
+    assert str(written[0]["text"]) == "原文一"
+    assert str(written[1]["text"]) == "原文二"
+
+
 def test_a_legacy_chunk_gets_a_json_string(project) -> None:
     """[遊戲實測 M4-1] 舊世代寫 JSON 字串，而且 list 型別不變。"""
     world = build_world(project, (0, sign('"原文"', '""', '""', '""'), 3700))
