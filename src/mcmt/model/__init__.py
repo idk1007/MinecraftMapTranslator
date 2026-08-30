@@ -8,6 +8,6 @@
 產生」，**不實作任何向下相容、不寫 migration**（CLAUDE.md §四）。
 """
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 __all__ = ["SCHEMA_VERSION"]

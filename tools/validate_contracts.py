@@ -322,6 +322,15 @@ mismatched = [e["occurrence_id"] for e in samples["editplan"]["edits"]
 report("editplan expected_encoding mirrors extract encoding", not mismatched,
        f"mismatched: {mismatched}")
 
+# raw_snapshot must mirror what extract recorded too, or the same-shape-different-
+# content guard is comparing against a value nobody actually extracted.
+snap = {o["occurrence_id"]: o["raw_snapshot"]
+        for u in samples["extract"]["units"] for o in u["occurrences"]}
+snap_mismatched = [e["occurrence_id"] for e in samples["editplan"]["edits"]
+                    if snap.get(e["occurrence_id"]) != e["raw_snapshot"]]
+report("editplan raw_snapshot mirrors extract raw_snapshot", not snap_mismatched,
+       f"mismatched: {snap_mismatched}")
+
 # a non-collapsible unit must be written as a rebuilt tree, never collapsed
 noncollapsible = {u["unit_id"] for u in samples["extract"]["units"] if not u["collapsible"]}
 bad = [e["unit_id"] for e in samples["editplan"]["edits"]

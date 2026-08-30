@@ -10,7 +10,7 @@
     "format": { "const": "mcmt-extract" },
     "schema_version": {
       "type": "integer",
-      "const": 5,
+      "const": 6,
       "description": "Single version number shared by all four mcmt contracts. Mismatch is a fatal error, never a migration."
     },
     "generated_at": { "type": "string", "format": "date-time" },

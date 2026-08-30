@@ -8,7 +8,7 @@
   "additionalProperties": false,
   "properties": {
     "format": { "const": "mcmt-editplan" },
-    "schema_version": { "type": "integer", "const": 5 },
+    "schema_version": { "type": "integer", "const": 6 },
     "generated_at": { "type": "string", "format": "date-time" },
 
     "backend": {
@@ -74,7 +74,7 @@
   "$defs": {
     "edit": {
       "type": "object",
-      "required": ["occurrence_id", "unit_id", "container", "node_path", "expected_encoding", "value"],
+      "required": ["occurrence_id", "unit_id", "container", "node_path", "expected_encoding", "raw_snapshot", "value"],
       "additionalProperties": false,
       "properties": {
         "occurrence_id": { "type": "string", "pattern": "^o:[0-9]{1,8}$" },
@@ -94,6 +94,11 @@
         "expected_encoding": {
           "type": "string",
           "description": "The encoding recorded at scan time. Required, not optional: the writer re-reads the node and aborts the ENTIRE plan if it no longer matches, so a stale plan can never half-apply."
+        },
+
+        "raw_snapshot": {
+          "type": ["string", "null"],
+          "description": "Copied verbatim from occurrence.raw_snapshot. Null for compound_tree nodes (no single string represents the whole node) and for any occurrence extracted before this field existed. When not null, the writer compares it against the node's CURRENT literal text (same shape, so expected_encoding alone did not catch it) and refuses the edit if they differ -- expected_encoding only detects a change in SHAPE, not a same-shape content change (e.g. the user renamed a chest between extract and apply)."
         },
 
         "value": { "$ref": "#/$defs/value" }

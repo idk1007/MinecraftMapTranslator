@@ -197,6 +197,17 @@ def test_every_edit_carries_the_expected_encoding(tmp_path) -> None:
     assert plan.document["edits"][0]["expected_encoding"] == "bare_string"
 
 
+def test_every_edit_carries_the_raw_snapshot(tmp_path) -> None:
+    """寫入層要拿它比對節點現在的字面值，抓「形狀沒變但內容變了」——
+    `expected_encoding` 那道守門對這種情況完全看不見。"""
+    extract, translations = prepare(tmp_path, sign("歡迎光臨", "", "", ""))
+    translate(translations, {"歡迎光臨": "Welcome"})
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    assert plan.document["edits"][0]["raw_snapshot"] == "歡迎光臨"
+
+
 def test_an_untranslated_unit_produces_no_edit(tmp_path) -> None:
     extract, translations = prepare(tmp_path, sign("歡迎光臨", "", "", ""))
 

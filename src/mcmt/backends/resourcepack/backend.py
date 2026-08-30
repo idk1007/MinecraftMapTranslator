@@ -124,6 +124,10 @@ def _edit_for(
         # 守門用：寫入層會比對節點現在的形狀是不是還是這個。不是就拒寫——
         # 使用者在中間玩過一次遊戲，DataFixer 就可能已經把形狀改掉了（M4-4）。
         "expected_encoding": occurrence["encoding"],
+        # 形狀沒變但內容變了（使用者在 extract 之後自己把箱子改名）時，
+        # expected_encoding 看不出來——這裡多帶一份 extract 當下的字面值，
+        # 讓寫入層能多比對這一層（`occurrence.raw_snapshot` 的說明）。
+        "raw_snapshot": occurrence.get("raw_snapshot"),
         "value": _value_for(unit, occurrence, target),
     }
 

@@ -1,6 +1,6 @@
 {
   "format": "mcmt-extract",
-  "schema_version": 5,
+  "schema_version": 6,
   "generated_at": "2026-08-16T09:14:02Z",
   "generator": {
     "tool": "mcmt",
