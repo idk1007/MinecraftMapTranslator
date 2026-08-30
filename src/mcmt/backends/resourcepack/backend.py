@@ -23,6 +23,7 @@ from typing import Any
 from mcmt.backends.resourcepack.lang import build_lang, inline_text, sigma_codes_for
 from mcmt.extract.placeholders import unescape, validate
 from mcmt.model import SCHEMA_VERSION
+from mcmt.model.strategy import strategy_for
 from mcmt.width import budget_for, cjk_capacity, enforcement_for, measure
 
 __all__ = ["PlanResult", "build_editplan"]
@@ -84,7 +85,7 @@ def build_editplan(
             rejected.append((unit_id, "overflow_rejected"))
             continue
 
-        if unit["strategy"] == "translate_key":
+        if strategy_for(unit["category"]) == "translate_key":
             lang_pairs.append((_lang_view(unit), target))
         for occurrence in unit["occurrences"]:
             if occurrence.get("excluded"):
@@ -130,7 +131,10 @@ def _edit_for(
 def _value_for(
     unit: dict[str, Any], occurrence: dict[str, Any], target: str
 ) -> dict[str, Any]:
-    if unit["strategy"] == "in_place":
+    # **由 category 決定，不是由磁碟上 `extract.json` 讀來的 `unit["strategy"]`
+    # 決定。** 同一個 unit 裡就有 category，讓這個不變式回到行程內，而不是隔著
+    # 一個使用者打得開的檔案（`model/strategy.py` 才是唯一權威）。
+    if strategy_for(unit["category"]) == "in_place":
         # 不吃 translate key 的欄位（LevelName、書名、作者、草稿書頁、CustomName）。
         # **值是譯文，不是原文**——寫回原文會是一次沒有任何效果卻看起來完全成功的
         # 存檔修改，那比失敗難發現得多。

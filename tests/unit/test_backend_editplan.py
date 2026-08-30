@@ -392,6 +392,29 @@ def test_a_translation_wider_than_an_already_overflowing_source_is_still_rejecte
     assert plan.document["unwritten"][0]["reason"] == "overflow_rejected"
 
 
+def test_an_in_place_edit_ignores_a_tampered_strategy_field(tmp_path) -> None:
+    """`unit["strategy"]` 是磁碟上 `extract.json` 讀來的值，使用者打得開。
+
+    真正的權威是 `strategy_for(unit["category"])`——同一個 unit 裡就有 `category`，
+    不必信任一個外部檔案裡可能被改壞的欄位。這裡把 `block_entity_name` 的
+    `strategy` 竄改成 `translate_key`，值仍然必須是 in_place 的 `literal`，
+    不能塌成 `{translate: key}` 寫進 native chunk（[遊戲實測 M11-3] 那樣寫出來
+    玩家看到的是字面大括號）。
+    """
+    extract, translations = prepare(
+        tmp_path, chest(amulet_nbt.StringTag("Supply Crate"))
+    )
+    translate(translations, {"Supply Crate": "補給箱"})
+    assert extract["units"][0]["category"] == "block_entity_name"
+    extract["units"][0]["strategy"] = "translate_key"
+
+    plan = build_editplan(extract, translations, language="zh_tw")
+
+    (edit,) = plan.document["edits"]
+    assert edit["value"] == {"kind": "literal", "text": "補給箱", "style": None}
+    assert plan.lang["zh_tw"] == {}
+
+
 def test_a_category_without_a_width_budget_is_not_checked(tmp_path) -> None:
     """`block_entity_name` 是容器 GUI 的標題，沒有告示牌那種硬邊界。"""
     extract, translations = prepare(
