@@ -3,11 +3,13 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-31**（M13b 之後清掉四項已知缺口：resourcepack 後端的
+最後更新：**2026-08-31**（M13b 之後清掉五項已知缺口：resourcepack 後端的
 in_place/translate_key 分派改由 `strategy_for(category)` 決定、不再信任磁碟上
 `extract.json` 的 `strategy` 欄位；物品白名單補上 `minecraft:block_entity_data`；
 `region_files`/`entities_files` 排序鍵正規化成 `/`；`write/in_place.py` docstring
-更新反映主線防線位置。下一步仍是 M14，或繼續清剩下的已知缺口）
+更新反映主線防線位置；`write/common.py` 新增 `apply_edits()` 批次入口修掉
+native list 多筆 edit 自撞的問題（100 Ways To Die 實測 325 筆 node_changed → 0）。
+下一步仍是 M14，或繼續清剩下的已知缺口）
 
 ---
 
@@ -674,18 +676,16 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
   `entities_files()` 的排序鍵改成 `str(p).replace("\\", "/")`。新增兩條測試在
   Windows 上真的建出會互撞的目錄名（`a/region` 與 `aX/region`）釘住排序與正規化後
   字串序一致。
-* **native 世界上的 list 提升會自撞。** [實測] 100 Ways To Die 一次 apply 有 325 筆
-  `node_changed`，全部是告示牌：同一面告示牌的第一行寫進去時整個 `messages` list
-  被提升成 compound，於是同一份 plan 裡後面幾行的 `expected_encoding`（`bare_string`）
-  就對不上了。**這不是 M13a 造成的**——那條路徑從 M11 起一字未改，legacy 世界
-  （AoD 全部 DV 3700）不提升所以看不到。失敗是安全的（拒寫、進報告），但一面
-  告示牌實際上只翻得到一行。修法要嘛在 chunk 內按 list 分組一次寫完，要嘛讓守門
-  認得「這個形狀變化是我們自己剛剛造成的」。**列在這裡是因為它需要一個自己的計畫，
-  不該夾在 fix wave 裡改一條寫入路徑。**
-  兩點別誤讀：**（a）機制不限告示牌**——任何 native 世界裡「同一個 list 收到 2 筆以上
-  edit」都會撞，`minecraft:lore` 同樣適用；「全部是告示牌」是 100WTD 的實測事實，
-  不是機制的邊界。**（b）使用者看到的診斷訊息是錯的**——它會說「世界在 extract 之後
-  被改過了（多半是在遊戲裡開過）」，而實際上是我們自己剛剛改的。修的時候訊息要一起改。
+* ~~**native 世界上的 list 提升會自撞……**~~ → **2026-08-31 已補**：
+  `write/common.py` 新增 `apply_edits()` 批次入口取代逐筆呼叫
+  `apply_edit_to_compound()`——同一個 list 的所有 edit 先分組，用「這次 apply
+  開始前」的快照統一過守門，再依序寫入，讓守門不會被同批次裡另一筆 edit 剛造成
+  的形狀變化污染。`apply.py`（region/entities）與 `datfile_apply.py`（`.dat`）
+  兩個呼叫端都換成新入口；`datapack_apply.py` 的節點永遠以 key 結尾不受影響。
+  新增 4 條回歸測試，其中一條確認「整個 list 被外部改過」這個 `TAG_List` 格式
+  強制單一元素型別下唯一可能的外部改動形狀仍然正確整批拒寫。**真實地圖驗證**：
+  `100 Ways To Die` 修前一次 apply 有 325 筆 `node_changed`（全部是告示牌），
+  修後 2,420 筆 edit 全部寫成、0 筆 unwritten。
 * **`team_affix`（`Teams[].MemberNamePrefix`/`MemberNameSuffix`）translate key 未單獨遊戲實測。**
   兩張語料地圖的實際內容全空，掃描與寫入路徑都已接上但從未真的寫過非空值進遊戲。
 * **`scoreboard.dat` 的 legacy JSON 寫入路徑未單獨遊戲實測**——沿用 chunk 層級已驗證的
