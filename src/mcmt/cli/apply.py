@@ -15,6 +15,7 @@ from typing import Any
 
 from mcmt.backends.resourcepack.backend import build_editplan
 from mcmt.backends.resourcepack.pack import build_pack
+from mcmt.errors import WorldChangedSinceExtractError
 from mcmt.extract.emit import dump_json
 from mcmt.fingerprint import world_fingerprint
 from mcmt.safety.paths import ensure_readable, ensure_writable, sandbox_root
@@ -50,6 +51,14 @@ def run_apply(
     )
 
     fingerprint_before = world_fingerprint(world_path)
+    expected_fingerprint = extract["world"]["world_fingerprint"]
+    if fingerprint_before != expected_fingerprint:
+        # **在 dry-run 也擋。** dry-run 的賣點是「安全預覽」，預覽一份基於已經
+        # 不存在的世界快照算出來的 editplan 沒有意義——與 build_editplan() 的
+        # `_check_binding()` 對 extract_fingerprint 不對的處理一樣，不看 dry_run。
+        raise WorldChangedSinceExtractError(
+            world=world_path, expected=expected_fingerprint, actual=fingerprint_before
+        )
     outcome = apply_editplan(world_path, plan.document, dry_run=dry_run)
 
     pack_report = None

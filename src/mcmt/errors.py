@@ -91,6 +91,27 @@ class SandboxTargetInsideSourceError(SafetyError):
         super().__init__(f"匯入目標 {target} 在來源 {source} 底下，這會無限遞迴。")
 
 
+class WorldChangedSinceExtractError(SafetyError):
+    """世界的內容跟 `extract.json` 記的不一樣了。
+
+    per-node 的 `expected_encoding` 守門看得到「形狀變了」，看不到「形狀沒變
+    但內容變了」（`occurrence.raw_snapshot` 那個更精細的缺口還在等）。這裡擋的
+    是更粗但更早的那一層：整份世界的指紋對不上，代表這份 editplan 是基於一個
+    已經不存在的快照算出來的，動任何一個位元組之前先問清楚。
+    """
+
+    def __init__(self, *, world, expected: str, actual: str) -> None:
+        self.world = world
+        self.expected = expected
+        self.actual = actual
+        super().__init__(
+            f"世界從 extract 之後已經變了：{world}。"
+            f"extract.json 記的世界指紋是 {expected}，現在算出來是 {actual}。"
+            f"請針對目前的世界重新 `mcmt extract`，再把已翻好的內容搬進新的"
+            f"待翻檔（`source`/`target` 對得上就搬得過去）。"
+        )
+
+
 class FormatError(McmtError):
     """磁碟上的資料不是我們認得的形狀。"""
 
