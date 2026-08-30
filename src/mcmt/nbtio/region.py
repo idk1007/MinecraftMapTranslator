@@ -235,6 +235,11 @@ def region_files(world: ReadOnlyPath) -> list[ReadOnlyPath]:
 
     `entities/` 與 `poi/` 底下也是 `.mca`，但那不是方塊 chunk。實體由
     `entities_files()` 負責（M13），`poi/` 沒有文字所以不看。
+
+    **排序鍵正規化成 `/`**——`fingerprint.py` 對這份清單的順序敏感，`key=str`
+    會用作業系統原生分隔符（Windows 反斜線、POSIX `/`）比較，兩者在子目錄名
+    互為前綴時（如 `a` 與 `aX`）給出相反的順序，「同一個世界在兩台機器上算出
+    同一個指紋」這句承諾會沒有保證。
     """
     return sorted(
         (
@@ -243,7 +248,7 @@ def region_files(world: ReadOnlyPath) -> list[ReadOnlyPath]:
             if directory.is_dir()
             for path in directory.glob("*.mca")
         ),
-        key=str,
+        key=lambda p: str(p).replace("\\", "/"),
     )
 
 
@@ -255,6 +260,8 @@ def entities_files(world: ReadOnlyPath) -> list[ReadOnlyPath]:
     裝的是 `Entities[]` 而不是 `block_entities[]`。
 
     `poi/` 底下也是 `.mca`，但那是興趣點索引，沒有任何給人看的字。
+
+    排序鍵正規化成 `/`，理由同 `region_files()`。
     """
     return sorted(
         (
@@ -263,7 +270,7 @@ def entities_files(world: ReadOnlyPath) -> list[ReadOnlyPath]:
             if directory.is_dir()
             for path in directory.glob("*.mca")
         ),
-        key=str,
+        key=lambda p: str(p).replace("\\", "/"),
     )
 
 

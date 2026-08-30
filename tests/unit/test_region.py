@@ -236,3 +236,42 @@ def test_entities_files_finds_every_dimension(tmp_path) -> None:
     assert len(found) == 3
     assert all("/entities/" in p for p in found)
     assert not any("/poi/" in p or "/region/" in p for p in found)
+
+
+# --- 排序鍵必須跨平台一致 ---------------------------------------------------
+
+
+def test_region_files_order_does_not_depend_on_the_native_path_separator(
+    tmp_path,
+) -> None:
+    """指紋對順序敏感（`fingerprint.py`），排序卻曾經用 `key=str`——Windows 是
+    `\\`、POSIX 是 `/`，兩者在字元順位上不一樣：`\\`(0x5C) 排在 `Z` 之後、`a` 之前，
+    `/`(0x2F) 排在所有英數字之前。子目錄名剛好互為前綴時（`a` vs `aX`），兩種
+    分隔符給出相反的排序結果。
+
+    這裡在磁碟上真的建出這組會互撞的目錄名，斷言排序结果與**正規化成 `/` 之後**
+    的順序一致——也就是與作業系統的原生分隔符無關。
+    """
+    from mcmt.nbtio.region import region_files
+
+    world = tmp_path / "world"
+    for relative in ("a/region", "aX/region"):
+        write_region_file(world / relative, RegionBuilder().build())
+
+    found = [str(p).replace("\\", "/") for p in region_files(ensure_readable(world))]
+
+    assert found == sorted(found)
+
+
+def test_entities_files_order_does_not_depend_on_the_native_path_separator(
+    tmp_path,
+) -> None:
+    from mcmt.nbtio.region import entities_files
+
+    world = tmp_path / "world"
+    for relative in ("a/entities", "aX/entities"):
+        write_region_file(world / relative, RegionBuilder().build())
+
+    found = [str(p).replace("\\", "/") for p in entities_files(ensure_readable(world))]
+
+    assert found == sorted(found)
