@@ -42,6 +42,7 @@ _NAME_COMPONENTS = {
 _LORE_COMPONENT = "minecraft:lore"
 _WRITTEN_BOOK = "minecraft:written_book_content"
 _WRITABLE_BOOK = "minecraft:writable_book_content"
+_BLOCK_ENTITY_DATA = "minecraft:block_entity_data"
 
 # 遞迴進去的容器組件 → 元素裡哪個鍵是物品（None 代表元素本身就是物品）。
 _CONTAINER_COMPONENTS = {
@@ -111,6 +112,22 @@ def _scan_components(
         yield from _scan_pages(
             draft, path.child(key_step(_WRITABLE_BOOK)), anchor, "draft_book_page"
         )
+
+    # 物品形式的容器（潛影盒、箱子）自己的名字與內容物——1.20.5+ 組件時代對
+    # 舊格式 `tag.BlockEntityTag` 的對應物，形狀是它自己的方塊實體 NBT，不是
+    # item component（`CustomName` 因此不叫 `minecraft:custom_name`）。
+    block_entity = components.get(_BLOCK_ENTITY_DATA)
+    if isinstance(block_entity, amulet_nbt.CompoundTag):
+        be_path = path.child(key_step(_BLOCK_ENTITY_DATA))
+        custom_name = block_entity.get("CustomName")
+        if custom_name is not None:
+            yield TextNode(
+                path=be_path.child(key_step("CustomName")),
+                tag=custom_name,
+                category="block_entity_name",
+                anchor=anchor,
+            )
+        yield from _scan_old_item_list(block_entity, be_path, anchor, "Items")
 
     for name, item_key in _CONTAINER_COMPONENTS.items():
         contents = components.get(name)

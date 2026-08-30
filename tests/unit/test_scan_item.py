@@ -168,6 +168,43 @@ def test_charged_projectiles_recurse():
     }
 
 
+def test_a_component_shulker_box_recurses_into_its_items():
+    """`minecraft:block_entity_data` 是 1.20.5+ 組件時代對舊 `tag.BlockEntityTag`
+    的對應物——一個物品形式的潛影盒，`components` 底下裝著它自己的方塊實體
+    NBT。[實測] 這條路徑此前完全不在白名單裡，native 世界的潛影盒物品自訂容器名
+    掃不到（方塊形式的潛影盒不受影響，那條走 region.py）。
+    """
+    inner = component_item(
+        **{"minecraft:custom_name": amulet_nbt.StringTag("裡面的東西")}
+    )
+    outer = component_item(
+        **{
+            "minecraft:block_entity_data": amulet_nbt.CompoundTag(
+                {"Items": amulet_nbt.ListTag([inner])}
+            )
+        }
+    )
+
+    assert paths_and_categories(outer) == {
+        "Items/components/minecraft:block_entity_data/Items/[0]/components/minecraft:custom_name": "custom_name"
+    }
+
+
+def test_a_component_block_entity_data_custom_name_is_found():
+    """物品形式的容器自己也可能有名字，不只是它裝的東西。"""
+    outer = component_item(
+        **{
+            "minecraft:block_entity_data": amulet_nbt.CompoundTag(
+                {"CustomName": amulet_nbt.StringTag("箱子")}
+            )
+        }
+    )
+
+    assert paths_and_categories(outer) == {
+        "Items/components/minecraft:block_entity_data/CustomName": "block_entity_name"
+    }
+
+
 def test_mechanic_components_are_ignored_entirely():
     """**白名單的核心測試。**
 
