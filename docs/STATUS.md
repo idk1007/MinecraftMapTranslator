@@ -3,12 +3,15 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-31**（M13b 之後清掉五項已知缺口：resourcepack 後端的
-in_place/translate_key 分派改由 `strategy_for(category)` 決定、不再信任磁碟上
-`extract.json` 的 `strategy` 欄位；物品白名單補上 `minecraft:block_entity_data`；
-`region_files`/`entities_files` 排序鍵正規化成 `/`；`write/in_place.py` docstring
-更新反映主線防線位置；`write/common.py` 新增 `apply_edits()` 批次入口修掉
-native list 多筆 edit 自撞的問題（100 Ways To Die 實測 325 筆 node_changed → 0）。
+最後更新：**2026-08-31**（M13b 之後陸續清掉九項已知缺口，同一天分批完成：
+resourcepack 後端的 in_place/translate_key 分派改由 `strategy_for(category)`
+決定；物品白名單補上 `minecraft:block_entity_data`；`region_files`/
+`entities_files` 排序鍵正規化成 `/`；`write/in_place.py` docstring 更新；
+`write/common.py` 新增 `apply_edits()` 批次入口修掉 native list 多筆 edit
+自撞（100 Ways To Die 實測 325 筆 node_changed → 0）；`world_fingerprint`／
+`doctor` 補上 `level.dat`／`scoreboard.dat`／datapack 涵蓋範圍；`run_apply`
+比對世界指紋（新增 `WorldChangedSinceExtractError`）；`occurrence.raw_snapshot`
+從 extract 到 editplan 到 write/ 守門全線接通，SCHEMA_VERSION 5 → 6。
 下一步仍是 M14，或繼續清剩下的已知缺口）
 
 ---
@@ -93,7 +96,7 @@ mcmt extract → translations.<lang>.json（人直接編輯）→ mcmt apply
 | `docs/STATUS.md` | 本檔。進度與交接 | 每次開新對話 |
 | `SPIKE_RESULT.md` | **事實依據**。所有實測結論與證據等級（四級制） | 要引用「為什麼這樣設計」時 |
 | `docs/superpowers/plans/2026-08-15-mcmt-architecture.md` | 架構計畫 rev.2。目錄結構、四份合約、A/B/C 題、M0–M14 | 排下一步工作時 |
-| `docs/contracts/*.json` | 四份 JSON Schema（`SCHEMA_VERSION = 4`） | 寫任何跨層資料時 |
+| `docs/contracts/*.json` | 四份 JSON Schema（`SCHEMA_VERSION = 6`） | 寫任何跨層資料時 |
 | `docs/ownership.md` | 模組邊界與三個整合檢查點 | 決定某段程式該放哪裡時 |
 | `docs/adr/0007-prior-art-and-licensing.md` | 為何不得對照 maptranslator 原始碼 | 想參考既有實作時 |
 | `docs/m0-checklist.md` | M0 可重跑程序（換版本時用） | 要重驗遊戲行為時 |
@@ -647,12 +650,21 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
 
 ### 已知缺口（不急，但別忘了）
 
-* **`occurrence.raw_snapshot` 一直是 null。** `expected_encoding` 守門看得到「形狀
-  變了」，看不到「形狀沒變但字變了」——`in_place` 保留形狀，所以使用者若在 extract
-  之後自己把箱子改名，apply 會蓋掉他的改名。合約裡的 `raw_snapshot` 正是為這件事
-  準備的欄位。M12 有一條測試把這個缺口釘住，接上去的那天它會變紅。
-* **`run_apply` 不比對世界指紋。** extract 記了 `world_fingerprint`，apply 只記錄不
-  比對，全靠 per-node 守門。M14 報告那一輪順手補掉。
+* ~~**`occurrence.raw_snapshot` 一直是 null……**~~ → **2026-08-31 已補**（三個獨立
+  commit：extract 算出值 → editplan 帶上它 → write/ 的守門真的比對）。
+  `_guarded_encoding()` 現在在形狀比對通過之後，`raw_snapshot` 不是 `None` 時再比對
+  節點**現在**的字面值，抓到「形狀沒變但內容變了」（重放一份已套用過的舊 plan、或
+  使用者在 extract 之後自己把節點的字改了）。`compound_tree` 永遠是 `None`（沒有
+  單一字串能代表整棵樹）——`test_end_to_end.py` 把這個縮小後的殘留縫改寫成
+  `test_a_compound_tree_replay_is_the_one_remaining_gap` 釘住，不再是整個
+  shape-preserving 集合都是縫。SCHEMA_VERSION 5 → 6（editplan 新增必填的
+  `raw_snapshot` 欄位）。
+* ~~**`run_apply` 不比對世界指紋……**~~ → **2026-08-31 已補**：新增
+  `WorldChangedSinceExtractError`（`SafetyError` 子類），`run_apply` 算出
+  `fingerprint_before` 後立刻跟 `extract.json` 記的 `world_fingerprint` 比對，
+  不一致就中止——`--dry-run` 也擋，理由與 `_check_binding()` 對 `extract_fingerprint`
+  不看 dry_run 一致。這個檢查比逐節點的守門更粗但更早：連「這份 plan 完全不會碰到
+  的節點被改了」這種 per-node 守門看不到的情況也擋得住。
 * **`book_page` 的寬度還沒校準**（114px 是 `[文件]`）。v1 還沒掃到書本，所以連一個
   真實資料點都沒有；M13 掃到之後要照 `docs/m8-checklist.md` 再跑一次校準。
 * **`json_string_array` 形狀的 `in_place` 仍拒寫**，沒測過。實務上罕見。
@@ -694,24 +706,20 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
   `pack_format` 下限修正（M4-5 的教訓）沒有類比套用到 datapack 自己的 `pack.mcmeta`——
   這次沒有寫入 datapack 自己的 `pack.mcmeta`（只改了 advancement JSON），所以不觸發
   這個問題，但如果未來要支援翻譯 datapack 的其他部分要記得重新檢查。
-* **`world_fingerprint` 沒有涵蓋 `level.dat`／`data/scoreboard.dat`／`datapacks/**`。**
-  [M13b 最終 review 發現，2026-08-23] `fingerprint.py` 的 docstring 自己就寫著擴大掃描
-  範圍時「什麼算世界的內容」要跟著長——M13 擴到 `entities/` 時真的照做了，M13b 擴到這
-  三個非 chunk 來源時沒有。後果：使用者在 extract 之後把世界名改掉，指紋不變，
-  `extract_fingerprint` 會說「世界沒變」而實際上變了；同一趟只改 `.dat`／datapack 的
-  apply，`apply_report.world.world_fingerprint_after` 會跟 before **完全相同**，報告
-  主動說謊。per-node 的 `expected_encoding` 守門是最後一道防線，但對「形狀沒變、內容
-  變了」這種情況（例如使用者把世界名從一個裸字串改成另一個裸字串）完全看不到——這正是
-  上面 `occurrence.raw_snapshot` 那條缺口的另一個入口。刻意沒有在 M13b 的 fix wave 裡
-  處理：擴大指紋涵蓋範圍是它自己的一個任務，不該在最終 review 修正裡順手改一個安全性
-  相關的核心函式。
-* **`doctor` 的健檢範圍沒有涵蓋 `level.dat`／`scoreboard.dat`／datapack。**
-  [M13b 最終 review 發現，2026-08-23] `doctor.py` 的 docstring 是 M13a 那輪被抓到之後
-  寫上去的宣告：「doctor 是拒絕處理的閘門，它的涵蓋範圍必須等於 apply 會寫的範圍」。
-  M13b 讓 apply 寫這三個新來源，doctor 一行沒改——讀不下去的 `level.dat`／損毀的
-  `scoreboard.dat`／壞掉的 datapack zip，doctor 完全看不到，`extract` 目前也只是各自
-  的來源函式自己吞掉例外並計數（見上方三個新增的 `skipped_*` 統計），使用者要跑過
-  `extract` 才會發現，不是跑 `doctor` 就先知道。與上一條同一個理由，留給自己的任務。
+* ~~**`world_fingerprint` 沒有涵蓋 `level.dat`／`data/scoreboard.dat`／
+  `datapacks/**`……**~~ → **2026-08-31 已補**：這三個非 chunk 來源直接餵整份檔案的
+  原始位元組進 digest（`level.dat`／`scoreboard.dat` 各一份，datapack 資料夾遞迴進
+  每個檔案、zip 整份當一份檔案），排序鍵一併正規化成 `/`。6 條新測試涵蓋四種來源
+  各自改動會變指紋、純 mtime 不會、三者都不存在時仍可正常算出指紋。
+* ~~**`doctor` 的健檢範圍沒有涵蓋 `level.dat`／`scoreboard.dat`／datapack……**~~ →
+  **2026-08-31 已補**：`survey_world()` 額外呼叫 `scan/sources/` 的
+  `level_dat.scan`／`scoreboard.scan`／`datapack.scan`（跟 region/entities 那段一樣
+  問掃描層本身），這三個來源掃到的節點併入既有的 `node_shapes`／`categories`／
+  `legacy_json_in_native_chunk` 統計，新增 `skipped_level_dat` 等五個 `skipped_*`
+  欄位。**這不是新的拒絕處理閘門**——extract 本來就把這三個來源的壞檔案當「跳過並
+  計數」，doctor 只是把這個結果提前到不用跑一次 extract 就看得到。真實地圖驗證：
+  Arena of Darkness 的 doctor 報告正確印出「datapack 進度檔：30 個」，與 extract 的
+  既有數字對得上。
 
 ## 開工前該補掉的兩件事
 
