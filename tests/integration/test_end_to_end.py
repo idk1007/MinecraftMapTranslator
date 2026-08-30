@@ -797,55 +797,100 @@ def shape_changing(edit) -> bool:
     return written_encoding(edit) != edit["expected_encoding"]
 
 
-def test_replaying_the_same_plan_is_refused_wherever_the_write_changed_the_shape(
+def test_replaying_the_same_plan_is_refused_wherever_a_snapshot_was_captured(
     round_trip,
 ) -> None:
-    """[遊戲實測 M4-4] 世界在 extract 之後被改過，形狀就對不上了。
+    """[遊戲實測 M4-4] 世界在 extract 之後被改過，守門就該擋下來。
 
     這裡「被改過」的是我們自己剛剛寫的那一次——守門分不出也不該分出是誰改的。
 
-    **這條測試在 M13a 換了判準，而換的理由本身是結論。** 原本它斷言「每一筆非
-    literal 的 edit 都會被擋下」，那在只有 native 告示牌的 fixture 上成立。加進舊格式
-    的物品之後不成立了：舊世代的 translate key 寫的是 JSON 字串，而它原本就是 JSON
-    字串，**形狀沒變，守門看不見**。
+    **這條測試在 M13a 換過一次判準，`raw_snapshot` 接上之後又換了一次，換的
+    理由本身是結論。** M13a 之後的版本斷言「只有會改變形狀的 edit 會被擋
+    下」——那漏了一半：舊世代把 JSON 物件字串換成另一個 JSON 物件字串、
+    native 把一棵 `compound_tree` 換成另一棵、`in_place` 保留形狀，這三種寫入
+    形狀不變，重放時舊守門完全看不見，會若無其事地把「上一次寫入的譯文」
+    當成「這次也是同一份原文」再蓋一次。
 
-    所以守門真正的判準從來不是「這是不是 translate key」，是「寫入有沒有改變形狀」。
-    那條界線與 `test_an_in_place_replay_is_idempotent_and_the_guard_cannot_see_it`
-    釘住的是同一個缺口的兩半，兩條都在等 `occurrence.raw_snapshot` 接上。
+    `raw_snapshot` 補上的是「內容比對」——重放時節點裡的字已經是上一次寫入
+    的**譯文**，跟 raw_snapshot 記的**原文**對不上，不管形狀有沒有變。所以
+    現在真正的判準是「這個 occurrence 有沒有捕捉到 raw_snapshot」，不是
+    「這次寫入會不會改變形狀」——`compound_tree` 永遠沒有 raw_snapshot（見
+    下面 `test_a_compound_tree_replay_is_the_one_remaining_gap`），是唯一
+    的例外。
     """
     from mcmt.write.apply import apply_editplan
 
     plan = round_trip["applied"]["plan"].document
-    changing = [e for e in plan["edits"] if shape_changing(e)]
+    with_snapshot = [e for e in plan["edits"] if e.get("raw_snapshot") is not None]
+    # 這條測試存在的理由：至少要有一筆 edit 是「形狀沒變、但仍然被 raw_snapshot
+    # 擋下來」——不然這條測試量不到 M13a 判準與現在判準的差異，跟只測
+    # shape_changing 的舊版本沒有兩樣。
+    shape_preserving_with_snapshot = [e for e in with_snapshot if not shape_changing(e)]
     outcome = apply_editplan(round_trip["world"], plan)
 
-    assert changing, "這趟來回沒有任何會改變形狀的寫入，測試沒驗到東西"
-    assert {item["reason"] for item in outcome.unwritten} == {"node_changed"}
-    assert len(outcome.unwritten) == len(changing)
+    assert with_snapshot, "這趟來回沒有任何帶 raw_snapshot 的 edit，測試沒驗到東西"
+    assert shape_preserving_with_snapshot, (
+        "這趟來回沒有任何『形狀沒變但內容變了』的 edit，測試驗不到 raw_snapshot "
+        "比 expected_encoding 多擋下的那一半"
+    )
+    refused = {
+        item["occurrence_id"]
+        for item in outcome.unwritten
+        if item["reason"] == "node_changed"
+    }
+    assert refused == {e["occurrence_id"] for e in with_snapshot}
 
 
-def test_an_in_place_replay_is_idempotent_and_the_guard_cannot_see_it(round_trip) -> None:
-    """**一個誠實的缺口，寫成測試而不是註解。**
+def test_a_compound_tree_replay_is_the_one_remaining_gap(round_trip) -> None:
+    """**一個誠實的、比修之前小得多的缺口，寫成測試而不是註解。**
 
-    `in_place` **保留節點的形狀**，所以寫完之後 `expected_encoding` 仍然對得上，
-    重放會再寫一次同樣的值。內容上那是 no-op，沒有損害。
+    `raw_snapshot` 對 `compound_tree` 永遠是 `None`——帶 `extra`／`click_event`
+    等結構的樹沒有單一字串能代表整個節點，硬湊一個只會讓「只改樣式沒改字」
+    被誤判成「內容變了」。所以這一類節點如果重放時形狀也剛好沒變（本來就是
+    `compound_tree`，寫完還是 `compound_tree`），守門看不出這是重放，會再寫
+    一次同樣的值——內容上是 no-op，沒有損害，但這就是現在唯一還留著的縫。
 
-    但同一個機制也代表：使用者若在 extract 之後**自己**把箱子改名（形狀不變、只有
-    字變了），`expected_encoding` 守門看不出來，apply 會蓋掉他的改名。合約裡的
-    `occurrence.raw_snapshot` 正是為這件事準備的欄位，目前一律是 null、還沒有人用。
-
-    這條測試不是在慶祝現況，是在把缺口釘在一個會被讀到的地方——哪天 raw_snapshot
-    接上去，它會變紅，而那時該改的是這條測試。
+    這條測試不是在慶祝現況，是在把縮小後的缺口釘在一個會被讀到的地方。
     """
     from mcmt.write.apply import apply_editplan
 
     plan = round_trip["applied"]["plan"].document
-    shape_preserving = [e for e in plan["edits"] if not shape_changing(e)]
+    no_snapshot = [e for e in plan["edits"] if e.get("raw_snapshot") is None]
+    shape_preserving_no_snapshot = [e for e in no_snapshot if not shape_changing(e)]
+    outcome = apply_editplan(round_trip["world"], plan)
+
+    assert shape_preserving_no_snapshot, (
+        "這趟來回沒有『raw_snapshot 是 null 而且形狀沒變』的 edit，"
+        "測試驗不到這個縫"
+    )
+    survivors = {e["occurrence_id"] for e in shape_preserving_no_snapshot}
+    refused = {item["occurrence_id"] for item in outcome.unwritten}
+    assert survivors.isdisjoint(refused)
+
+
+def test_an_in_place_replay_is_now_caught_by_the_raw_snapshot_guard(round_trip) -> None:
+    """**這條測試原本釘著一個誠實的缺口，現在釘著它已經被 raw_snapshot 補上。**
+
+    `in_place` 保留節點既有的形狀，所以重放同一份 plan 時 `expected_encoding`
+    看不出任何變化——舊守門會若無其事地再寫一次同樣的值，使用者自己在
+    extract 之後改的名字會被蓋掉也一樣看不出來。`raw_snapshot` 現在補上了
+    「內容比對」這一層：重放時節點裡的字已經是**上一次寫入的譯文**，跟
+    raw_snapshot 記的**原文**對不上，於是被擋下來，而不是被靜默覆寫。
+    """
+    from mcmt.write.apply import apply_editplan
+
+    plan = round_trip["applied"]["plan"].document
     in_place_edits = [e for e in plan["edits"] if e["value"]["kind"] == "literal"]
     outcome = apply_editplan(round_trip["world"], plan)
 
     assert in_place_edits, "這趟來回沒有走到 in_place 路徑，測試沒驗到東西"
-    assert outcome.counts["edits_written"] == len(shape_preserving)
+    refused = {
+        item["occurrence_id"]
+        for item in outcome.unwritten
+        if item["reason"] == "node_changed"
+    }
+    assert {e["occurrence_id"] for e in in_place_edits} <= refused
+    # 沒有任何一筆 in_place edit 被重放蓋掉——內容原封不動，還是第一次寫入的譯文。
     assert {
         str(entity["CustomName"])
         for entity in block_entities_of(round_trip["world"])

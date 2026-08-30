@@ -339,7 +339,37 @@ def _guarded_encoding(tag, edit: dict, outcome: ApplyOutcome) -> str | None:
             f"——世界在 extract 之後被改過了",
         )
         return None
+
+    # **形狀沒變不代表內容沒變。** `in_place` 保留節點既有的形狀，使用者若在
+    # extract 之後自己把節點的字改了（沒動形狀），上面那關完全看不出來——
+    # `occurrence.raw_snapshot` 就是為了補這一層才存在的欄位。`None` 代表
+    # `compound_tree`（沒有單一字串能代表整個節點）或這份 edit 來自
+    # raw_snapshot 接上之前的舊 editplan，兩種都跳過這關，只看形狀。
+    expected_raw = edit.get("raw_snapshot")
+    if expected_raw is not None:
+        actual_raw = _current_raw_text(tag, current)
+        if actual_raw != expected_raw:
+            refuse(
+                outcome,
+                edit,
+                "node_changed",
+                f"形狀還是 {current}，但內容變了"
+                f"——世界在 extract 之後被改過了",
+            )
+            return None
     return current
+
+
+def _current_raw_text(tag, encoding: str) -> str | None:
+    """節點**現在**的字面值，算法跟 `extract/build.py` 的 `_raw_snapshot()`
+    刻意對稱——兩邊比對的必須是同一個定義，不然這道守門在說謊。"""
+    if encoding == "text_compound":
+        return str(tag["text"])
+    if encoding == "empty_key_compound":
+        return str(tag[""])
+    if isinstance(tag, amulet_nbt.StringTag):
+        return str(tag)
+    return None
 
 
 def _resolve(root, steps):

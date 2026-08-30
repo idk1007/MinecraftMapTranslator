@@ -66,7 +66,15 @@ def build_world(project, *chunk_specs, name="world"):
     return world
 
 
-def edit(*, index=0, encoding="bare_string", data_version=4671, chunk=(0, 0), value=None):
+def edit(
+    *,
+    index=0,
+    encoding="bare_string",
+    data_version=4671,
+    chunk=(0, 0),
+    value=None,
+    raw_snapshot=None,
+):
     return {
         "occurrence_id": "o:00001",
         "unit_id": "u:sign:0123456789abcdef",
@@ -87,6 +95,7 @@ def edit(*, index=0, encoding="bare_string", data_version=4671, chunk=(0, 0), va
             {"t": "index", "i": index},
         ],
         "expected_encoding": encoding,
+        "raw_snapshot": raw_snapshot,
         "value": value or {"kind": "translate", "key": "mcmt.sign.0123456789abcdef", "style": None},
     }
 
@@ -356,6 +365,45 @@ def test_a_changed_node_is_refused_not_overwritten(project) -> None:
     assert outcome.counts["edits_written"] == 0
     assert outcome.unwritten[0]["reason"] == "node_changed"
     assert "text_compound" in outcome.unwritten[0]["detail"]
+
+
+def test_a_same_shape_but_different_content_node_is_refused(project) -> None:
+    """[已知缺口，2026-08-31 補齊] `expected_encoding` 看得到「形狀變了」，看
+    不到「形狀沒變但字變了」——使用者在 extract 之後自己把告示牌改了字，形狀
+    還是 `bare_string`，舊守門會若無其事地寫下去，蓋掉他的改動。`raw_snapshot`
+    補的就是這一層：拿 extract 當下的字面值跟節點現在的字面值比對。"""
+    world = build_world(project, (0, sign("使用者自己改過的字", "", "", ""), 4671))
+
+    outcome = apply_editplan(
+        world, plan(edit(encoding="bare_string", raw_snapshot="原本抽出來的字"))
+    )
+
+    assert outcome.counts["edits_written"] == 0
+    assert outcome.unwritten[0]["reason"] == "node_changed"
+    assert "內容" in outcome.unwritten[0]["detail"]
+
+
+def test_a_null_raw_snapshot_skips_the_content_check(project) -> None:
+    """`compound_tree` 節點的 `raw_snapshot` 一律是 `None`——沒有單一字串可比，
+    這裡不該因為「沒有東西可比對」就拒寫，只看形狀就好（既有行為不變）。"""
+    world = build_world(project, (0, sign("歡迎光臨", "", "", ""), 4671))
+
+    outcome = apply_editplan(
+        world, plan(edit(encoding="bare_string", raw_snapshot=None))
+    )
+
+    assert outcome.counts["edits_written"] == 1
+
+
+def test_a_matching_raw_snapshot_is_written_normally(project) -> None:
+    """對照組——這條回歸沒有它，前一條測試驗不到「這個檢查沒有變成永遠拒絕」。"""
+    world = build_world(project, (0, sign("歡迎光臨", "", "", ""), 4671))
+
+    outcome = apply_editplan(
+        world, plan(edit(encoding="bare_string", raw_snapshot="歡迎光臨"))
+    )
+
+    assert outcome.counts["edits_written"] == 1
 
 
 def test_a_refused_edit_leaves_the_file_alone(project) -> None:
