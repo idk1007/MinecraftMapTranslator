@@ -26,6 +26,17 @@ payload 就變了。刻意**不**餵進去的三樣東西：
 是「使用者玩過一次、動了實體，指紋卻說世界沒變」，而 `extract_fingerprint` 正是
 靠指紋判斷譯文還適不適用。
 
+**也涵蓋 `level.dat`／`data/scoreboard.dat`／`datapacks/**`**（2026-08-31，
+M13b 最終 review 發現的已知缺口）。M13b 讓 `extract`／`apply` 讀寫這三個
+非 chunk 來源之後，這裡有一段時間沒跟著擴大——後果是使用者把世界名或
+datapack 的進度文字改掉，指紋不變，`extract_fingerprint` 會說「世界沒變」而
+實際上變了，`apply_report.json` 的 `world_fingerprint_after` 也會跟 before
+一樣，報告主動說謊。這三個不是版本化的 NBT chunk，沒有「per-chunk」這回事，
+直接餵整份檔案的原始位元組：`level.dat`／`scoreboard.dat` 各一份，
+`datapacks/` 底下逐檔（資料夾形式遞迴進每個檔案，zip 形式把整個 `.zip`
+當一份檔案——不解開內容比對條目，那和「壓縮等級不同就是不同世界」
+（下面 payload 那段）是同一種保守）。
+
 **壞掉的 region 不會讓指紋失敗**：它會被折成一個穩定的標記寫進 hash。指紋負責
 身分，健檢是 `doctor` 的事——壞掉的世界更需要能先被複製進 sandbox 再診斷。
 """
@@ -71,4 +82,46 @@ def world_fingerprint(world: Path | str) -> str:
             digest.update(b"\x1funreadable\x1f")
             digest.update(type(exc).__name__.encode("ascii"))
 
+    # **`level.dat`／`scoreboard.dat`／datapack 也算**（見上方 2026-08-31 那段）。
+    # 這三個不是版本化的 chunk，沒有「per-chunk」這回事，整份檔案的原始位元組
+    # 就是內容——與 region/entities 分開一段迴圈，因為粒度不同（一份檔案一次
+    # digest.update，不是逐 chunk）。
+    for path in [*_dat_files(readable), *_datapack_files(readable)]:
+        name = path.relative_to(readable).replace("\\", "/").encode("utf-8")
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            digest.update(name)
+            digest.update(b"\x1funreadable\x1f")
+            digest.update(type(exc).__name__.encode("ascii"))
+            continue
+        digest.update(name)
+        digest.update(_SEP)
+        digest.update(data)
+
     return f"blake2b:{digest.hexdigest()}"
+
+
+def _dat_files(world) -> list:
+    """`level.dat` 與 `data/scoreboard.dat`——兩個都是「有就算，沒有是合法狀態」
+    （自建探測世界常常沒有 `scoreboard.dat`）。"""
+    candidates = [world / "level.dat", world / "data" / "scoreboard.dat"]
+    return [p for p in candidates if p.is_file()]
+
+
+def _datapack_files(world) -> list:
+    """`datapacks/` 底下每一個檔案——資料夾形式遞迴進每個檔案，zip 形式把整個
+    `.zip` 當一份檔案（不解開內容逐條目比對，理由同 payload 那段：保守，不假裝
+    知道「內容一樣但重新壓縮」是同一份東西）。
+
+    排序鍵正規化成 `/`，理由與 `nbtio/region.py` 的 `region_files()` 一樣
+    （[已知缺口，2026-08-31 一併補掉]）：作業系統原生分隔符在子目錄名互為前綴
+    時會給出不一致的順序，而指紋對順序敏感。
+    """
+    root = world / "datapacks"
+    if not root.is_dir():
+        return []
+    return sorted(
+        (p for p in root.rglob("*") if p.is_file()),
+        key=lambda p: str(p).replace("\\", "/"),
+    )

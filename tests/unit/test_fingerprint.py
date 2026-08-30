@@ -135,13 +135,100 @@ def test_a_world_with_no_regions_is_still_hashable(tmp_path) -> None:
 
 
 def test_unrelated_files_beside_the_regions_are_ignored(tmp_path) -> None:
-    """v1 的指紋只看 region——level.dat 與 datapack 進來要等掃描範圍擴大。"""
+    """指紋只看已知的世界內容位置——一個放在世界根目錄、不屬於
+    `level.dat`／`data/scoreboard.dat`／`datapacks/` 任何一類的檔案，不該讓
+    指紋跟著抖動（那類檔案世界森羅萬象，`session.lock`／launcher 自己寫的
+    雜項都算）。"""
     world = build_world(tmp_path)
     before = world_fingerprint(world)
-    (world / "level.dat").write_bytes(b"whatever")
+    (world / "session.lock").write_bytes(b"whatever")
     (world / "region" / "notes.txt").write_text("hi")
 
     assert world_fingerprint(world) == before
+
+
+# --- level.dat / scoreboard.dat / datapacks（M13b 擴大掃描範圍後的已知缺口，
+# 2026-08-31 補齊）---------------------------------------------------------
+
+
+def test_a_changed_level_dat_changes_the_fingerprint(tmp_path) -> None:
+    """`world_fingerprint` 的 docstring 自己就寫著擴大範圍時要跟著長——M13b
+    讓 apply 寫 `level.dat`，指紋此前完全看不到它變了。"""
+    world = build_world(tmp_path)
+    before = world_fingerprint(world)
+    (world / "level.dat").write_bytes(b"one")
+    after_one = world_fingerprint(world)
+    (world / "level.dat").write_bytes(b"two")
+    after_two = world_fingerprint(world)
+
+    assert before != after_one
+    assert after_one != after_two
+
+
+def test_a_changed_scoreboard_dat_changes_the_fingerprint(tmp_path) -> None:
+    world = build_world(tmp_path)
+    before = world_fingerprint(world)
+    (world / "data").mkdir()
+    (world / "data" / "scoreboard.dat").write_bytes(b"one")
+    after_one = world_fingerprint(world)
+    (world / "data" / "scoreboard.dat").write_bytes(b"two")
+    after_two = world_fingerprint(world)
+
+    assert before != after_one
+    assert after_one != after_two
+
+
+def test_a_changed_datapack_folder_file_changes_the_fingerprint(tmp_path) -> None:
+    world = build_world(tmp_path)
+    before = world_fingerprint(world)
+    advancement = (
+        world / "datapacks" / "mypack" / "data" / "mypack" / "advancement" / "a.json"
+    )
+    advancement.parent.mkdir(parents=True)
+    advancement.write_text('{"display":{"title":"一"}}', encoding="utf-8")
+    after_one = world_fingerprint(world)
+    advancement.write_text('{"display":{"title":"二"}}', encoding="utf-8")
+    after_two = world_fingerprint(world)
+
+    assert before != after_one
+    assert after_one != after_two
+
+
+def test_a_changed_datapack_zip_changes_the_fingerprint(tmp_path) -> None:
+    """[實測] `Arena of Darkness` 的 datapack 全部是 zip 檔——資料夾形式與 zip
+    形式必須是同一條規則才不會漏掉一半的地圖。"""
+    import zipfile
+
+    world = build_world(tmp_path)
+    before = world_fingerprint(world)
+    (world / "datapacks").mkdir(exist_ok=True)
+    zip_path = world / "datapacks" / "mypack.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("data/mypack/advancement/a.json", '{"display":{"title":"一"}}')
+    after_one = world_fingerprint(world)
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("data/mypack/advancement/a.json", '{"display":{"title":"二"}}')
+    after_two = world_fingerprint(world)
+
+    assert before != after_one
+    assert after_one != after_two
+
+
+def test_mtime_alone_on_a_dat_file_does_not_change_the_fingerprint(tmp_path) -> None:
+    world = build_world(tmp_path)
+    (world / "level.dat").write_bytes(b"content")
+    before = world_fingerprint(world)
+    (world / "level.dat").touch()
+
+    assert world_fingerprint(world) == before
+
+
+def test_a_world_missing_all_three_new_sources_is_still_hashable(tmp_path) -> None:
+    """沒有 `level.dat`／`scoreboard.dat`／datapack 是合法狀態（自建探測世界
+    就常常沒有），不該讓指紋整個壞掉。"""
+    world = build_world(tmp_path)
+
+    assert world_fingerprint(world).startswith("blake2b:")
 
 
 def test_payload_bytes_are_what_is_hashed(tmp_path) -> None:
