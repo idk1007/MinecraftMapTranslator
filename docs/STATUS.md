@@ -3,9 +3,11 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-22**（M13b 完成：`level.dat`／`scoreboard.dat`／datapack advancement
-三個非 region 來源接上，寫入層補了 `.dat` 整份重編與 datapack 檔案重寫兩種新寫入器，
-`apply.py` 換成顯式 `kind → writer` 分派表。已在地化節點整個跳過。下一步是 M14）
+最後更新：**2026-08-31**（M13b 之後清掉四項已知缺口：resourcepack 後端的
+in_place/translate_key 分派改由 `strategy_for(category)` 決定、不再信任磁碟上
+`extract.json` 的 `strategy` 欄位；物品白名單補上 `minecraft:block_entity_data`；
+`region_files`/`entities_files` 排序鍵正規化成 `/`；`write/in_place.py` docstring
+更新反映主線防線位置。下一步仍是 M14，或繼續清剩下的已知缺口）
 
 ---
 
@@ -656,26 +658,22 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
   `json_empty_quoted`、2,261 棵帶 `extra` 的樹、331 筆 `hover_event`）目前只有
   M13a 之前的數字。留到 M13.8「已在地化跳過」落地之後再跑——在那之前 MP2 的
   原版 lang 條目會大量進待翻檔，數字沒有參考價值。
-* **`block_entity_name` 不被寫成 translate key，現在只剩上游一道防線。**
-  M13a 的 F2 把 `apply.py` 的分派改成看 `value.kind`，寫入層因此**再也分不出**
-  「方塊實體的 `CustomName`」與「物品的 `minecraft:custom_name`」——兩者路徑都以 key
-  結尾，而 `edit` 不帶 category 或 strategy。保證上移到了 `strategy_for()`，有 17 條
-  測試守著（把 `block_entity_name` 從 `IN_PLACE_CATEGORIES` 刪掉會全紅）。
-  [遊戲實測 M11-3] 那裡寫 translate key 玩家看到的是字面的大括號。
-  **有一個一行的補強沒做**：`backends/resourcepack/backend.py` 的 `_value_for` 讀的是
-  `unit["strategy"]`——一個**從磁碟上的 `extract.json` 讀來的值**，而同一個 unit 裡就有
-  `category`。改成 `strategy_for(unit["category"])` 不動合約、不動 `write/`，就能讓這個
-  不變式回到**行程內**，而不是隔著一個使用者打得開的檔案。乾淨的長期解是 `edit` 加一個
-  `strategy` 欄位，那是合約改動。
-* **`write/in_place.py` 的模組 docstring 還把自己框成「保護 `CustomName` 的那個東西」。**
-  那件事在 F2 之後已經只剩上游在做，測試檔的說明搬過去了、原始碼註解沒有。一行可補。
-* **native 的 `minecraft:block_entity_data` 沒進物品白名單。** 那是舊格式
-  `tag.BlockEntityTag` 在組件時代的對應物，所以 native 世界裡一個有自訂容器名的潛影盒
-  **物品**掃不到（方塊形式的潛影盒不受影響）。屬「漏抽看得見」方向，M13b 順手補。
-* **指紋的排序鍵用 OS 原生路徑字串。** `region_files()` / `entities_files()` 都是
-  `sorted(..., key=str)`，Windows 是 `\`、POSIX 是 `/`，而指紋對順序敏感。摘要用的
-  相對路徑已經正規化成 `/`（`world_fingerprint` 裡那行），**排序沒有**。目前的語料
-  排不出差異，但「同一個世界在兩台機器上算出同一個指紋」這句承諾現在靠的是運氣。
+* ~~**`block_entity_name` 不被寫成 translate key，現在只剩上游一道防線……有一個
+  一行的補強沒做**~~ → **2026-08-31 已補**：`backends/resourcepack/backend.py` 的
+  `_value_for` 與 lang_pairs 收集改讀 `strategy_for(unit["category"])`，不再信任
+  磁碟上 `extract.json` 裡可能被竄改的 `unit["strategy"]`。新增
+  `test_an_in_place_edit_ignores_a_tampered_strategy_field` 釘住。乾淨的長期解仍是
+  `edit` 加一個 `strategy` 欄位（合約改動），這裡只是把不變式拉回行程內。
+* ~~**`write/in_place.py` 的模組 docstring 還把自己框成「保護 `CustomName` 的那個
+  東西」**~~ → **2026-08-31 已補**：docstring 加一段說明主線防線在 F2 之後已上移到
+  `strategy_for()`，這裡剩下的是防禦性兜底。獨立 commit（`write/` 目錄規範要求）。
+* ~~**native 的 `minecraft:block_entity_data` 沒進物品白名單**~~ → **2026-08-31 已
+  補**：`scan/sources/item.py` 的 `_scan_components` 比照舊格式 `BlockEntityTag` 補上
+  這個 1.20.5+ 組件（`CustomName` → `block_entity_name`、`Items[]` 遞迴）。
+* ~~**指紋的排序鍵用 OS 原生路徑字串**~~ → **2026-08-31 已補**：`region_files()` /
+  `entities_files()` 的排序鍵改成 `str(p).replace("\\", "/")`。新增兩條測試在
+  Windows 上真的建出會互撞的目錄名（`a/region` 與 `aX/region`）釘住排序與正規化後
+  字串序一致。
 * **native 世界上的 list 提升會自撞。** [實測] 100 Ways To Die 一次 apply 有 325 筆
   `node_changed`，全部是告示牌：同一面告示牌的第一行寫進去時整個 `messages` list
   被提升成 compound，於是同一份 plan 裡後面幾行的 `expected_encoding`（`bare_string`）
