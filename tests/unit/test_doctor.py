@@ -355,3 +355,137 @@ def test_legacy_json_in_a_native_chunk_is_counted(tmp_path) -> None:
 
     # 4671 那個 chunk 的兩個舊式節點會被跳過；3955 那個不算。
     assert survey.legacy_json_in_native_chunk == 2
+
+
+# --- level.dat / scoreboard.dat / datapack（M13b 已知缺口，2026-08-31 補齊）---
+#
+# [M13b 最終 review 發現] doctor 自己的 docstring 寫著「涵蓋範圍必須等於 apply
+# 會寫的範圍」——M13b 讓 apply 寫這三個新來源，doctor 一行沒改。壞掉的
+# level.dat／scoreboard.dat／datapack zip，doctor 完全看不到，要跑到 extract
+# 才會發現。這裡不是靠 nbtio/datfile.py 的 write_dat（那個要求路徑在 sandbox
+# 底下），直接用 gzip+amulet_nbt 組出磁碟上的位元組，維持這個檔案其餘測試只用
+# tmp_path 的風格。
+
+
+def write_level_dat(world, compound, *, root_key="Data") -> None:
+    import gzip as gzip_module
+
+    tag = amulet_nbt.NamedTag(amulet_nbt.CompoundTag({root_key: compound}), "")
+    payload = tag.save_to(compressed=False)
+    (world / "level.dat").write_bytes(gzip_module.compress(payload, mtime=0))
+
+
+def write_scoreboard_dat(world, data_compound, *, data_version=4671) -> None:
+    import gzip as gzip_module
+
+    root = amulet_nbt.CompoundTag(
+        {"data": data_compound, "DataVersion": amulet_nbt.IntTag(data_version)}
+    )
+    tag = amulet_nbt.NamedTag(root, "")
+    payload = tag.save_to(compressed=False)
+    target = world / "data" / "scoreboard.dat"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(gzip_module.compress(payload, mtime=0))
+
+
+def test_a_level_dat_is_included_in_the_node_shape_survey(tmp_path) -> None:
+    world = build_world(tmp_path)
+    write_level_dat(
+        world,
+        amulet_nbt.CompoundTag(
+            {
+                "LevelName": amulet_nbt.StringTag("我的世界"),
+                "DataVersion": amulet_nbt.IntTag(4671),
+            }
+        ),
+    )
+
+    survey = survey_world(world)
+
+    assert survey.categories["level_name"] == 1
+    assert survey.level_dat_files == 1
+
+
+def test_a_broken_level_dat_is_visible_without_running_extract(tmp_path) -> None:
+    """[已知缺口] 修好之前，這種壞檔要跑到 `mcmt extract` 才會被發現。"""
+    world = build_world(tmp_path)
+    (world / "level.dat").write_bytes(b"not a gzip nbt file")
+
+    survey = survey_world(world)
+
+    assert survey.skipped_level_dat == 1
+    assert survey.level_dat_files == 0
+
+
+def test_a_scoreboard_dat_is_included_in_the_node_shape_survey(tmp_path) -> None:
+    world = build_world(tmp_path)
+    write_scoreboard_dat(
+        world,
+        amulet_nbt.CompoundTag(
+            {
+                "Objectives": amulet_nbt.ListTag(
+                    [
+                        amulet_nbt.CompoundTag(
+                            {
+                                "Name": amulet_nbt.StringTag("obj"),
+                                "DisplayName": amulet_nbt.StringTag('{"text":"分數"}'),
+                            }
+                        )
+                    ]
+                )
+            }
+        ),
+    )
+
+    survey = survey_world(world)
+
+    assert survey.categories["objective"] == 1
+    assert survey.scoreboard_dat_files == 1
+
+
+def test_a_broken_scoreboard_dat_is_visible_without_running_extract(tmp_path) -> None:
+    world = build_world(tmp_path)
+    (world / "data").mkdir()
+    (world / "data" / "scoreboard.dat").write_bytes(b"not a gzip nbt file")
+
+    survey = survey_world(world)
+
+    assert survey.skipped_scoreboard_dat == 1
+
+
+def test_a_datapack_advancement_is_included_in_the_node_shape_survey(tmp_path) -> None:
+    world = build_world(tmp_path)
+    advancement = (
+        world / "datapacks" / "mypack" / "data" / "mypack" / "advancement" / "a.json"
+    )
+    advancement.parent.mkdir(parents=True)
+    advancement.write_text(
+        '{"display":{"title":"標題","description":"說明"}}', encoding="utf-8"
+    )
+
+    survey = survey_world(world)
+
+    assert survey.categories["advancement_title"] == 1
+    assert survey.categories["advancement_description"] == 1
+    assert survey.advancement_files == 1
+
+
+def test_a_broken_datapack_zip_is_visible_without_running_extract(tmp_path) -> None:
+    """[已知缺口] 損毀的 datapack zip 此前 doctor 完全看不到。"""
+    world = build_world(tmp_path)
+    (world / "datapacks").mkdir()
+    (world / "datapacks" / "broken.zip").write_bytes(b"not a zip file")
+
+    survey = survey_world(world)
+
+    assert survey.skipped_datapack_zip == 1
+
+
+def test_a_world_with_no_new_m13b_sources_survives(tmp_path) -> None:
+    """沒有 `level.dat`／`scoreboard.dat`／datapack 是合法狀態，不該讓健檢壞掉。"""
+    survey = survey_world(build_world(tmp_path))
+
+    assert survey.level_dat_files == 0
+    assert survey.scoreboard_dat_files == 0
+    assert survey.advancement_files == 0
+    assert survey.supported

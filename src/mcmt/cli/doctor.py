@@ -19,6 +19,9 @@ def format_survey(survey: WorldSurvey) -> str:
         f"region 檔：{survey.region_files} 個 · chunk：{survey.chunks:,} 個",
         f"實體 region 檔：{survey.entities_files} 個 · 實體 chunk："
         f"{survey.entity_chunks:,} 個",
+        f"level.dat：{survey.level_dat_files} 個 · scoreboard.dat："
+        f"{survey.scoreboard_dat_files} 個 · datapack 進度檔："
+        f"{survey.advancement_files} 個",
         "",
         "DataVersion 直方圖",
     ]
@@ -47,6 +50,17 @@ def format_survey(survey: WorldSurvey) -> str:
             "",
             f"※ {survey.unparseable:,} 個節點看起來是 JSON 但解析不了，會被跳過並計數。",
         ]
+
+    _skipped = (
+        ("level.dat 讀不下去", survey.skipped_level_dat),
+        ("scoreboard.dat 讀不下去", survey.skipped_scoreboard_dat),
+        ("datapack zip 讀不下去", survey.skipped_datapack_zip),
+        ("advancement JSON 解析不了", survey.skipped_advancement_unparseable),
+        ("advancement 的節點形狀轉不出去", survey.skipped_advancement_shape),
+    )
+    if any(count for _, count in _skipped):
+        lines += ["", "※ extract 會跳過的檔案／節點（不會中止整個世界）："]
+        lines += [f"  {label}：{count} 個" for label, count in _skipped if count]
 
     lines += [
         "",

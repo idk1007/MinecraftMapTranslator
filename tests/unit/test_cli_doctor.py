@@ -72,3 +72,15 @@ def test_the_report_shows_the_node_shape_distribution(tmp_path, capsys) -> None:
     assert "節點形狀分佈" in out
     assert "json_empty_quoted" in out
     assert "跳過不翻" in out  # 新世代 chunk 裡的舊式 JSON 要講清楚
+
+
+def test_a_broken_level_dat_is_reported_without_running_extract(tmp_path, capsys) -> None:
+    """[已知缺口，2026-08-31 補齊] 壞掉的 level.dat 此前要跑到 extract 才看得到。"""
+    world = build_world(tmp_path)
+    (world / "level.dat").write_bytes(b"not a gzip nbt file")
+
+    code = main(["doctor", str(world)])
+
+    out = capsys.readouterr().out
+    assert code == 0  # 這不是拒絕處理的閘門，extract 本來就只是跳過並計數
+    assert "level.dat 讀不下去：1 個" in out
