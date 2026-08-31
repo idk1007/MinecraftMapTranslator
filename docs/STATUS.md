@@ -3,7 +3,14 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-08-31**（M13b 之後陸續清掉九項已知缺口，同一天分批完成：
+最後更新：**2026-09-01**（`sandbox/MP2` 用 M13a/M13b 之後的完整掃描重跑一遍
+已知缺口第 15 項：doctor 健檢 → extract 全掃 → no-op 譯文 → 真實 `apply` 寫入 →
+從備份還原 → doctor 覆核數字與寫入前一致。3,072 筆 edit 全部寫入、0 筆拒寫，
+`skipped_already_localised` 第一次在 3,515 筆真實資料上生效，第 5／3 項的批次守門
+與 `raw_snapshot` 守門在語料裡形狀最雜的地圖上都沒有暴露新問題，細節見
+`SPIKE_RESULT.md`「M13a/M13b 之後 MP2 全掃」。
+
+2026-08-31：M13b 之後陸續清掉九項已知缺口，同一天分批完成：
 resourcepack 後端的 in_place/translate_key 分派改由 `strategy_for(category)`
 決定；物品白名單補上 `minecraft:block_entity_data`；`region_files`/
 `entities_files` 排序鍵正規化成 `/`；`write/in_place.py` docstring 更新；
@@ -668,10 +675,10 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
 * **`book_page` 的寬度還沒校準**（114px 是 `[文件]`）。v1 還沒掃到書本，所以連一個
   真實資料點都沒有；M13 掃到之後要照 `docs/m8-checklist.md` 再跑一次校準。
 * **`json_string_array` 形狀的 `in_place` 仍拒寫**，沒測過。實務上罕見。
-* **MP2 還沒用 M13a 之後的掃描跑過。** 語料裡形狀最雜的一張（2,340 個
-  `json_empty_quoted`、2,261 棵帶 `extra` 的樹、331 筆 `hover_event`）目前只有
-  M13a 之前的數字。留到 M13.8「已在地化跳過」落地之後再跑——在那之前 MP2 的
-  原版 lang 條目會大量進待翻檔，數字沒有參考價值。
+* ~~**MP2 還沒用 M13a 之後的掃描跑過。**~~ → **2026-09-01 已補**：doctor → extract →
+  no-op 譯文 → 真實 `apply` → 還原 → doctor 覆核，全程無誤。3,072 筆 edit 全部
+  寫入、0 筆拒寫，`skipped_already_localised` 擋下 3,515 筆真實地圖自帶的
+  `mcp.*` 中文化條目。細節見 `SPIKE_RESULT.md`「M13a/M13b 之後 MP2 全掃」。
 * ~~**`block_entity_name` 不被寫成 translate key，現在只剩上游一道防線……有一個
   一行的補強沒做**~~ → **2026-08-31 已補**：`backends/resourcepack/backend.py` 的
   `_value_for` 與 lang_pairs 收集改讀 `strategy_for(unit["category"])`，不再信任

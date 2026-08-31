@@ -329,6 +329,61 @@ data/scoreboard.dat → data.Teams[].MemberNameSuffix        ← text component
 `100 Ways To Die` 沒有任何 datapack（`extract` 掃出 0 個 `advancement_title`/
 `advancement_description`），所以這兩則發現只有 AoD 一張地圖的樣本。
 
+### M13a/M13b 之後 MP2 全掃 [實測 2026-09-01]
+
+`docs/STATUS.md` 已知缺口第 15 項留到現在才跑：「MP2 還沒用 M13a／M13b 之後的完整掃描
+跑過」。用 `mcmt sandbox import` 匯入、`mcmt doctor` 健檢、`mcmt extract` 全掃、
+把 `translations.zh_tw.json` 每筆 `target = source`（no-op 驗證譯文）、`mcmt apply`
+真的寫入（非 dry-run），再從備份還原、`mcmt doctor` 覆核數字與寫入前一致。
+
+**doctor（寫入前後數字一致）**：
+
+```
+維度：5 個 region 目錄（DIM-1、DIM1、dimensions/new_dimensions/{sky,void}_dimension、主世界）
+region 檔：406 個 · chunk：207,515 個
+實體 region 檔：185 個 · 實體 chunk：760 個
+level.dat：1 個 · scoreboard.dat：1 個 · datapack 進度檔：43 個
+DataVersion：3955 43.4% / 4438 43.1% / 4556 13.3% / 4325 0.2% / 4440 0.0%
+壓縮類型：全部 zlib
+節點形狀（文字節點 58,723）：bare_string 77.0%／compound_tree 10.7%／
+  empty_key_compound 4.7%／json_empty_quoted 4.0%／json_string_scalar 3.4%／
+  json_string_object 0.3%
+外部 .mcc：0，不支援的結構：0，疑似損壞：0
+```
+
+**extract**：
+
+```
+翻譯單位：1,062 個（出現 3,072 次，去重省下 2,010 次）
+  sign 578 / objective 310 / hanging_sign 44 / team 39 / block_entity_name 36 /
+  book_page 34 / team_affix 10 / entity_name 4 / item_name 2 / book_title 2 /
+  custom_name 1 / book_author 1 / level_name 1
+跳過：4,507 個新世代 chunk 裡的舊式 JSON、3,515 個已在地化（M13b `_contains_translate`）、
+  47,629 個空白節點
+```
+
+**apply（no-op 譯文，真實寫入）**：
+
+```
+計畫要改的節點：3,072 → 實際寫入：3,072（unwritten 0，refuse 0）
+改動的 chunk：463（原封複製 28,200 個）· 重寫的 region 檔：32
+NBT list 提升：829（M13a 之後的批次守門——同一面告示牌多筆 edit 不再自撞）
+warnings：31（全部是磁區重整，附前後大小；無其他警告種類）
+```
+
+MP2 自己的 `resources.zip` 宣告 `pack_format 55`，1.21.11 會拒絕整包（連我們寫入的
+譯文一起）；`apply` 自動加上 `supported_formats 55–75`，未更動它原本宣告的
+`pack_format`——這是安全規則之外、資源包合併邏輯第一次在真實地圖的舊 `resources.zip`
+上被觸發並驗證過。
+
+**結論**：語料裡形狀最雜的一張地圖（`json_empty_quoted` 2,340、`compound_tree` 6,282、
+`hover_event` 331、自帶 `mcp.*` 中文化系統）在 M13a（掃描範圍擴大）與 M13b（已在地化
+跳過）之後，**沒有任何一筆 edit 被拒寫**，`已知缺口第 5 項`（native list 批次自撞）與
+`第 3 項`（`raw_snapshot` 守門）在最複雜的真實資料上都沒有暴露新問題。之前
+`stats.skipped_already_localised` 只在單元測試與小語料上驗證過，這是它第一次在
+3,515 筆真實地圖資料上生效——若它沒接上，這 3,515 筆會混進待翻檔，靜默蓋掉地圖
+自己的 5 語言中文化系統（見上方「M13b」一節與 STATUS.md 對此規則的說明）。
+
 ### tab 玩家列表 [實測]
 
 tab 列表沒有專屬的文字欄位，它顯示的東西全部來自上面已列的路徑：
