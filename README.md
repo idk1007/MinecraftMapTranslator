@@ -19,7 +19,7 @@ mcmt extract <世界>   →  translations.zh_tw.json   ← 你編輯這個檔案
                           （用任何編輯器把 target 填上）
                                   │
 mcmt apply <世界> --translations translations.zh_tw.json
-                      →  resources.zip + 外科式寫回 + apply_report.json
+                      →  resources.zip + 寫回存檔 + apply_report.json
 ```
 
 **這個工具會修改別人花幾千小時做的地圖存檔。** 設計上的每一條規則都是為了讓「除了
@@ -81,39 +81,37 @@ python -m venv .venv
 
 ## 最短可行路徑
 
-假設要翻一張放在 `.minecraft/saves/範例地圖` 的地圖：
-
 ```
-# 1. 先健檢原始世界（唯讀，不會動到任何東西）
-mcmt doctor "C:\Users\you\AppData\Roaming\.minecraft\saves\範例地圖"
-
-# 2. 複製進 sandbox
+# 1. 把要翻的世界複製進 sandbox（extract / apply 只認 sandbox 底下的副本）
 mcmt sandbox import "C:\Users\you\AppData\Roaming\.minecraft\saves\範例地圖"
-#    → sandbox/範例地圖/
 
-# 3. 掃描，產出待翻檔
+# 2. 掃描，產出待翻檔 sandbox/.mcmt-out/範例地圖/translations.zh_tw.json
 mcmt extract "sandbox/範例地圖" --lang zh_tw
-#    → sandbox/.mcmt-out/範例地圖/
-#        translations.zh_tw.json   ← 編輯這個
-#        extract.json / keymap.json  機器用，不要手動改
 
-# 4. 用任何編輯器打開 translations.zh_tw.json，把每筆的 target 填上
+# 3. 用任何編輯器打開 translations.zh_tw.json，把每筆的 target 填上
 
-# 5. 寫回（先 dry-run 看一遍，確認沒問題再拿掉 --dry-run）
-mcmt apply "sandbox/範例地圖" \
-    --translations "sandbox/.mcmt-out/範例地圖/translations.zh_tw.json" --dry-run
-
-mcmt apply "sandbox/範例地圖" \
-    --translations "sandbox/.mcmt-out/範例地圖/translations.zh_tw.json"
-#    → sandbox/範例地圖/resources.zip  + 外科式寫回
-#    → sandbox/.mcmt-out/範例地圖/apply_report.json
-
-# 6. 確認遊戲裡顯示正確後，自己手動把 sandbox/範例地圖 複製回 .minecraft/saves
-#    （工具不會替你做這一步）
+# 4. 寫回
+mcmt apply "sandbox/範例地圖" --translations "sandbox/.mcmt-out/範例地圖/translations.zh_tw.json"
 ```
 
-備份放在 `sandbox/.mcmt-backups/<世界>/<時間戳>/`，與世界資料夾平行——世界資料夾本身
-不會多出備份檔。
+翻好的世界在 `sandbox/範例地圖`，自己複製回 `.minecraft/saves` 就完成了——這一步
+工具不會替你做。
+
+---
+
+## 出問題再看這裡
+
+上面順順跑完就不用管這一段。
+
+- **想先確認地圖能不能處理**：`mcmt doctor "<世界路徑>"`（唯讀）。印出 DataVersion
+  分佈、有多少節點會被跳過不翻、這個世界能不能處理。1.12 舊地圖、帶外部 `.mcc`
+  chunk 的世界會在這裡被拒絕。
+- **想先看 `apply` 會改什麼、但先不碰存檔**：`mcmt apply … --dry-run`。印出完整計畫
+  並產 `editplan.json`，一個位元都不寫。
+- **`apply` 說有些譯文沒寫進去**（佔位符對不上、太長、節點在 extract 之後被改過…）：
+  原因逐筆列在 `sandbox/.mcmt-out/範例地圖/apply_report.json`。
+- **備份**：每次 `apply` 前自動備份到 `sandbox/.mcmt-backups/<世界>/<時間戳>/`（與世界
+  資料夾平行，資料夾本身不會多出東西）；備份失敗 `apply` 直接中止。
 
 ---
 
