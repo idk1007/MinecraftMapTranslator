@@ -14,7 +14,12 @@ import zipfile
 
 import pytest
 
-from mcmt.backends.resourcepack.pack import PACK_FORMAT, build_pack
+from mcmt.backends.resourcepack.pack import (
+    FORWARD_PACK_FORMAT,
+    MIN_PACK_FORMAT,
+    PACK_FORMAT,
+    build_pack,
+)
 
 
 def existing_pack(path, *, pack_format=22, extra=None):
@@ -62,6 +67,33 @@ def test_a_fresh_pack_declares_the_target_format(project) -> None:
     build_pack(target, {"zh_tw": {}}, namespace="mcmt")
 
     assert meta(target)["pack_format"] == PACK_FORMAT
+
+
+def test_a_fresh_pack_opens_the_range_from_the_json_lang_floor(project) -> None:
+    """[文件] JSON lang 檔（`assets/<ns>/lang/<lang>.json`）從 pack_format 4（1.13）
+    才存在，再往下是 `.lang` properties 格式，這個工具不產那種——4 是有意義的地板。"""
+    target = project / "sandbox" / "world" / "resources.zip"
+
+    build_pack(target, {"zh_tw": {}}, namespace="mcmt")
+
+    assert meta(target)["supported_formats"]["min_inclusive"] == MIN_PACK_FORMAT
+    assert MIN_PACK_FORMAT == 4
+
+
+def test_a_fresh_pack_stays_valid_on_future_game_formats(project) -> None:
+    """材質包只裝一個 lang 檔，那個格式從 4 到今天沒有破壞性改動。往未來開到底，
+    未來版本不必改工具就能載入。真的哪天 Mojang 改了 lang 載入邏輯，這個包會
+    默默失效（譯文不顯示），那是可接受的——單人翻地圖的工具不追每個版本。"""
+    target = project / "sandbox" / "world" / "resources.zip"
+
+    build_pack(target, {"zh_tw": {}}, namespace="mcmt")
+
+    supported = meta(target)["supported_formats"]
+    # 26.2（pack_format 88）——踩到這個 bug 的版本。
+    assert supported["min_inclusive"] <= 88 <= supported["max_inclusive"]
+    # 以及遠得離譜的未來版本。
+    assert supported["max_inclusive"] >= 500
+    assert supported["max_inclusive"] == FORWARD_PACK_FORMAT
 
 
 def test_multiple_languages_each_get_a_file(project) -> None:
@@ -144,7 +176,7 @@ def test_an_outdated_pack_gains_supported_formats(project) -> None:
 
     supported = meta(target)["supported_formats"]
     assert supported["min_inclusive"] <= 22
-    assert supported["max_inclusive"] >= PACK_FORMAT
+    assert supported["max_inclusive"] == FORWARD_PACK_FORMAT
     assert report.pack_meta_changed is True
 
 
@@ -157,17 +189,21 @@ def test_the_maps_own_pack_format_number_is_left_alone(project) -> None:
     assert meta(target)["pack_format"] == 22
 
 
-def test_a_current_pack_is_not_touched(project) -> None:
+def test_a_pack_without_a_forward_range_gets_one(project) -> None:
+    """即使地圖宣告的是「當前」版本，只要沒有把 supported_formats 開向未來，就補上——
+    否則下一次遊戲大版本一出，整包連同譯文又會被拒。地圖自己的 pack_format 不動。"""
     target = existing_pack(
         project / "sandbox" / "world" / "resources.zip", pack_format=PACK_FORMAT
     )
 
     report = build_pack(target, {"zh_tw": {"a": "甲"}}, namespace="mcmt")
 
-    assert report.pack_meta_changed is False
+    assert report.pack_meta_changed is True
+    assert meta(target)["pack_format"] == PACK_FORMAT
+    assert meta(target)["supported_formats"]["max_inclusive"] == FORWARD_PACK_FORMAT
 
 
-def test_a_pack_that_already_declares_a_wide_range_is_not_touched(project) -> None:
+def test_a_pack_that_already_declares_a_forward_range_is_not_touched(project) -> None:
     target = project / "sandbox" / "world" / "resources.zip"
     target.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(target, "w") as archive:
@@ -177,7 +213,10 @@ def test_a_pack_that_already_declares_a_wide_range_is_not_touched(project) -> No
                 {
                     "pack": {
                         "pack_format": 22,
-                        "supported_formats": {"min_inclusive": 22, "max_inclusive": 99},
+                        "supported_formats": {
+                            "min_inclusive": 22,
+                            "max_inclusive": FORWARD_PACK_FORMAT,
+                        },
                     }
                 }
             ),

@@ -5,15 +5,31 @@
 
 * zip 而非資料夾，檔名固定 `resources.zip`，放世界資料夾**根目錄**
 * zip 內根目錄**直接是** `assets/` 與 `pack.mcmeta`，不可有外層包裹資料夾
-* `pack_format` 宣告 75（1.21.11），另加 `supported_formats` 區間
+* `pack_format` 宣告 `PACK_FORMAT`（我們真的進遊戲驗過的版本），另加一個
+  **往兩端開很寬**的 `supported_formats` 區間
+
+**`supported_formats` 的區間刻意開到 `MIN_PACK_FORMAT`–`FORWARD_PACK_FORMAT`。**
+這個工具產的包裡**只有一個 lang 檔**（`assets/<ns>/lang/<lang>.json` 扁平
+`key → 字串`），那個格式從 pack_format 4（1.13）到今天沒有任何破壞性改動。所以：
+
+* 往下開到 `MIN_PACK_FORMAT = 4`——JSON lang 檔第一次存在的版本。再往下是
+  `.lang` properties 格式，這個工具不產那種，開再低也是謊報。
+* 往上開到 `FORWARD_PACK_FORMAT`（實質無上限）——未來版本不必改工具就能載入。
+  代價是：真的哪天 Mojang 動了 lang 檔或資源包載入邏輯（不是只改版本號），
+  這個包會**默默失效**（遊戲仍載入，但譯文不顯示），不是一個乾淨的錯誤。
+  單人翻地圖的工具不保證跟上每個版本，這個取捨是刻意接受的。
 
 **合併既有 pack 時必須處理 `pack.mcmeta`。** [遊戲實測 M4-5] 地圖自帶的
 `pack_format: 22` 被 1.21.11 進世界前直接拒絕（「無法套用伺服器資源包」），我們併
-進去的 lang 檔跟著陪葬——整份譯文一個字都沒顯示。
+進去的 lang 檔跟著陪葬——整份譯文一個字都沒顯示。同一件事會在任何「地圖的
+`supported_formats` 沒開到未來、而遊戲又出了新大版本」時重演（[實測 2026-09-03]
+`all-the-same` 在 Minecraft 26.2／pack_format 88 上，我們自己產的 `{75,75}` 包被
+判過期）。
 
-處理方式是**只加 `supported_formats` 區間，不改它宣告的 `pack_format`**：那個數字是
-地圖作者寫的，改它等於謊報這個 pack 是為新版做的。加區間表達的是「這個 pack 在這個
-範圍內都能用」，而那正是我們要主張的事。**這仍然是在改地圖自己的檔案，所以要回報。**
+處理方式是**把 `supported_formats` 的上限推到 `FORWARD_PACK_FORMAT`，不改它宣告的
+`pack_format`**：那個數字是地圖作者寫的。下限維持地圖自己宣告的值——地圖的材質與
+模型可能真的需要那個地板，替它往下開等於謊報。**這仍然是在改地圖自己的檔案，所以
+要回報。**
 """
 
 import json
@@ -26,9 +42,17 @@ from mcmt.backends.resourcepack.lang import dump_lang
 from mcmt.safety.paths import ensure_readable, ensure_writable
 from mcmt.tree.codecs import codec_for
 
-__all__ = ["PACK_FORMAT", "PackReport", "build_pack"]
+__all__ = [
+    "FORWARD_PACK_FORMAT",
+    "MIN_PACK_FORMAT",
+    "PACK_FORMAT",
+    "PackReport",
+    "build_pack",
+]
 
-PACK_FORMAT = 75  # 1.21.11
+PACK_FORMAT = 75  # 1.21.11 — 我們真的進遊戲驗過的版本，當作誠實的「主要」宣告
+MIN_PACK_FORMAT = 4  # [文件] JSON lang 檔第一次存在的版本（1.13）
+FORWARD_PACK_FORMAT = 9999  # 實質無上限；見模組 docstring 對這個取捨的說明
 _META = "pack.mcmeta"
 
 # zip 條目的時間戳固定，同樣的輸入產出同樣的位元組。
@@ -77,8 +101,8 @@ def build_pack(
             "pack": {
                 "pack_format": PACK_FORMAT,
                 "supported_formats": {
-                    "min_inclusive": PACK_FORMAT,
-                    "max_inclusive": PACK_FORMAT,
+                    "min_inclusive": MIN_PACK_FORMAT,
+                    "max_inclusive": FORWARD_PACK_FORMAT,
                 },
                 "description": description,
             }
@@ -130,25 +154,31 @@ def _read_existing(
 
 
 def _widen(meta: dict[str, Any]) -> tuple[dict[str, Any], bool, str]:
-    """必要時加上 `supported_formats`，讓舊 pack 在 1.21.11 仍被接受。"""
+    """把 `supported_formats` 的上限推到 `FORWARD_PACK_FORMAT`，讓合併後的 pack 在
+    現在與未來的遊戲版本都被接受。下限維持地圖自己宣告的值（見模組 docstring）。"""
     pack = dict(meta.get("pack") or {})
     declared = pack.get("pack_format")
     supported = pack.get("supported_formats")
 
-    if isinstance(supported, dict) and supported.get("max_inclusive", 0) >= PACK_FORMAT:
-        return meta, False, ""
-    if isinstance(declared, int) and declared >= PACK_FORMAT and supported is None:
+    # 已經往未來開到底了，不重寫——不然每次 apply 都報一次「改了 pack.mcmeta」。
+    if (
+        isinstance(supported, dict)
+        and supported.get("max_inclusive", 0) >= FORWARD_PACK_FORMAT
+    ):
         return meta, False, ""
 
     low = declared if isinstance(declared, int) else PACK_FORMAT
-    if isinstance(supported, dict):
-        low = min(low, supported.get("min_inclusive", low))
-    pack["supported_formats"] = {"min_inclusive": low, "max_inclusive": PACK_FORMAT}
+    if isinstance(supported, dict) and isinstance(supported.get("min_inclusive"), int):
+        low = min(low, supported["min_inclusive"])
+    pack["supported_formats"] = {
+        "min_inclusive": low,
+        "max_inclusive": FORWARD_PACK_FORMAT,
+    }
     updated = dict(meta)
     updated["pack"] = pack
     note = (
-        f"地圖原本的 resources.zip 宣告 pack_format {declared}，1.21.11 會拒絕整個 pack"
-        f"（連我們的譯文一起）。已加上 supported_formats {low}–{PACK_FORMAT}，"
-        f"未更動它原本宣告的 pack_format。"
+        f"地圖原本的 resources.zip 宣告 pack_format {declared}，未把 supported_formats "
+        f"開向未來——新版遊戲會拒絕整個 pack（連我們的譯文一起）。已把 supported_formats "
+        f"設成 {low}–{FORWARD_PACK_FORMAT}，未更動它原本宣告的 pack_format。"
     )
     return updated, True, note
