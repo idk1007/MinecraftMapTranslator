@@ -6,13 +6,14 @@ Minecraft 地圖翻譯工具。Python 3.11+ · GPLv3 · Java Edition 1.21.11＋�
 你要的語言。主要走資源包（自訂命名空間的 lang key），少數不能走資源包的欄位
 才直接改寫存檔。
 
-**不做機器翻譯。** 沒有 API、沒有網路相依。工具把「掃描」和「寫回」拆成兩個
-指令，中間夾的是你自己拿任何編輯器翻譯的時間：
+**工具本身不做翻譯，也不連任何翻譯服務**（沒有 API、沒有網路相依）。它把「掃描」
+和「寫回」拆成兩個指令，中間夾的是你把 `target` 填好的時間——自己翻、丟給 LLM
+翻、找譯者翻都行：
 
 ```
-mcmt extract <世界>   →  translations.zh_tw.json   ← 你編輯這個檔案
+mcmt extract <世界>   →  translations.zh_tw.json   ← 你在這裡填譯文
                                   │
-                          （用任何編輯器把 target 填上）
+                          （把每筆的 target 填上）
                                   │
 mcmt apply <世界> --translations translations.zh_tw.json
                       →  resources.zip + 寫回存檔 + apply_report.json
@@ -60,6 +61,39 @@ python -m venv .venv
 
 ---
 
+## 最短可行路徑
+
+```
+# 1. 把要翻的世界複製進 sandbox（extract / apply 只認 sandbox 底下的副本）
+mcmt sandbox import "C:\Users\you\AppData\Roaming\.minecraft\saves\範例地圖"
+
+# 2. 掃描，產出待翻檔 sandbox/.mcmt-out/範例地圖/translations.zh_tw.json
+mcmt extract "sandbox/範例地圖" --lang zh_tw
+
+# 3. 把 translations.zh_tw.json 每筆的 target 填上（自己翻、丟給 LLM、找譯者都行）
+
+# 4. 寫回
+mcmt apply "sandbox/範例地圖" --translations "sandbox/.mcmt-out/範例地圖/translations.zh_tw.json"
+```
+
+翻好的世界在 `sandbox/範例地圖`，自己複製回 `.minecraft/saves` 就完成了——這一步
+工具不會替你做。
+
+### 翻成別的語言
+
+`--lang zh_tw` 換成任何 Minecraft 語言代碼即可，待翻檔名跟著變
+`translations.<代碼>.json`。例如翻成英文：
+
+```
+mcmt extract "sandbox/範例地圖" --lang en_us
+mcmt apply   "sandbox/範例地圖" --translations "sandbox/.mcmt-out/範例地圖/translations.en_us.json"
+```
+
+`en_us` 的譯文會顯示給遊戲語言設成英文的玩家，`ja_jp` 給日文，以此類推。一個世界
+也可以放多份不同語言的資源包 lang 檔（多跑幾次不同 `--lang` 即可）。
+
+---
+
 ## 四個指令
 
 | 指令 | 做什麼 |
@@ -71,26 +105,6 @@ python -m venv .venv
 
 `doctor` 可以直接對 `.minecraft/saves` 裡的世界跑（唯讀）。`extract` 和 `apply` 只
 處理 `sandbox/` 底下的副本——所以第一步一定是 `sandbox import`。
-
----
-
-## 最短可行路徑
-
-```
-# 1. 把要翻的世界複製進 sandbox（extract / apply 只認 sandbox 底下的副本）
-mcmt sandbox import "C:\Users\you\AppData\Roaming\.minecraft\saves\範例地圖"
-
-# 2. 掃描，產出待翻檔 sandbox/.mcmt-out/範例地圖/translations.zh_tw.json
-mcmt extract "sandbox/範例地圖" --lang zh_tw
-
-# 3. 用任何編輯器打開 translations.zh_tw.json，把每筆的 target 填上
-
-# 4. 寫回
-mcmt apply "sandbox/範例地圖" --translations "sandbox/.mcmt-out/範例地圖/translations.zh_tw.json"
-```
-
-翻好的世界在 `sandbox/範例地圖`，自己複製回 `.minecraft/saves` 就完成了——這一步
-工具不會替你做。
 
 ---
 
@@ -112,8 +126,8 @@ mcmt apply "sandbox/範例地圖" --translations "sandbox/.mcmt-out/範例地圖
 
 ## 待翻檔長什麼樣
 
-`translations.zh_tw.json` 是**這個專案唯一給人手動編輯的檔案**。`entries` 以翻譯單位
-的 id 為鍵，每筆自帶原文、位置與提示：
+`translations.zh_tw.json`（語言代碼跟著 `--lang` 變）是**這個專案唯一由你提供內容的
+檔案**。`entries` 以翻譯單位的 id 為鍵，每筆自帶原文、位置與提示：
 
 ```jsonc
 {
@@ -134,8 +148,9 @@ mcmt apply "sandbox/範例地圖" --translations "sandbox/.mcmt-out/範例地圖
   事，那不該讓整份檔案失效。與某一份 extract 的綁定靠檔案裡的指紋。
 - **空的 `target` = 尚未翻譯。** `apply` 保留原文並列進報告。
 - **`"status": "skip"`** 是「刻意不翻」，報告會跟「還沒翻」分開來算。
-- `note` 會告訴你這一行放得下幾個中文字（字寬是量出來的）。超寬的譯文 `apply` 會
-  **拒絕寫入**並列進報告，不是默默截斷。
+- `note` 會給出這一行的寬度上限——px 數字，以及大約幾個 CJK 字寬（非 CJK 語言
+  看 px 就好）。字寬是實際量出來的；超寬的譯文 `apply` 會**拒絕寫入**並列進報告，
+  不是默默截斷。
 - 原文裡的 `[[0]]`、`[[1]]` 是**段落格式標記**。譯文裡這些標記的數量必須跟原文
   完全一致——多一個、少一個、重複都會讓那一筆被拒絕（少一個 `§` 格式碼就會染到
   整行結尾）。順序可以不同。只有一個段落時不會有標記，純文字就是純文字。
