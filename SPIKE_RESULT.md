@@ -1124,6 +1124,44 @@ DataFixerUpper 沒能解析那個字串、整個 `CustomName` 欄位被丟棄了
 
 ---
 
+## Minecraft 26.2 遊戲實測（2026-09-03）：新版本上的材質包過期
+
+第一次有真實使用者在**比 1.21.11 新**的版本上跑完整條鏈。地圖 `all-the-same`，
+遊戲版本 **26.2**（`version.json`：`resource_major` 88 / `world_version` 4903）。
+
+### ⑥ `supported_formats` 上限卡在 75 → 26.2 判整包過期 [實測 → 已修]
+
+`mcmt apply` 產的 `resources.zip` 宣告 `supported_formats {min:75, max:75}`
+（`pack.py` 的 `PACK_FORMAT = 75` 寫死成 1.21.11）。26.2 的材質包格式是 88，
+落在 `[75,75]` 之外 → 遊戲判定過期、**拒絕整個世界資源包**，連 `assets/mcmt/
+lang/zh_tw.json` 一起沒生效。告示牌顯示 key 本身而不是譯文。
+
+**這推翻了 M0-5 的前半。** M0-5（在更早版本上）記「世界資源包 `pack_format` 過期
+不警告也不拒載」；M4-5 已經把它修正成「有下限」；這次證實**上限那側 1.21.11 之後
+也會拒載**——只要遊戲的格式高過 pack 宣告的 `supported_formats.max_inclusive`。
+
+**修法（commit `2be79c7`）**：`supported_formats` 上下限都開很寬——
+`MIN_PACK_FORMAT = 4`（JSON lang 檔第一次存在的版本 / 1.13）到
+`FORWARD_PACK_FORMAT = 9999`（實質無上限）。`pack_format` 主宣告維持 75。
+合併地圖自帶的舊 pack 時只把上限推到 9999、下限維持地圖宣告值。
+**取捨**：未來 Mojang 真的改了 lang 檔或資源包載入邏輯時，這個包會**默默失效**
+（遊戲仍載入、譯文不顯示），不是乾淨的錯誤——單人工具不追每個版本，刻意接受。
+
+### ⑦ NBT 寫回不受版本影響 [實測]
+
+同一份 `sandbox/all-the-same`（DataVersion 4903 的 chunk）extract → apply：
+28 筆 edit 全寫入、0 拒寫、原封複製 1,561 個 chunk、list 提升 12。逐 chunk 讀每個
+自己的 DataVersion、寫回同一個世代——4903 不在任何寫死的表裡也照走。
+「per-chunk 世代分派」對未知的新 DataVersion 直接成立。
+
+### ⑧ 修正後的完整結果 [遊戲實測]
+
+換上 `supported_formats {75, 9999}` 的 `resources.zip` 後，26.2 進 `all-the-same`：
+**告示牌與書本的譯文全部正確顯示**，材質包清單無過期提示。使用者原話「翻譯得非常
+完美」。這是資源包路線第一次在 1.21.11 以外的版本上 `[遊戲實測]`。
+
+---
+
 ## 尚待驗證
 
 > 已完成：寫入端編碼對照（兩種皆有效）、Q3 五個結構推論項（全部成立）、第二輪 P1/P2/P3（extra 巢狀、filterable、空值分佈）、M0 遊戲實測（資源包路線、`'""'` 算繪、`pack_format` 過期）、**M4 遊戲實測（舊世代 legacy 寫入、DataFixer 解析、世代升級、`pack_format` 下限）**。
