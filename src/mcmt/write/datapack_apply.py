@@ -16,6 +16,21 @@
 [遊戲實測 M4-5] 的教訓是這類事要在報告裡講清楚——`apply.py` 的呼叫端（`cli/
 apply.py`）沿用既有的 `warnings` 機制，這裡負責的是把 datapack 這件事本身
 記進 `files_rewritten`，讓使用者從報告數字上就看得出「有東西動到了資料包」。
+
+## 寫進 datapack 就順手把它的 `pack.mcmeta` 開向未來
+
+[實測 2026-09-03，見 `SPIKE_RESULT.md`「Minecraft 26.2 遊戲實測」] 只要遊戲的
+格式號高過一個 pack 宣告的 `supported_formats.max_inclusive`，整個 pack 會被判
+過期、拒絕載入——我們剛寫進 advancement JSON 的譯文一起失效。`resources.zip`
+踩過同一個坑（commit 2be79c7），datapack 的 `pack.mcmeta` 是同一件事。
+
+所以只要這一輪真的寫進了某個 datapack，就用 `mcmt.packmeta.widen_supported_formats`
+把那個 datapack 的 `pack.mcmeta` 的 `supported_formats` 上限推到
+`FORWARD_PACK_FORMAT`、下限維持它自己宣告的值，並回報。冪等——已經開到底的不重寫。
+找不到 `pack.mcmeta` 時靜默略過；讀不懂時**不中止**整個 apply（那是地圖自己的
+檔案，它的既有瑕疵不該讓一次翻譯全部回滾），記一筆 `pack_format_outdated` 警告
+說明「沒能加寬、譯文在新版可能不生效」。`resources.zip` 那邊讀不懂會直接
+`raise`——差別在那份 pack 是我們自己產的，讀不懂就是 bug。
 """
 
 import json
@@ -25,11 +40,14 @@ from typing import Any
 
 from mcmt.errors import DatapackWriteVerificationError
 from mcmt.model.node import NodePath
+from mcmt.packmeta import widen_supported_formats
 from mcmt.safety.backup import BackupSet
 from mcmt.safety.paths import ensure_readable, ensure_writable
 from mcmt.write.common import ApplyOutcome, component_for, refuse
 
 __all__ = ["apply_to_datapack_file"]
+
+_PACK_META = "pack.mcmeta"
 
 
 def apply_to_datapack_file(
@@ -88,6 +106,7 @@ def _apply_to_folder_file(
     backup.protect(path)
     _write_json_atomically(ensure_writable(path), document)
     outcome.counts["files_rewritten"] += 1
+    _widen_folder_datapack_meta(world, relative, outcome, backup)
 
 
 def _apply_to_zip_entry(
@@ -136,10 +155,84 @@ def _apply_to_zip_entry(
         return
 
     entries[entry_name] = (info, _encode_entry(document))
+    _widen_zip_datapack_meta(entries, zip_relative, outcome)
     outcome.counts["edits_written"] += written
     backup.protect(path)
     _rewrite_zip(ensure_writable(path), entries, verify_entry=entry_name)
     outcome.counts["files_rewritten"] += 1
+
+
+def _widen_folder_datapack_meta(
+    world: Path, relative: str, outcome: ApplyOutcome, backup: BackupSet
+) -> None:
+    """資料夾式 datapack：`pack.mcmeta` 是一個普通檔案，讀 → 加寬 → 原子寫回。
+
+    **只在真的寫進了東西之後才呼叫**（呼叫點在 `if not written: return` 之後）：
+    一次沒有實際寫入的 apply 不該去動地圖的 `pack.mcmeta`。冪等——已經開到未來的
+    不會再寫、也不再報。
+    """
+    parts = relative.replace("\\", "/").split("/")
+    if len(parts) < 2 or parts[0] != "datapacks":
+        return
+    meta_path = world / parts[0] / parts[1] / _PACK_META
+    if not meta_path.exists():
+        return
+    try:
+        meta = json.loads(ensure_readable(meta_path).read_bytes().decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        _warn_not_widened(outcome, parts[1], exc)
+        return
+    updated, changed, note = widen_supported_formats(meta)
+    if not changed:
+        return
+    backup.protect(meta_path)
+    _write_json_atomically(ensure_writable(meta_path), updated)
+    outcome.counts["files_rewritten"] += 1
+    outcome.warnings.append(
+        {"kind": "pack_format_outdated", "unit_id": None, "detail": f"{parts[1]}：{note}"}
+    )
+
+
+def _widen_zip_datapack_meta(
+    entries: dict[str, tuple], zip_relative: str, outcome: ApplyOutcome
+) -> None:
+    """zip 式 datapack：`pack.mcmeta` 是 zip 裡的一個條目，而這裡本來就要整份重建
+    zip，所以直接改 `entries` 裡那一條（`_rewrite_zip` 會把它寫進去），不額外多算
+    一次 `files_rewritten`——它跟 advancement 的改動在同一個實體檔案裡。"""
+    got = entries.get(_PACK_META)
+    if got is None:
+        return
+    info, raw = got
+    name = zip_relative.replace("\\", "/").split("/")[-1]
+    try:
+        meta = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        _warn_not_widened(outcome, name, exc)
+        return
+    updated, changed, note = widen_supported_formats(meta)
+    if not changed:
+        return
+    entries[_PACK_META] = (
+        info,
+        json.dumps(updated, ensure_ascii=False, indent=2).encode("utf-8"),
+    )
+    outcome.warnings.append(
+        {"kind": "pack_format_outdated", "unit_id": None, "detail": f"{name}：{note}"}
+    )
+
+
+def _warn_not_widened(outcome: ApplyOutcome, pack_name: str, exc: Exception) -> None:
+    outcome.warnings.append(
+        {
+            "kind": "pack_format_outdated",
+            "unit_id": None,
+            "detail": (
+                f"{pack_name} 的 pack.mcmeta 讀不懂（{exc}），沒有加寬它的 "
+                f"supported_formats——新版遊戲可能整個不載入這個資料包，我們寫進去的"
+                f"譯文一起失效。原檔沒有被動過。"
+            ),
+        }
+    )
 
 
 def _apply_edit_to_json(document: dict, edit: dict, outcome: ApplyOutcome) -> bool:

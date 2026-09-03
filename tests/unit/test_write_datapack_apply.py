@@ -13,9 +13,20 @@ from pathlib import Path
 
 import pytest
 
+from mcmt.packmeta import FORWARD_PACK_FORMAT
 from mcmt.safety.backup import BackupSet
 from mcmt.write.common import ApplyOutcome
 from mcmt.write.datapack_apply import apply_to_datapack_file
+
+
+def folder_pack_meta(world: Path, pack_name: str, *, raw=None, pack_format=48) -> Path:
+    path = world / "datapacks" / pack_name / "pack.mcmeta"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        raw if raw is not None else json.dumps({"pack": {"pack_format": pack_format}}),
+        encoding="utf-8",
+    )
+    return path
 
 
 def folder_advancement(world: Path, relative: str, *, title="原標題") -> Path:
@@ -111,7 +122,11 @@ def test_a_zip_advancement_is_rewritten_and_other_entries_survive(project) -> No
         document = json.loads(archive.read("data/n/advancement/quest.json").decode("utf-8"))
         assert document["display"]["title"]["translate"] == "mcmt.advancement_title.cccccccccccccccc"
         assert archive.read("data/n/function/hello.mcfunction").decode() == "say hi"
-        assert archive.read("pack.mcmeta").decode() == '{"pack":{"pack_format":10}}'
+        # pack.mcmeta 現在會被加寬 supported_formats（見下方 pack.mcmeta 那組測試），
+        # 但宣告的 pack_format 不動。
+        pack_meta = json.loads(archive.read("pack.mcmeta"))
+        assert pack_meta["pack"]["pack_format"] == 10
+        assert pack_meta["pack"]["supported_formats"]["max_inclusive"] == FORWARD_PACK_FORMAT
     assert outcome.counts["edits_written"] == 1
 
 
@@ -370,3 +385,135 @@ def test_rewrite_zip_alone_leaves_the_original_untouched(project) -> None:
 
     assert zip_path.read_bytes() == before
     assert list(zip_path.parent.glob("*.mcmt-tmp")) == []
+
+
+# --- pack.mcmeta 前向加寬：Minecraft 26.2 的教訓移植到 datapack ---------------
+
+
+def test_a_folder_datapacks_pack_mcmeta_is_widened_when_we_write_into_it(project) -> None:
+    """[實測 2026-09-03] 26.2（pack_format 88）拒載 supported_formats 卡在舊值的
+    pack；我們寫進 advancement 的譯文會一起失效。寫進資料夾式 datapack 之後就把
+    它的 pack.mcmeta 開向未來。"""
+    world = project / "sandbox"
+    relative = "datapacks/p/data/n/advancement/quest.json"
+    folder_advancement(world, relative)
+    meta_path = folder_pack_meta(world, "p", pack_format=48)
+    outcome = ApplyOutcome()
+    edit = edit_for(relative, "mcmt.advancement_title.bbbbbbbbbbbbbbbb")
+
+    with BackupSet(world) as backup:
+        apply_to_datapack_file(world, relative, [edit], outcome, backup)
+
+    meta = json.loads(meta_path.read_text("utf-8"))
+    assert meta["pack"]["pack_format"] == 48  # 宣告的版本不動
+    assert meta["pack"]["supported_formats"] == {
+        "min_inclusive": 48,
+        "max_inclusive": FORWARD_PACK_FORMAT,
+    }
+    assert outcome.counts["files_rewritten"] == 2  # advancement JSON + pack.mcmeta
+    assert any(w["kind"] == "pack_format_outdated" for w in outcome.warnings)
+
+
+def test_a_folder_pack_mcmeta_already_forward_is_not_rewritten(project) -> None:
+    world = project / "sandbox"
+    relative = "datapacks/p/data/n/advancement/quest.json"
+    folder_advancement(world, relative)
+    raw = json.dumps(
+        {
+            "pack": {
+                "pack_format": 48,
+                "supported_formats": {"min_inclusive": 4, "max_inclusive": FORWARD_PACK_FORMAT},
+            }
+        }
+    )
+    meta_path = folder_pack_meta(world, "p", raw=raw)
+    before = meta_path.read_bytes()
+    outcome = ApplyOutcome()
+    edit = edit_for(relative, "mcmt.advancement_title.bbbbbbbbbbbbbbbb")
+
+    with BackupSet(world) as backup:
+        apply_to_datapack_file(world, relative, [edit], outcome, backup)
+
+    assert meta_path.read_bytes() == before
+    assert outcome.counts["files_rewritten"] == 1
+    assert not any(w["kind"] == "pack_format_outdated" for w in outcome.warnings)
+
+
+def test_a_datapack_with_no_pack_mcmeta_is_left_alone(project) -> None:
+    world = project / "sandbox"
+    relative = "datapacks/p/data/n/advancement/quest.json"
+    folder_advancement(world, relative)  # 沒有 pack.mcmeta
+    outcome = ApplyOutcome()
+    edit = edit_for(relative, "mcmt.advancement_title.bbbbbbbbbbbbbbbb")
+
+    with BackupSet(world) as backup:
+        apply_to_datapack_file(world, relative, [edit], outcome, backup)
+
+    assert not (world / "datapacks" / "p" / "pack.mcmeta").exists()
+    assert outcome.counts["files_rewritten"] == 1
+    assert outcome.counts["edits_written"] == 1
+
+
+def test_an_unparseable_pack_mcmeta_is_warned_not_aborted(project) -> None:
+    """地圖自己的 pack.mcmeta 壞掉不該讓整次翻譯回滾——記一筆警告，繼續。"""
+    world = project / "sandbox"
+    relative = "datapacks/p/data/n/advancement/quest.json"
+    path = folder_advancement(world, relative)
+    folder_pack_meta(world, "p", raw="{ 這不是 JSON")
+    outcome = ApplyOutcome()
+    edit = edit_for(relative, "mcmt.advancement_title.bbbbbbbbbbbbbbbb")
+
+    with BackupSet(world) as backup:
+        apply_to_datapack_file(world, relative, [edit], outcome, backup)
+
+    document = json.loads(path.read_text("utf-8"))
+    assert document["display"]["title"]["translate"] == "mcmt.advancement_title.bbbbbbbbbbbbbbbb"
+    assert (world / "datapacks" / "p" / "pack.mcmeta").read_text("utf-8") == "{ 這不是 JSON"
+    assert any(
+        w["kind"] == "pack_format_outdated" and "讀不懂" in w["detail"]
+        for w in outcome.warnings
+    )
+
+
+def test_pack_mcmeta_is_untouched_when_no_edit_was_written(project) -> None:
+    world = project / "sandbox"
+    relative = "datapacks/p/data/n/advancement/quest.json"
+    folder_advancement(world, relative, title="原標題")
+    meta_path = folder_pack_meta(world, "p", pack_format=48)
+    before = meta_path.read_bytes()
+    outcome = ApplyOutcome()
+    # expected_encoding 對不上磁碟上的形狀 → 這筆 edit 會被拒，什麼都沒寫。
+    refused = edit_for(relative, "mcmt.x.aaaaaaaaaaaaaaaa", expected="text_compound")
+
+    with BackupSet(world) as backup:
+        apply_to_datapack_file(world, relative, [refused], outcome, backup)
+
+    assert meta_path.read_bytes() == before
+    assert outcome.counts["files_rewritten"] == 0
+
+
+def test_a_zip_datapacks_pack_mcmeta_is_widened_too(project) -> None:
+    world = project / "sandbox"
+    zip_path = world / "datapacks" / "q.zip"
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr(
+            "data/n/advancement/quest.json", json.dumps({"display": {"title": "原標題"}})
+        )
+        archive.writestr("pack.mcmeta", '{"pack":{"pack_format":26}}')
+
+    relative = "datapacks/q.zip/data/n/advancement/quest.json"
+    outcome = ApplyOutcome()
+    edit = edit_for(relative, "mcmt.advancement_title.cccccccccccccccc")
+
+    with BackupSet(world) as backup:
+        apply_to_datapack_file(world, relative, [edit], outcome, backup)
+
+    with zipfile.ZipFile(zip_path) as archive:
+        meta = json.loads(archive.read("pack.mcmeta"))
+    assert meta["pack"]["pack_format"] == 26
+    assert meta["pack"]["supported_formats"] == {
+        "min_inclusive": 26,
+        "max_inclusive": FORWARD_PACK_FORMAT,
+    }
+    assert any(w["kind"] == "pack_format_outdated" for w in outcome.warnings)

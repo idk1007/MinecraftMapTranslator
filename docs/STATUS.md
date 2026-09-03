@@ -694,11 +694,11 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
    中文解釋），`cli/doctor.py` 也已經印節點形狀分佈、跳過統計。**這裡目前
    沒發現具體缺口**；如果重寫 README 時對照著讀，發現措辭跟 CLI 實際印出來
    的不一致，才需要動這裡。
-4. 不在 M14 範圍內、繼續維持原樣：已知缺口清單裡剩下的第 6／7／8／9／14 項
+4. 不在 M14 範圍內、繼續維持原樣：已知缺口清單裡剩下的
    （`team_affix`／`scoreboard.dat` legacy JSON 寫入未進遊戲驗證、
-   `book_page` 寬度未校準、`json_string_array` 的 `in_place` 仍拒寫、
-   datapack `.mcmeta` 過期未處理）——這些是功能缺口不是文件缺口，M14 做完
-   不代表要連帶清掉它們。
+   `book_page` 寬度未校準、`json_string_array` 的 `in_place` 仍拒寫）
+   ——這些是功能缺口不是文件缺口，M14 做完不代表要連帶清掉它們。
+   （datapack `.mcmeta` 過期 **2026-09-03 已處理**，見下方已知缺口清單。）
 
 **建議順序**：~~先做 1（重寫 README），2、3 只在重寫過程中發現不一致才動。~~
 1 已完成；2／3 對照 README 重讀過，措辭一致，未動。M14 剩下的只有第 4 項那批
@@ -758,10 +758,16 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
   兩張語料地圖的實際內容全空，掃描與寫入路徑都已接上但從未真的寫過非空值進遊戲。
 * **`scoreboard.dat` 的 legacy JSON 寫入路徑未單獨遊戲實測**——沿用 chunk 層級已驗證的
   `legacy.py`，但「DataFixerUpper 對 `.dat` 檔案一視同仁」這個推論本身沒有進遊戲確認過。
-* **datapack 的 `.mcmeta` 過期問題本計畫未處理。** `pack.py` 對 `resources.zip` 做的
-  `pack_format` 下限修正（M4-5 的教訓）沒有類比套用到 datapack 自己的 `pack.mcmeta`——
-  這次沒有寫入 datapack 自己的 `pack.mcmeta`（只改了 advancement JSON），所以不觸發
-  這個問題，但如果未來要支援翻譯 datapack 的其他部分要記得重新檢查。
+* ~~**datapack 的 `.mcmeta` 過期問題本計畫未處理。**~~ → **2026-09-03 已補**：
+  Minecraft 26.2（pack_format 88）拒載 `supported_formats` 卡在 75 的 `resources.zip`
+  之後，把同一個修法移植到 datapack。抽出 `src/mcmt/packmeta.py`
+  的 `widen_supported_formats()`（`resources.zip` 與 datapack 共用、冪等），
+  `write/datapack_apply.py` 在真的寫進某個 datapack 之後把它的 `pack.mcmeta`
+  的 `supported_formats` 上限推到 `FORWARD_PACK_FORMAT`、下限維持它宣告值，
+  資料夾與 zip 兩種形式都做，並以既有的 `pack_format_outdated` 警告回報。
+  找不到 `pack.mcmeta` 靜默略過、讀不懂記警告但不中止。13 條新測試
+  （`test_packmeta.py` 7 + `test_write_datapack_apply.py` 6），786 passed。
+  兩個獨立 commit（`packmeta` 抽出／refactor 一個，`write/` 目錄規範要求另一個）。
 * ~~**`world_fingerprint` 沒有涵蓋 `level.dat`／`data/scoreboard.dat`／
   `datapacks/**`……**~~ → **2026-08-31 已補**：這三個非 chunk 來源直接餵整份檔案的
   原始位元組進 digest（`level.dat`／`scoreboard.dat` 各一份，datapack 資料夾遞迴進
