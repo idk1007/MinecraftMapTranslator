@@ -5,6 +5,11 @@ Minecraft 地圖翻譯工具。Python 3.11+ · GPLv3 · 目標版本 Java Editio
 以資源包（自訂命名空間的 lang key）為主要路線翻譯冒險地圖裡的文字——告示牌、物品名、
 成書、記分板、boss 條、自訂進度——並對無法走資源包的少數欄位做外科式就地寫入。
 
+存檔的 NBT 寫回**不綁版本**（逐 chunk 讀它自己的 DataVersion、原樣寫回，永不升級格式），
+已在 Java 1.21.11 與 26.2 上進遊戲驗證。資源包宣告一個很寬的 `supported_formats` 區間，
+新版遊戲不必更新工具就能載入。指令方塊與 `.mcfunction` 裡的文字目前**不抽**（見
+`docs/STATUS.md`）。
+
 **這個工具不做機器翻譯。** 沒有 API、沒有網路相依。它把「掃描」和「寫回」拆成兩個
 指令，中間夾的是你自己拿任何編輯器翻譯的時間：
 
@@ -35,20 +40,28 @@ mcmt apply <世界> --translations translations.zh_tw.json
 需要 Python 3.11 以上。
 
 ```
+git clone <這個 repo 的網址>
+cd minecraft-map-translate
 python -m venv .venv
+
+# Windows
 .venv\Scripts\pip install -e .
+# macOS / Linux
+.venv/bin/pip install -e .
 ```
 
 想讀 LZ4 壓縮（type 4）的 chunk 再加上 `lz4` extra：`pip install -e ".[lz4]"`。
 一般地圖用不到。
 
-裝好之後 `mcmt` 就在 PATH 上。Windows 終端機請一律加 `-X utf8`，否則中文報告會變亂碼：
+裝好之後 `mcmt` 就在虛擬環境的 PATH 上（`source .venv/bin/activate` 之後直接打
+`mcmt`）。**Windows 終端機請一律加 `-X utf8`**，否則中文報告會變亂碼：
 
 ```
 .venv\Scripts\python -X utf8 -m mcmt.cli <指令> …
 ```
 
-以下範例用 `mcmt` 代表這一整串。
+以下範例用 `mcmt` 代表這一整串。開發相依（跑測試）：`pip install -e ".[dev]"`，
+測試指令 `python -m pytest`。
 
 ---
 
