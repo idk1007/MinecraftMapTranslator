@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from mcmt.backends.resourcepack.lang import dump_lang
+from mcmt.packmeta import FORWARD_PACK_FORMAT, widen_supported_formats
 from mcmt.safety.paths import ensure_readable, ensure_writable
 from mcmt.tree.codecs import codec_for
 
@@ -52,7 +53,8 @@ __all__ = [
 
 PACK_FORMAT = 75  # 1.21.11 — 我們真的進遊戲驗過的版本，當作誠實的「主要」宣告
 MIN_PACK_FORMAT = 4  # [文件] JSON lang 檔第一次存在的版本（1.13）
-FORWARD_PACK_FORMAT = 9999  # 實質無上限；見模組 docstring 對這個取捨的說明
+# FORWARD_PACK_FORMAT 從 `mcmt.packmeta` re-export——datapack 的 pack.mcmeta
+# 也共用同一個天花板與同一套加寬邏輯（`write/datapack_apply.py`）。
 _META = "pack.mcmeta"
 
 # zip 條目的時間戳固定，同樣的輸入產出同樣的位元組。
@@ -155,30 +157,9 @@ def _read_existing(
 
 def _widen(meta: dict[str, Any]) -> tuple[dict[str, Any], bool, str]:
     """把 `supported_formats` 的上限推到 `FORWARD_PACK_FORMAT`，讓合併後的 pack 在
-    現在與未來的遊戲版本都被接受。下限維持地圖自己宣告的值（見模組 docstring）。"""
-    pack = dict(meta.get("pack") or {})
-    declared = pack.get("pack_format")
-    supported = pack.get("supported_formats")
+    現在與未來的遊戲版本都被接受。下限維持地圖自己宣告的值。
 
-    # 已經往未來開到底了，不重寫——不然每次 apply 都報一次「改了 pack.mcmeta」。
-    if (
-        isinstance(supported, dict)
-        and supported.get("max_inclusive", 0) >= FORWARD_PACK_FORMAT
-    ):
-        return meta, False, ""
-
-    low = declared if isinstance(declared, int) else PACK_FORMAT
-    if isinstance(supported, dict) and isinstance(supported.get("min_inclusive"), int):
-        low = min(low, supported["min_inclusive"])
-    pack["supported_formats"] = {
-        "min_inclusive": low,
-        "max_inclusive": FORWARD_PACK_FORMAT,
-    }
-    updated = dict(meta)
-    updated["pack"] = pack
-    note = (
-        f"地圖原本的 resources.zip 宣告 pack_format {declared}，未把 supported_formats "
-        f"開向未來——新版遊戲會拒絕整個 pack（連我們的譯文一起）。已把 supported_formats "
-        f"設成 {low}–{FORWARD_PACK_FORMAT}，未更動它原本宣告的 pack_format。"
-    )
-    return updated, True, note
+    邏輯在 `mcmt.packmeta`——datapack 的 pack.mcmeta 共用同一份（`write/
+    datapack_apply.py`），兩個地方對「pack 過期」的處理必須是同一套語意。
+    """
+    return widen_supported_formats(meta)
