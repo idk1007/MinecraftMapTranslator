@@ -81,34 +81,34 @@ python -m venv .venv
 
 ## 最短可行路徑
 
-假設要翻一張放在 `.minecraft/saves/My Adventure` 的地圖：
+假設要翻一張放在 `.minecraft/saves/範例地圖` 的地圖：
 
 ```
 # 1. 先健檢原始世界（唯讀，不會動到任何東西）
-mcmt doctor "C:\Users\you\AppData\Roaming\.minecraft\saves\My Adventure"
+mcmt doctor "C:\Users\you\AppData\Roaming\.minecraft\saves\範例地圖"
 
 # 2. 複製進 sandbox
-mcmt sandbox import "C:\Users\you\AppData\Roaming\.minecraft\saves\My Adventure"
-#    → sandbox/My Adventure/
+mcmt sandbox import "C:\Users\you\AppData\Roaming\.minecraft\saves\範例地圖"
+#    → sandbox/範例地圖/
 
 # 3. 掃描，產出待翻檔
-mcmt extract "sandbox/My Adventure" --lang zh_tw
-#    → sandbox/.mcmt-out/My Adventure/
+mcmt extract "sandbox/範例地圖" --lang zh_tw
+#    → sandbox/.mcmt-out/範例地圖/
 #        translations.zh_tw.json   ← 編輯這個
 #        extract.json / keymap.json  機器用，不要手動改
 
 # 4. 用任何編輯器打開 translations.zh_tw.json，把每筆的 target 填上
 
 # 5. 寫回（先 dry-run 看一遍，確認沒問題再拿掉 --dry-run）
-mcmt apply "sandbox/My Adventure" \
-    --translations "sandbox/.mcmt-out/My Adventure/translations.zh_tw.json" --dry-run
+mcmt apply "sandbox/範例地圖" \
+    --translations "sandbox/.mcmt-out/範例地圖/translations.zh_tw.json" --dry-run
 
-mcmt apply "sandbox/My Adventure" \
-    --translations "sandbox/.mcmt-out/My Adventure/translations.zh_tw.json"
-#    → sandbox/My Adventure/resources.zip  + 外科式寫回
-#    → sandbox/.mcmt-out/My Adventure/apply_report.json
+mcmt apply "sandbox/範例地圖" \
+    --translations "sandbox/.mcmt-out/範例地圖/translations.zh_tw.json"
+#    → sandbox/範例地圖/resources.zip  + 外科式寫回
+#    → sandbox/.mcmt-out/範例地圖/apply_report.json
 
-# 6. 確認遊戲裡顯示正確後，自己手動把 sandbox/My Adventure 複製回 .minecraft/saves
+# 6. 確認遊戲裡顯示正確後，自己手動把 sandbox/範例地圖 複製回 .minecraft/saves
 #    （工具不會替你做這一步）
 ```
 
@@ -126,7 +126,7 @@ mcmt apply "sandbox/My Adventure" \
 {
   "entries": {
     "u:sign:1a2b3c4d5e6f7a8b": {
-      "source": "Welcome to the\nDark Arena",
+      "source": "Welcome to the\nExample Hall",
       "target": "",
       "note": "sign · 寬度上限 90px（約 10 個中文字） · 出現 3 次",
       "where": "overworld 128,71,-64"
