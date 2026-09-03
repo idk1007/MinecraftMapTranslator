@@ -407,7 +407,7 @@ discriminator = blake2b(hash_input.encode("utf-8"), digest_size=8).hexdigest()
 
 1. **`src/mcmt/write/` 與 `src/mcmt/safety/` 底下任何檔案的修改，必須是獨立 commit 並在訊息中說明理由。** 不得在其他任務中附帶修改。這兩個目錄是「弄壞了就是別人的地圖沒了」的地方，需要一個刻意的動作才能碰。
 
-2. **本專案未參照 `to2mbn/maptranslator` 的原始碼，只採用其公開描述的架構模式**（規則反覆標記直到收斂）。撰寫實作時不得對照它的原始碼——逐段對照會產生高度相似的結構，而它是 GPLv2-only，對一個 GPLv3 專案是實質的授權污染風險。這是刻意留下的紀錄，不是要貶低那個專案；分析見 `docs/adr/0007-prior-art-and-licensing.md`。
+2. **不得開著 `to2mbn/maptranslator` 的原始碼逐段對照撰寫。** 只採用其公開描述的架構模式（規則反覆標記直到收斂）。逐段對照會產生高度相似的實作結構，對一個要公開發布的 GPLv3 專案是實質的授權污染風險。詳見 `docs/adr/0007-prior-art-and-licensing.md`。
 
 ### 看似合理、實際會破壞不變式的想法
 
