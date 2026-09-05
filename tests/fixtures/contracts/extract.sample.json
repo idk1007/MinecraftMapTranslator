@@ -1,6 +1,6 @@
 {
   "format": "mcmt-extract",
-  "schema_version": 6,
+  "schema_version": 7,
   "generated_at": "2026-08-16T09:14:02Z",
   "generator": {
     "tool": "mcmt",
@@ -379,9 +379,9 @@
       ]
     },
     {
-      "unit_id": "u:command_text:31c9de07aa5b1e62",
-      "key": "mcmt.command_text.31c9de07aa5b1e62",
-      "category": "command_text",
+      "unit_id": "u:command_component_text:31c9de07aa5b1e62",
+      "key": "mcmt.command_component_text.31c9de07aa5b1e62",
+      "category": "command_component_text",
       "strategy": "translate_key",
       "collapsible": true,
       "source": {

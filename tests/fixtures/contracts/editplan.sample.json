@@ -1,6 +1,6 @@
 {
   "format": "mcmt-editplan",
-  "schema_version": 6,
+  "schema_version": 7,
   "generated_at": "2026-08-16T09:35:10Z",
   "backend": "resourcepack",
   "extract_ref": {
@@ -357,7 +357,7 @@
   ],
   "unwritten": [
     {
-      "unit_id": "u:command_text:31c9de07aa5b1e62",
+      "unit_id": "u:command_component_text:31c9de07aa5b1e62",
       "reason": "rejected_by_validator",
       "detail": "status=needs_review with low_confidence; --strict was in effect so it was not written."
     }

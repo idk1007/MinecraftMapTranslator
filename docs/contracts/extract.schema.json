@@ -10,7 +10,7 @@
     "format": { "const": "mcmt-extract" },
     "schema_version": {
       "type": "integer",
-      "const": 6,
+      "const": 7,
       "description": "Single version number shared by all four mcmt contracts. Mismatch is a fatal error, never a migration."
     },
     "generated_at": { "type": "string", "format": "date-time" },
@@ -87,6 +87,18 @@
           "minimum": 0,
           "description": "Legacy JSON-shaped nodes found in a chunk whose data_version is >= 4325. [遊戲實測 M0-3/M0-4] the game does not JSON-parse a TAG_String in a native chunk, it renders it literally, so these are display garbage rather than content. Translating them would write back a string that still renders as garbage; v1 excludes them and reports the count."
         },
+        "skipped_command_unsupported_shape": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped_command_nested_reference": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped_command_line_continuation": {
+          "type": "integer",
+          "minimum": 0
+        },
         "by_category": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
       }
     },
@@ -127,7 +139,8 @@
         "bossbar", "objective", "team", "team_affix",
         "advancement_title", "advancement_description",
         "level_name",
-        "command_text",
+        "command_say_text",
+        "command_component_text",
         "hover_text",
         "unknown"
       ],
@@ -194,7 +207,7 @@
           "if": {
             "required": ["category"],
             "properties": {
-              "category": { "enum": ["level_name", "book_title", "book_author", "draft_book_page", "block_entity_name"] }
+              "category": { "enum": ["level_name", "book_title", "book_author", "draft_book_page", "block_entity_name", "command_say_text"] }
             }
           },
           "then": {
@@ -405,7 +418,7 @@
       "properties": {
         "kind": {
           "type": "string",
-          "enum": ["region_chunk", "entities_chunk", "poi_chunk", "level_dat", "scoreboard_dat", "player_dat", "datapack_file"]
+          "enum": ["region_chunk", "entities_chunk", "poi_chunk", "level_dat", "scoreboard_dat", "player_dat", "datapack_file", "datapack_mcfunction_file"]
         },
         "path": { "type": "string", "description": "Relative to the world root, forward slashes." },
         "dimension": { "type": ["string", "null"] },

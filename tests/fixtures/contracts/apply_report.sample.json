@@ -1,6 +1,6 @@
 {
   "format": "mcmt-apply-report",
-  "schema_version": 6,
+  "schema_version": 7,
   "generated_at": "2026-08-16T09:38:57Z",
   "outcome": "applied",
   "world": {

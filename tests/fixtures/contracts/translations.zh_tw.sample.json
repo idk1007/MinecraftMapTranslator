@@ -1,6 +1,6 @@
 {
   "format": "mcmt-translations",
-  "schema_version": 6,
+  "schema_version": 7,
   "generated_at": "2026-08-16T09:31:44Z",
   "language": "zh_tw",
   "extract_ref": {
@@ -33,10 +33,10 @@
       "where": "minecraft:overworld 88,70.5,12",
       "measured_width_px": 63
     },
-    "u:command_text:31c9de07aa5b1e62": {
+    "u:command_component_text:31c9de07aa5b1e62": {
       "source": "Star Stealer",
       "target": "盜星者",
-      "note": "command_text・寬度上限 90px",
+      "note": "command_component_text・寬度上限 90px",
       "where": "minecraft:overworld 88,70,12",
       "measured_width_px": 27
     },
