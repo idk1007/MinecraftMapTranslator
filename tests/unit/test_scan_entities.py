@@ -200,3 +200,30 @@ def test_a_clean_chunk_before_a_broken_one_is_not_lost(tmp_path) -> None:
     assert found, "index 0 的乾淨 chunk 不該因為 index 1 壞掉而憑空消失"
     assert stats["entity_chunks"] == 1
     assert stats["skipped_region"] == 1
+
+
+def test_a_command_block_minecart_yields_a_command_text_node():
+    root = chunk_with(
+        entity(
+            "minecraft:command_block_minecart",
+            Command=amulet_nbt.StringTag("say hello"),
+        )
+    )
+    stats = Counter()
+
+    nodes = list(scan_entities_chunk(root, stats=stats))
+
+    assert any(n.category == "command_say_text" for n in nodes)
+
+
+def test_scan_entities_chunk_still_works_without_stats_for_backward_compatibility():
+    root = chunk_with(
+        entity(
+            "minecraft:command_block_minecart",
+            Command=amulet_nbt.StringTag("say hi"),
+        )
+    )
+
+    nodes = list(scan_entities_chunk(root))
+
+    assert any(n.category == "command_say_text" for n in nodes)

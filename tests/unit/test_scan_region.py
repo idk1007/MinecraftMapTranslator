@@ -298,3 +298,31 @@ def test_a_container_without_items_is_fine() -> None:
     root["block_entities"] = amulet_nbt.ListTag([chest_with_items()])
 
     assert list(scan_chunk(root)) == []
+
+
+def _chunk_with_command_block(command: str) -> amulet_nbt.CompoundTag:
+    entity = amulet_nbt.CompoundTag(
+        {
+            "id": amulet_nbt.StringTag("minecraft:command_block"),
+            "x": amulet_nbt.IntTag(0),
+            "y": amulet_nbt.IntTag(0),
+            "z": amulet_nbt.IntTag(0),
+            "Command": amulet_nbt.StringTag(command),
+        }
+    )
+    return amulet_nbt.CompoundTag(
+        {"block_entities": amulet_nbt.ListTag([entity])}
+    )
+
+
+def test_a_command_block_yields_a_command_text_node() -> None:
+    from collections import Counter
+
+    stats = Counter()
+    nodes = list(scan_chunk(_chunk_with_command_block("say hello"), stats=stats))
+    assert any(n.category == "command_say_text" for n in nodes)
+
+
+def test_scan_chunk_still_works_without_stats_for_backward_compatibility() -> None:
+    nodes = list(scan_chunk(_chunk_with_command_block("say hi")))
+    assert any(n.category == "command_say_text" for n in nodes)

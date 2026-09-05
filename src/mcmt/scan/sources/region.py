@@ -13,13 +13,14 @@
   **含空行**——NBT list 同型規則要知道整個 list 長什麼樣。
 * 方塊實體的 `CustomName`。
 * 容器裡的物品（`Items[]`）與講台的書（`Book`），遞迴交給 `item.py`。
+* 指令方塊的 `Command`——白名單動詞解析交給共用的 `scan/command.py`。
 
 實體不在這裡——它們從 1.17 起住在 `entities/*.mca`，由 `sources/entities.py` 負責。
 
 ## 還沒掃的（M13b 掃描廣度）
 
-`level.dat`、記分板、進度、指令方塊的 `Command`、datapack 的 `.mcfunction`、
-`hover_event` 內的文字。**不是忘了，是還沒做。**
+`level.dat`、記分板、進度、datapack 的 `.mcfunction`、`hover_event` 內的文字。
+**不是忘了，是還沒做。**
 
 ## 刻意不去找的
 
@@ -38,6 +39,7 @@ from mcmt.model.node import NodePath, index_step, key_step
 from mcmt.nbtio.region import read_region, region_files
 from mcmt.nbtio.structure import ensure_supported_structure, load_chunk_root
 from mcmt.safety.paths import ReadOnlyPath
+from mcmt.scan.command import scan_command_string
 from mcmt.scan.node import ScannedNode, TextNode
 from mcmt.scan.sources.item import scan_item
 
@@ -47,8 +49,12 @@ _SIGN_FACES = ("front_text", "back_text")
 _MESSAGES = "messages"
 
 
-def scan_chunk(root: amulet_nbt.CompoundTag) -> Iterator[TextNode]:
+def scan_chunk(
+    root: amulet_nbt.CompoundTag, stats: Counter | None = None
+) -> Iterator[TextNode]:
     """走過一個 chunk 的方塊實體，yield 裡面的文字節點。"""
+    if stats is None:
+        stats = Counter()
     entities = root.get("block_entities")
     if not isinstance(entities, amulet_nbt.ListTag):
         return
@@ -58,11 +64,11 @@ def scan_chunk(root: amulet_nbt.CompoundTag) -> Iterator[TextNode]:
         if not isinstance(entity, amulet_nbt.CompoundTag):
             continue
         path = base.child(index_step(position))
-        yield from _scan_block_entity(entity, path)
+        yield from _scan_block_entity(entity, path, stats)
 
 
 def _scan_block_entity(
-    entity: amulet_nbt.CompoundTag, path: NodePath
+    entity: amulet_nbt.CompoundTag, path: NodePath, stats: Counter
 ) -> Iterator[TextNode]:
     block_id = str(entity.get("id", ""))
     anchor = _anchor(entity, block_id)
@@ -118,6 +124,16 @@ def _scan_block_entity(
     if isinstance(book, amulet_nbt.CompoundTag):
         yield from scan_item(book, path.child(key_step("Book")), anchor=anchor)
 
+    # 指令方塊的 `Command`——共用的純函式解析,見 `mcmt.scan.command`。
+    command = entity.get("Command")
+    if isinstance(command, amulet_nbt.StringTag):
+        yield from scan_command_string(
+            str(command),
+            base_path=path.child(key_step("Command")),
+            anchor=anchor,
+            stats=stats,
+        )
+
 
 def _anchor(entity: amulet_nbt.CompoundTag, block_id: str) -> dict[str, Any]:
     def coordinate(name: str) -> int | None:
@@ -170,7 +186,7 @@ def scan(world: ReadOnlyPath, stats: Counter) -> Iterator[ScannedNode]:
                     continue
                 stats["chunks"] += 1
                 container = _container(path, raw, data_version, world)
-                for node in scan_chunk(root):
+                for node in scan_chunk(root, stats):
                     yield ScannedNode(node=node, container=container)
         except FormatError:
             stats["skipped_region"] += 1

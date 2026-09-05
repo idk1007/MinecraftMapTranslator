@@ -17,6 +17,7 @@
     Item / item         展示框、掉落物
     ArmorItems[] / HandItems[] / equipment / weapon   身上的裝備
     Inventory[]         馬、驢、羊駝身上的箱子
+    Command             指令方塊礦車，白名單動詞解析交給共用的 `scan/command.py`
 
 其餘一律不碰。[實測] `Tags[]` 在 100WTD 有 96,168 個，全是識別碼；`variant`、
 `profession`、`MainGene`、`billboard`、`Attributes[].Name` 同理。
@@ -32,6 +33,7 @@ from mcmt.model.node import NodePath, index_step, key_step
 from mcmt.nbtio.region import entities_files, read_region
 from mcmt.nbtio.structure import ensure_supported_structure, load_chunk_root
 from mcmt.safety.paths import ReadOnlyPath
+from mcmt.scan.command import scan_command_string
 from mcmt.scan.node import ScannedNode, TextNode
 from mcmt.scan.sources.item import scan_item
 from mcmt.scan.sources.region import dimension_of
@@ -70,7 +72,7 @@ def scan(world: ReadOnlyPath, stats: Counter) -> Iterator[ScannedNode]:
                     continue
                 stats["entity_chunks"] += 1
                 container = _container(path, raw, data_version, world)
-                for node in scan_entities_chunk(root):
+                for node in scan_entities_chunk(root, stats):
                     yield ScannedNode(node=node, container=container)
         except FormatError:
             stats["skipped_region"] += 1
@@ -95,8 +97,12 @@ def _container(path, raw, data_version: int, world: ReadOnlyPath) -> dict:
     }
 
 
-def scan_entities_chunk(root: amulet_nbt.CompoundTag) -> Iterator[TextNode]:
+def scan_entities_chunk(
+    root: amulet_nbt.CompoundTag, stats: Counter | None = None
+) -> Iterator[TextNode]:
     """一張實體 chunk 裡的文字節點。"""
+    if stats is None:
+        stats = Counter()
     entities = root.get("Entities")
     if not isinstance(entities, amulet_nbt.ListTag):
         return
@@ -104,10 +110,12 @@ def scan_entities_chunk(root: amulet_nbt.CompoundTag) -> Iterator[TextNode]:
     for position, entity in enumerate(entities):
         if not isinstance(entity, amulet_nbt.CompoundTag):
             continue
-        yield from _scan_entity(entity, base.child(index_step(position)))
+        yield from _scan_entity(entity, base.child(index_step(position)), stats)
 
 
-def _scan_entity(entity: amulet_nbt.CompoundTag, path: NodePath) -> Iterator[TextNode]:
+def _scan_entity(
+    entity: amulet_nbt.CompoundTag, path: NodePath, stats: Counter
+) -> Iterator[TextNode]:
     anchor = _anchor(entity)
 
     # **型別檢查而不是 `is not None`**，與 `region.py` 的 `CustomName` 一致：
@@ -130,6 +138,17 @@ def _scan_entity(entity: amulet_nbt.CompoundTag, path: NodePath) -> Iterator[Tex
             tag=text,
             category="text_display",
             anchor=anchor,
+        )
+
+    # 指令方塊礦車（`minecraft:command_block_minecart`）的 `Command`——跟方塊
+    # 指令方塊同一個欄位名稱、同一套共用解析。
+    command = entity.get("Command")
+    if isinstance(command, amulet_nbt.StringTag):
+        yield from scan_command_string(
+            str(command),
+            base_path=path.child(key_step("Command")),
+            anchor=anchor,
+            stats=stats,
         )
 
     for key in _SINGLE_ITEM_KEYS:
@@ -163,7 +182,7 @@ def _scan_entity(entity: amulet_nbt.CompoundTag, path: NodePath) -> Iterator[Tex
         for index, passenger in enumerate(passengers):
             if isinstance(passenger, amulet_nbt.CompoundTag):
                 yield from _scan_entity(
-                    passenger, passengers_path.child(index_step(index))
+                    passenger, passengers_path.child(index_step(index)), stats
                 )
 
 
