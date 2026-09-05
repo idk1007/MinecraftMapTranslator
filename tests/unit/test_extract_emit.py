@@ -434,6 +434,10 @@ def test_the_new_skip_counters_reach_the_extract_document(tmp_path) -> None:
 
     assert extract["stats"]["skipped_level_dat"] == 1
     assert extract["stats"]["skipped_scoreboard_dat"] == 1
-    assert extract["stats"]["skipped_datapack_zip"] == 1
+    # Task 11 起 `datapack.scan` 與 `mcfunction.scan` 是兩個獨立的來源，各自
+    # 打開同一個壞掉的 zip 並各自撞上 `BadZipFile`，因此同一個壞檔會讓這個
+    # 計數器加二，不是加一——這不是重複 bug，是兩個來源各自誠實地報告了
+    # 自己讀不到這個檔案。
+    assert extract["stats"]["skipped_datapack_zip"] == 2
     assert extract["stats"]["skipped_advancement_unparseable"] == 0
     assert extract["stats"]["skipped_advancement_shape"] == 0

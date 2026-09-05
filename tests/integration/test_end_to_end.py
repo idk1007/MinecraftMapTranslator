@@ -128,6 +128,27 @@ def old_format_region():
     )
 
 
+# **L2 巢狀 SNBT**：`data merge` 目標告示牌，`front_text.messages[0]` 是**原生**
+# SNBT compound（`{text:"..."}`）——CLAUDE.md 四節 SPIKE_RESULT.md 那個
+# `Minecraft Party 2` 的 `Star Stealer` 例子就是這個形狀：「指令內含 NBT、NBT
+# 內含 component」。其餘三行是空字串，沒有可翻文字（計入 `skipped_empty`）。
+# 指令方塊礦車（`command_block_minecart`）的 `Command` 走的是跟一般指令方塊
+# 完全一樣的 `scan_command_string`，放進 `entities/` 而不是 `region/`，剛好
+# 順便驗到 entities 容器這一側。
+#
+# **這裡刻意不用「字串包裝 JSON」的訊息形狀**（單引號或雙引號字串常值包一段
+# 轉義過的 JSON，例如 MP2 語料裡 `'""'` 那種）——Task 11 過這條端到端鏈路時
+# 發現 `write/common.py::_decode_command_leaf` 對這個子形狀的重新解碼是壞的
+# （見下面 `test_a_json_string_wrapped_merge_message_is_a_known_write_gap`），
+# 用它會讓這裡的 fixture 帶著一個目前寫不進去的 edit，把本來要驗證「L2 這格
+# 能走通」的測試變成在驗證一個已知缺口。
+CMD_L2_MERGE = (
+    "data merge block ~ ~-1 ~-1 {front_text:{messages:["
+    '{text:"TT_CMDBLOCK_MERGE_TEXT"},{text:""},{text:""},{text:""}'
+    "]}}"
+)
+
+
 def entities_region():
     """`entities/*.mca`：具名實體、`text_display`、展示框裡的物品。
 
@@ -155,8 +176,12 @@ def entities_region():
             ),
         }
     )
+    minecart = amulet_nbt.CompoundTag(
+        {"id": amulet_nbt.StringTag("minecraft:command_block_minecart")}
+    )
+    minecart["Command"] = amulet_nbt.StringTag(CMD_L2_MERGE)
     root = modern_chunk(data_version=4671)
-    root["Entities"] = amulet_nbt.ListTag([stand, display, frame])
+    root["Entities"] = amulet_nbt.ListTag([stand, display, frame, minecart])
     return (
         RegionBuilder()
         .add_chunk_nbt(SYNTHETIC_LIVE, root)
@@ -247,6 +272,20 @@ def datapack_for(world: Path) -> None:
     )
 
 
+def mcfunction_for(world: Path) -> None:
+    """`datapacks/tt_probe/data/tt/function/hello.mcfunction`——同一個 pack，同一套
+    白名單動詞解析（`scan/command.py`），只是物理字串單位換成整行而非 `Command`
+    欄位。一行 `say`（in_place）＋一行 `tellraw`（translate key）湊滿
+    `datapack_mcfunction_file` 那兩格 dispatch 組合。"""
+    path = world / "datapacks" / "tt_probe" / "data" / "tt" / "function" / "hello.mcfunction"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "say TT_MCFUNCTION_SAY_TEXT\n"
+        'tellraw @a {"text":"TT_MCFUNCTION_TELLRAW_TEXT"}\n',
+        encoding="utf-8",
+    )
+
+
 @pytest.fixture
 def source_world(project):
     """一個 sandbox **之外**的世界，模擬使用者的 `.minecraft/saves`。
@@ -262,6 +301,7 @@ def source_world(project):
     level_dat_for(world)
     scoreboard_dat_for(world)
     datapack_for(world)
+    mcfunction_for(world)
     return world
 
 
@@ -335,6 +375,18 @@ TRANSLATIONS = {
     "TT_TEAM_NAME": "隊伍",
     "TT_ADVANCEMENT_TITLE": "進度標題",
     "TT_ADVANCEMENT_DESC": "進度描述",
+    # 指令方塊（Task 11：command_say_text 走 in_place，其餘走 translate key）
+    "TT_CMDBLOCK_SAY_TEXT": "指令說話文字",
+    "TT_CMDBLOCK_TELLRAW_TEXT": "指令提示文字",
+    "TT_CMDBLOCK_TITLE_TEXT": "指令標題文字",
+    # `TT_CMDBLOCK_NESTED_ITEM_NAME`（`give` 的巢狀 `minecraft:custom_name`）
+    # 刻意不填——它目前整批被 `scan/command.py` 跳過，見
+    # `test_a_give_commands_namespaced_component_is_a_known_scan_gap`。
+    # L2 巢狀 SNBT（`data merge` 目標告示牌的原生 compound 訊息）
+    "TT_CMDBLOCK_MERGE_TEXT": "合併寫入的告示牌文字",
+    # datapack `.mcfunction`
+    "TT_MCFUNCTION_SAY_TEXT": "腳本說話文字",
+    "TT_MCFUNCTION_TELLRAW_TEXT": "腳本提示文字",
 }
 
 # `TRANSLATIONS` 裡每一筆該落在哪一格。**測試自己驗這張表真的湊滿四格**，
@@ -390,8 +442,12 @@ def test_the_whole_round_trip_writes_something(round_trip) -> None:
     # 三張檔案各一個 chunk：探測世界的 r.0.0、舊格式的 r.0.1、entities 的 r.0.0。
     # chunks_touched 只算 region/entities chunk，不含 level.dat/scoreboard.dat/datapack。
     assert counts["chunks_touched"] == 3
-    # 三張 region 檔 + level.dat + scoreboard.dat + 一個 advancement json。
-    assert counts["files_rewritten"] == 6
+    # 三張 region 檔 + level.dat + scoreboard.dat + 一個 advancement json + 兩行
+    # `.mcfunction`。`apply_editplan` 依 `container.path` 分組，`.mcfunction`
+    # 的 `container.path` 帶行號後綴（`hello.mcfunction:1`／`:2`），同一個實體
+    # 檔案的兩行各自算一次 `files_rewritten`——這不是重複寫入同一份資料，是
+    # 這個計數器的既有定義（見 `scan/sources/mcfunction.py::_container`）。
+    assert counts["files_rewritten"] == 8
 
 
 def test_level_dat_scoreboard_and_datapack_are_all_written(round_trip) -> None:
@@ -658,6 +714,251 @@ def test_the_old_format_chunk_is_not_upgraded(round_trip) -> None:
     assert int(root["DataVersion"]) == 3700
 
 
+# --- 指令文字（Task 11：command-block / .mcfunction 五種新 dispatch 組合）---
+#
+# 這一節對應 docs/superpowers/specs/2026-09-05-command-text-design.md §9.1
+# 的五行表格。掃描本身（Task 6/9）與寫入本身（Task 7/8/10）在各自的單元測試
+# 裡都已經測過；這裡驗的是**接上 `_WRITERS`／`scan/registry.py` 之後，整條鏈
+# 真的把這五格都走過一次**——不是「沒有 crash」，是實際寫回去的文字內容對、
+# 動詞前綴沒被吃掉。
+
+
+def commands_of(world):
+    """`region/r.0.0.mca`（真實探測世界切片）`LIVE_CHUNK` 裡指令方塊的
+    `Command` 字串——`say`（in_place）、`tellraw`／`title`（L1 translate key）
+    已經是這張 fixture 原本就帶的，見 SPIKE_RESULT.md。（fixture 還有第四個
+    `give` 指令方塊，見下面 `test_a_give_commands_namespaced_component_is_a_known_scan_gap`。）
+    """
+    return [
+        str(entity["Command"])
+        for entity in block_entities_of(world)
+        if "Command" in entity
+    ]
+
+
+def test_a_command_block_say_line_keeps_its_verb_prefix(round_trip) -> None:
+    """**region chunk × in_place（say/me）。** `command_say_text` 沒有 component
+    語法可插 key，只能直接替換文字——`say ` 前綴不能被一起換掉。"""
+    commands = commands_of(round_trip["world"])
+    say_commands = [c for c in commands if c.startswith("say ")]
+
+    assert say_commands == ["say 指令說話文字"]
+
+
+def test_a_command_block_tellraw_line_becomes_a_translate_component(round_trip) -> None:
+    """**region chunk × translate key（L1）。** `tellraw` 的 JSON 引數換成
+    `{"translate": key}`，譯文住資源包，`tellraw @a ` 前綴原封不動。"""
+    commands = commands_of(round_trip["world"])
+    (tellraw,) = [c for c in commands if c.startswith("tellraw @a ")]
+
+    assert tellraw.startswith("tellraw @a ")
+    payload = json.loads(tellraw[len("tellraw @a ") :])
+    assert payload["translate"].startswith("mcmt.")
+
+
+def test_a_give_commands_namespaced_component_is_a_known_scan_gap(round_trip) -> None:
+    """**已知缺口，Task 11 端到端才照出來，不在本任務授權修改的檔案清單裡。**
+
+    這張 fixture 第四個指令方塊是 `give @s minecraft:stone[minecraft:custom_name=
+    {text:"..."}]`——1.20.5+ 的物品組件語法本身帶 `minecraft:` 命名空間，這正是
+    SPIKE_RESULT.md 記錄的真實樣本形狀。但 `scan/command.py::_find_component`
+    拿字面 `"custom_name"`（沒有命名空間）去跟組件鍵比對，永遠比不到帶命名空間
+    的鍵，於是 `stats["skipped_command_unsupported_shape"]` 加一、整條指令一個
+    字都沒被抽出來——`tests/unit/test_scan_command.py::test_give_finds_the_custom_name_component`
+    用的組件鍵剛好沒帶命名空間，繞過了這個問題，所以單元測試層級一直是綠的。
+
+    這裡釘住現狀（`give` 的 `custom_name` 進不了待翻檔，也就不會被翻譯），
+    不是慶祝現況——這是需要一個後續任務去修 `scan/command.py::_find_component`
+    的真實缺口（多接受一個帶命名空間的鍵，或比對時忽略命名空間前綴）。
+    """
+    commands = commands_of(round_trip["world"])
+    (give,) = [c for c in commands if c.startswith("give @s ")]
+
+    assert "TT_CMDBLOCK_NESTED_ITEM_NAME" in give
+    assert "mcmt." not in give
+
+
+def test_a_command_block_minecart_merge_writes_the_nested_snbt_message(round_trip) -> None:
+    """**entities chunk × translate key（L2 巢狀 SNBT，原生 compound 訊息）。**
+
+    `data merge` 目標告示牌 `front_text.messages[0]` 是原生 SNBT compound
+    （`{text:"..."}`）——指令字串包 SNBT、SNBT 裡又包一棵 component 樹，跟
+    SPIKE_RESULT.md『Minecraft Party 2』的 `Star Stealer` 例子同一個形狀。其餘
+    三行是空字串，沒有可翻文字，維持原樣。
+    """
+    entities = entities_of(round_trip["world"])
+    minecart = next(
+        e for e in entities if str(e.get("id")) == "minecraft:command_block_minecart"
+    )
+    command = str(minecart["Command"])
+
+    assert command.startswith("data merge block ~ ~-1 ~-1 {front_text:{messages:[")
+    arg = command[command.index("{") :]
+    document = amulet_nbt.from_snbt(arg)
+    messages = document["front_text"]["messages"]
+
+    assert str(messages[0]["translate"]).startswith("mcmt.")
+    assert [str(m.get("text", "")) for m in messages[1:]] == ["", "", ""]
+
+
+def mcfunction_text(world) -> str:
+    path = world / "datapacks" / "tt_probe" / "data" / "tt" / "function" / "hello.mcfunction"
+    return path.read_text("utf-8")
+
+
+def test_an_mcfunction_say_line_keeps_its_verb_prefix(round_trip) -> None:
+    """**`datapack_mcfunction_file` × in_place（say）。**"""
+    lines = mcfunction_text(round_trip["world"]).splitlines()
+
+    assert lines[0] == "say 腳本說話文字"
+
+
+def test_an_mcfunction_tellraw_line_becomes_a_translate_component(round_trip) -> None:
+    """**`datapack_mcfunction_file` × translate key（tellraw）。**"""
+    lines = mcfunction_text(round_trip["world"]).splitlines()
+
+    assert lines[1].startswith("tellraw @a ")
+    payload = json.loads(lines[1][len("tellraw @a ") :])
+    assert payload["translate"].startswith("mcmt.")
+
+
+def decode_steps_of(edit) -> list[dict]:
+    return [step for step in edit["node_path"] if step["t"] == "decode"]
+
+
+def command_dispatch_combination(edit) -> tuple[str, str, str] | None:
+    """把一筆 edit 分到 §9.1 表格的哪一格：`(容器種類, 最後一個 decode 步驟的
+    codec, value.kind)`。
+
+    `combinations_in()`（`(node_path 最後一步的 t, value.kind)`）分不開這五格
+    ——它們的最後一步全是 `decode`。真正分得開的是最後一個 decode 步驟用哪個
+    codec：`say`/`me` 是 `command`（自己套自己，見 `scan/command.py` 的說明）；
+    L1（`tellraw`／`title`…）的引數是 JSON，最後一步是 `json_component`；L2
+    `data merge` 的原生 compound 訊息最後一步是 `snbt`。三者互斥，加上容器種類
+    與 `value.kind`，對這五格兩兩不同。
+
+    （`give`／`item` 的巢狀 SNBT component 理論上也會落在 `("region_chunk",
+    "snbt", "translate")` 這格，跟 L2 撞在一起——但 `give` 目前整條被
+    `scan/command.py` 跳過，見上面 `test_a_give_commands_namespaced_component_
+    is_a_known_scan_gap`，所以這裡不會真的收到那筆 edit。等那個缺口修好，
+    這個分類函式需要多一個維度才分得開兩者。）"""
+    container = edit["container"]["kind"]
+    if container not in ("region_chunk", "entities_chunk", "datapack_mcfunction_file"):
+        return None
+    steps = decode_steps_of(edit)
+    if not steps or steps[0]["codec"] != "command":
+        return None
+    return (container, steps[-1]["codec"], edit["value"]["kind"])
+
+
+EXPECTED_COMMAND_COMBINATIONS = {
+    ("region_chunk", "command", "literal"),  # region/entities × in_place（say/me）
+    ("region_chunk", "json_component", "translate"),  # region/entities × translate key，L1
+    ("entities_chunk", "snbt", "translate"),  # region/entities × translate key，L2 巢狀 SNBT
+    ("datapack_mcfunction_file", "command", "literal"),  # .mcfunction × in_place
+    ("datapack_mcfunction_file", "json_component", "translate"),  # .mcfunction × translate key
+}
+
+
+def test_the_round_trip_exercises_all_five_command_dispatch_combinations(
+    round_trip,
+) -> None:
+    """**這份測試自己的守門，照抄 `..._all_four_dispatch_combinations` 的做法。**
+
+    五格都得走到，否則某一格的 writer/scan 接線斷了也不會有任何測試變紅——
+    這正是 M13a 那次「舊不變式在新範圍下靜默失效」的同一種盲點。
+    """
+    combinations = {
+        combo
+        for combo in (
+            command_dispatch_combination(edit)
+            for edit in round_trip["applied"]["plan"].document["edits"]
+        )
+        if combo is not None
+    }
+
+    assert combinations == EXPECTED_COMMAND_COMBINATIONS
+
+
+def test_no_command_edit_is_refused_for_an_unsupported_encoding(round_trip) -> None:
+    """**F2 驗收條件的指令文字版。** 接上 `_WRITERS`／`scan/registry.py` 之前，
+    `datapack_mcfunction_file` 沒有任何寫入器，這五格裡最後一格整批會被拒寫。
+
+    `give` 的巢狀命名空間組件不在這裡的涵蓋範圍內——它在**掃描**這關就被跳過
+    （見 `test_a_give_commands_namespaced_component_is_a_known_scan_gap`），
+    根本沒有 edit 產生，所以也不會出現在這裡的 `unwritten` 清單裡。這條測試
+    驗的是「有 edit 被產生了，但因為容器/形狀沒有寫入器而被拒」這件事。
+    """
+    unwritten = round_trip["applied"]["report"]["unwritten"]
+
+    assert [item for item in unwritten if item["reason"] == "unsupported_encoding"] == []
+
+
+def test_a_json_string_wrapped_merge_message_is_a_known_write_gap() -> None:
+    """**已知缺口，Task 11 端到端才照出來，不在本任務授權修改的檔案清單裡
+    （`write/common.py` 屬於 CLAUDE.md 安全規則要求獨立 commit 的目錄）。**
+
+    `data merge` 目標告示牌的訊息若是**字串包裝 JSON**（單引號或雙引號字串
+    常值包一段轉義過的 JSON——CLAUDE.md 二節「舊式 JSON 也可能出現在 SNBT
+    裡」的那個形狀，MP2 語料的 `'""'` 就是這一類的空訊息版本），`decode_chain`
+    是三步 `command → snbt → json_component`。
+
+    `write/common.py::_decode_command_leaf` 只看鏈上**最後一步**的 codec，對
+    `json_component` 一律直接 `json.loads(原始 span 文字)`——但那段 span 文字
+    是 SNBT 字串常值本身（含引號，可能還帶跳脫），不是已經被 SNBT 解開過的
+    JSON 內容。單引號字串（MP2 那種）直接 JSON 解析失敗，整筆被拒寫成
+    `unsupported_encoding`；雙引號字串（`tests/unit/test_scan_command.py` 自己
+    的測試樣本用的那種）恰好因為 JSON 也用雙引號跳脫，`json.loads` 語法上
+    「解析成功」，但解出來的是**一個字串**（`'{"text":"Hello"}'` 這串文字
+    本身），不是那個 JSON 物件——`_guarded_encoding` 拿它的嗅探結果
+    （`json_string_object`）跟 `expected_encoding`（`text_compound`）比對，
+    形狀對不上，一樣被拒寫成 `node_changed`。兩種引號風格都走不通，只是拒寫
+    的理由不同，所以這裡兩種都接受。
+
+    這裡釘住現狀：這筆合法、沒被使用者動過的翻譯被拒寫了。修法方向：
+    `_decode_command_leaf` 在鏈上出現 `snbt` 接著 `json_component` 時，該先用
+    `snbt` codec 把外層的字串常值解開拿到內容，再對內容跑 `json_component`
+    ——跟 `command_span.py::_compose_replacement` 寫入時的反向邏輯對稱（它靠
+    `codecs[-2] == "snbt"` 判斷要不要包一層 SNBT 字串常值）。
+    """
+    from collections import Counter
+
+    from mcmt.model.node import NodePath, key_step
+    from mcmt.scan.command import scan_command_string
+    from mcmt.write.common import ApplyOutcome, apply_edits
+
+    cmd = 'data merge block ~ ~ ~ {messages:[\'{"text":"Hello"}\']}'
+    stats: Counter = Counter()
+    (node,) = list(
+        scan_command_string(
+            cmd, base_path=NodePath([key_step("Command")]), anchor=None, stats=stats
+        )
+    )
+    edit = {
+        "occurrence_id": "o:00001",
+        "unit_id": "u:command_component_text:cccccccccccccccc",
+        "container": {"kind": "region_chunk", "path": "r.0.0.mca", "data_version": 4671},
+        "node_path": [step.to_json() for step in node.path],
+        "expected_encoding": "text_compound",
+        "value": {
+            "kind": "translate",
+            "key": "mcmt.command_component_text.cccccccccccccccc",
+            "fallback": "Hello",
+            "style": None,
+        },
+    }
+    root = amulet_nbt.CompoundTag({"Command": amulet_nbt.StringTag(cmd)})
+    outcome = ApplyOutcome()
+
+    written = apply_edits(root, [edit], outcome)
+
+    assert written == 0
+    assert [item["reason"] for item in outcome.unwritten] in (
+        ["unsupported_encoding"],
+        ["node_changed"],
+    )
+
+
 # --- 外科式寫入：斷言到位元組 ---------------------------------------------
 
 
@@ -781,7 +1082,12 @@ def written_encoding(edit) -> str:
     # 合法地是 `None`（見 `scan/sources/datapack.py`），寫進去的一律是純 Python
     # dict（`{"translate": key}`），對應 `datapack_apply.py` 的 `_sniff_json_value`
     # 判成 `compound_tree`，不走 legacy/native 二分。
-    if edit["container"]["kind"] == "datapack_file":
+    #
+    # `.mcfunction`（Task 11）同理沒有 chunk 世代——`container.data_version`
+    # 也合法是 `None`（見 `scan/sources/mcfunction.py::_container`）。指令文字
+    # 的 translate key 一律至少帶 `translate`＋`fallback` 兩個鍵，跟 region／
+    # entities chunk 裡 native 世代那條分支殊途同歸，同樣落在 `compound_tree`。
+    if edit["container"]["kind"] in ("datapack_file", "datapack_mcfunction_file"):
         return "compound_tree"
     if generation_of(edit["container"]["data_version"]).legacy_json_is_content:
         return "json_string_object"
@@ -797,7 +1103,14 @@ def shape_changing(edit) -> bool:
     return written_encoding(edit) != edit["expected_encoding"]
 
 
-def test_replaying_the_same_plan_is_refused_wherever_a_snapshot_was_captured(
+def is_command_edit(edit) -> bool:
+    """`node_path` 以 `decode` 步驟結尾——指令文字（`Command` 欄位／`.mcfunction`
+    整行）不是普通的 NBT key/index 節點，見下面三條 `..._for_ordinary_nbt_edits`
+    測試前的說明。"""
+    return edit["node_path"][-1]["t"] == "decode"
+
+
+def test_replaying_the_same_plan_is_refused_wherever_a_snapshot_was_captured_for_ordinary_nbt_edits(
     round_trip,
 ) -> None:
     """[遊戲實測 M4-4] 世界在 extract 之後被改過，守門就該擋下來。
@@ -817,11 +1130,21 @@ def test_replaying_the_same_plan_is_refused_wherever_a_snapshot_was_captured(
     「這次寫入會不會改變形狀」——`compound_tree` 永遠沒有 raw_snapshot（見
     下面 `test_a_compound_tree_replay_is_the_one_remaining_gap`），是唯一
     的例外。
+
+    **`_for_ordinary_nbt_edits`（Task 11 加的限定）**：`written_encoding`／
+    `shape_changing` 這一套判準是照著「key/index 結尾、整節點替換」的寫入
+    模型量身打造的。指令文字（`decode` 結尾）不吃這一套——它們共用同一個
+    物理字串，重放時真正先擋下它們的是 `_command_length_matches`（同一個
+    字串裡任何一筆改過，整條字串的長度就變了），跟這裡的 shape/raw_snapshot
+    判準是兩回事，混在一起比對只會撞出假陽性。指令文字自己的重放行為見
+    `test_a_translated_region_or_entities_command_edit_is_refused_on_replay`
+    與 `test_an_mcfunction_command_edit_is_not_guarded_against_replay_a_known_gap`。
     """
     from mcmt.write.apply import apply_editplan
 
     plan = round_trip["applied"]["plan"].document
-    with_snapshot = [e for e in plan["edits"] if e.get("raw_snapshot") is not None]
+    edits = [e for e in plan["edits"] if not is_command_edit(e)]
+    with_snapshot = [e for e in edits if e.get("raw_snapshot") is not None]
     # 這條測試存在的理由：至少要有一筆 edit 是「形狀沒變、但仍然被 raw_snapshot
     # 擋下來」——不然這條測試量不到 M13a 判準與現在判準的差異，跟只測
     # shape_changing 的舊版本沒有兩樣。
@@ -833,10 +1156,14 @@ def test_replaying_the_same_plan_is_refused_wherever_a_snapshot_was_captured(
         "這趟來回沒有任何『形狀沒變但內容變了』的 edit，測試驗不到 raw_snapshot "
         "比 expected_encoding 多擋下的那一半"
     )
+    # `apply_editplan` 跑的是**整份** plan（含指令文字），`outcome.unwritten`
+    # 裡本來就會混著指令文字自己那套守門（`_command_length_matches`）拒寫的
+    # occurrence——那些不屬於這條測試要驗的東西，比對前先篩掉。
+    ordinary_ids = {e["occurrence_id"] for e in edits}
     refused = {
         item["occurrence_id"]
         for item in outcome.unwritten
-        if item["reason"] == "node_changed"
+        if item["reason"] == "node_changed" and item["occurrence_id"] in ordinary_ids
     }
     assert refused == {e["occurrence_id"] for e in with_snapshot}
 
@@ -851,11 +1178,16 @@ def test_a_compound_tree_replay_is_the_one_remaining_gap(round_trip) -> None:
     一次同樣的值——內容上是 no-op，沒有損害，但這就是現在唯一還留著的縫。
 
     這條測試不是在慶祝現況，是在把縮小後的缺口釘在一個會被讀到的地方。
+
+    只看**非指令文字**的 edits——理由跟上一條測試同一個限定：指令文字有自己
+    獨立的重放守門（`_command_length_matches`），不吃這裡的 shape 判準。
     """
     from mcmt.write.apply import apply_editplan
 
     plan = round_trip["applied"]["plan"].document
-    no_snapshot = [e for e in plan["edits"] if e.get("raw_snapshot") is None]
+    no_snapshot = [
+        e for e in plan["edits"] if not is_command_edit(e) and e.get("raw_snapshot") is None
+    ]
     shape_preserving_no_snapshot = [e for e in no_snapshot if not shape_changing(e)]
     outcome = apply_editplan(round_trip["world"], plan)
 
@@ -876,11 +1208,18 @@ def test_an_in_place_replay_is_now_caught_by_the_raw_snapshot_guard(round_trip) 
     extract 之後改的名字會被蓋掉也一樣看不出來。`raw_snapshot` 現在補上了
     「內容比對」這一層：重放時節點裡的字已經是**上一次寫入的譯文**，跟
     raw_snapshot 記的**原文**對不上，於是被擋下來，而不是被靜默覆寫。
+
+    只看**非指令文字**的 in_place edits——`command_say_text` 也是 in_place，
+    但它在 region/entities 與 `.mcfunction` 走的重放守門完全不同（見下面兩條
+    指令文字專屬的測試），混進來會讓這條測試斷言錯誤的東西。
     """
     from mcmt.write.apply import apply_editplan
 
     plan = round_trip["applied"]["plan"].document
-    in_place_edits = [e for e in plan["edits"] if e["value"]["kind"] == "literal"]
+    in_place_edits = [
+        e for e in plan["edits"]
+        if e["value"]["kind"] == "literal" and not is_command_edit(e)
+    ]
     outcome = apply_editplan(round_trip["world"], plan)
 
     assert in_place_edits, "這趟來回沒有走到 in_place 路徑，測試沒驗到東西"
@@ -896,6 +1235,98 @@ def test_an_in_place_replay_is_now_caught_by_the_raw_snapshot_guard(round_trip) 
         for entity in block_entities_of(round_trip["world"])
         if "CustomName" in entity
     } == {"補給箱", "指令方塊"}
+
+
+def test_a_translated_region_or_entities_command_edit_is_refused_on_replay(
+    round_trip,
+) -> None:
+    """**指令文字自己的重放守門，跟一般 NBT 節點是不同的機制。**
+
+    `write/common.py::_apply_decode_group` 在委派給 `command_span.py` 之前，
+    先用 `_command_length_matches` 擋一次：`decode_chain` 第一步固定記著
+    「extract 當下 `Command` 字串的長度」，splice 過一次之後這個長度幾乎必然
+    變了（譯文長度跟原文不同），下一次重放時長度對不上，直接判定「世界被
+    改過」——不管這筆 edit 的 `raw_snapshot` 是不是 `None`、形狀有沒有變。
+    這比 `written_encoding`／`shape_changing` 那一套（照著 key/index 結尾的
+    NBT 節點設計）更粗但更保守：**同一個 `Command` 字串裡任何一筆被寫過，
+    這個字串裡剩下所有 edit 在重放時全部一起被擋下來**。
+    """
+    from mcmt.write.apply import apply_editplan
+
+    plan = round_trip["applied"]["plan"].document
+    command_edits = [
+        e for e in plan["edits"]
+        if is_command_edit(e) and e["container"]["kind"] in ("region_chunk", "entities_chunk")
+    ]
+    outcome = apply_editplan(round_trip["world"], plan)
+
+    assert command_edits, "這趟來回沒有 region/entities 的指令文字 edit，測試沒驗到東西"
+    refused = {
+        item["occurrence_id"]
+        for item in outcome.unwritten
+        if item["reason"] == "node_changed"
+    }
+    assert {e["occurrence_id"] for e in command_edits} <= refused
+
+
+def test_an_mcfunction_command_edit_is_not_guarded_against_replay_a_known_gap() -> None:
+    """**已知缺口，Task 11 端到端才照出來，不在本任務授權修改的檔案清單裡
+    （`write/mcfunction_apply.py` 屬於 CLAUDE.md 安全規則要求獨立 commit 的
+    目錄）。**
+
+    `region`／`entities` 的指令文字重放守門（見上一條測試）是
+    `write/common.py::_apply_decode_group` 在委派給 `command_span.py` 之前
+    自己加的一層——`_command_length_matches` ＋ `_decode_command_leaf` ＋
+    `_guarded_encoding`。`write/mcfunction_apply.py::_apply_to_folder_line`／
+    `_apply_to_zip_line` 沒有走 `write/common.py` 那條路：兩者都是直接呼叫
+    `command_span.py::apply_command_edits(command, edits, outcome=outcome)`，
+    中間完全沒有任何守門——重放同一份 plan 對 `.mcfunction` 檔案永遠會成功，
+    把已經翻譯過的文字再蓋一次同樣的譯文（no-op，沒有損害，但跟 region/
+    entities 的行為不對稱，也跟 `in_place` 節點「使用者自己在 extract 之後
+    改的字會被守住」這條保證不一致——`.mcfunction` 完全沒有這層保護）。
+
+    這裡釘住現狀，是需要一個後續任務補齊的真實缺口：`apply_to_mcfunction_file`
+    委派給 `command_span.py` 之前，該補上跟 `_apply_decode_group` 對稱的
+    長度／內容守門。
+    """
+    from collections import Counter
+
+    from mcmt.model.node import NodePath, key_step
+    from mcmt.scan.command import scan_command_string
+    from mcmt.write.command_span import apply_command_edits
+    from mcmt.write.common import ApplyOutcome
+
+    original = "say Hello world"
+    stats: Counter = Counter()
+    (node,) = list(
+        scan_command_string(
+            original, base_path=NodePath([key_step("line")]), anchor=None, stats=stats
+        )
+    )
+    edit = {
+        "occurrence_id": "o:00001",
+        "unit_id": "u:command_say_text:dddddddddddddddd",
+        "container": {"kind": "datapack_mcfunction_file", "path": "p/f.mcfunction:1"},
+        "node_path": [step.to_json() for step in node.path],
+        "expected_encoding": "bare_string",
+        "value": {"kind": "literal", "text": "你好世界", "style": None},
+    }
+    outcome = ApplyOutcome()
+
+    # 第一次：正常寫入。
+    once = apply_command_edits(original, [edit], outcome=outcome)
+    assert once == "say 你好世界"
+    assert not outcome.unwritten
+
+    # 第二次：對**已經被翻譯過**的字串重放同一筆 edit——`command_span.py`
+    # 本身不做任何 extract-當下快照比對，只單純 splice，所以永遠成功。
+    # `write/common.py` 那條路會在委派給它之前用 `_command_length_matches`
+    # 擋下這個情境（見上一條測試）；`.mcfunction` 沒有這一層，所以這裡直接
+    # 呼叫 `apply_command_edits` 就足以重現缺口，不需要真的走一次
+    # `apply_to_mcfunction_file`。
+    twice = apply_command_edits(once, [edit], outcome=outcome)
+    assert twice == "say 你好世界"
+    assert not outcome.unwritten
 
 
 # --- dry-run 完全不碰存檔 -------------------------------------------------

@@ -17,7 +17,7 @@
 什麼」是報告的一部分，不能只存在於某個來源的內部。
 """
 
-from mcmt.scan.sources import datapack, entities, level_dat, region, scoreboard
+from mcmt.scan.sources import datapack, entities, level_dat, mcfunction, region, scoreboard
 
 __all__ = ["SOURCES"]
 
@@ -27,4 +27,5 @@ SOURCES = [
     level_dat.scan,
     scoreboard.scan,
     datapack.scan,
+    mcfunction.scan,
 ]

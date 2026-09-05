@@ -34,6 +34,7 @@ from mcmt.safety.paths import ensure_readable, ensure_writable
 from mcmt.write.common import ApplyOutcome, apply_edits, refuse
 from mcmt.write.datfile_apply import apply_to_datfile
 from mcmt.write.datapack_apply import apply_to_datapack_file
+from mcmt.write.mcfunction_apply import apply_to_mcfunction_file
 
 __all__ = ["ApplyOutcome", "apply_editplan"]
 
@@ -176,4 +177,5 @@ _WRITERS = {
     "level_dat": apply_to_datfile,
     "scoreboard_dat": apply_to_datfile,
     "datapack_file": apply_to_datapack_file,
+    "datapack_mcfunction_file": apply_to_mcfunction_file,
 }
