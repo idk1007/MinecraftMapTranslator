@@ -111,6 +111,10 @@ def format_result(summary: dict) -> str:
         ("資料包 zip 打不開（整包進度沒掃到）", result.stats["skipped_datapack_zip"]),
         ("進度 JSON 解析失敗", result.stats["skipped_advancement_unparseable"]),
         ("進度的文字形狀轉不出去", result.stats["skipped_advancement_shape"]),
+        ("指令動詞不在白名單或形狀轉不出去", stats["skipped_command_unsupported_shape"]),
+        ("指令巢狀引用另一條指令（L3，未支援）", stats["skipped_command_nested_reference"]),
+        ("指令行尾反斜線延續（1.20.2+ 語法，未支援）",
+         stats["skipped_command_line_continuation"]),
     ]
     listed = [(name, n) for name, n in skipped if n]
     if listed:

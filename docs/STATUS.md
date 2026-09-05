@@ -828,13 +828,9 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
   apply 一次故未觸發，但 251 筆 `.mcfunction` edit 走的就是這條無守門路徑。
   Task 11 釘在 `test_an_mcfunction_command_edit_is_not_guarded_against_replay_a_known_gap`。
   落在 `write/` 目錄——獨立 commit。
-* **〔command text 缺口 D〕三個 `skipped_command_*` stats 有 schema、沒接進 `emit.py`。**
-  `docs/contracts/extract.schema.json` 宣告了
-  `stats.skipped_command_unsupported_shape`／`…_nested_reference`／
-  `…_line_continuation`，但 `extract/emit.py` 組 `stats` dict 時沒把它們從
-  `result.stats` 轉出來——計數器有在跑（MP2：113,692／0／2,094），值卻進不了
-  `extract.json`，CLI 摘要也不印。使用者看不到「指令文字漏抽了多少」。plumbing
-  缺口、非安全，2026-09-05 MP2 全掃時發現。三行的事，可與缺口 A 同 commit。
+* **〔command text 缺口 D〕三個 `skipped_command_*` stats — 已於 2026-09-05 修正。**
+  已補上 `extract/emit.py` 與 `cli/extract.py` 中三個計數器的轉接，使其出現在
+  `extract.json` 與 CLI 摘要。新增單元測試 `test_the_command_stats_reach_the_extract_document` 涵蓋。
 
 ## 開工前該補掉的兩件事
 

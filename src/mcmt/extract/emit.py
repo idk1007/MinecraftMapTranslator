@@ -92,6 +92,15 @@ def build_extract_document(
                 "skipped_advancement_unparseable"
             ],
             "skipped_advancement_shape": result.stats["skipped_advancement_shape"],
+            "skipped_command_unsupported_shape": result.stats[
+                "skipped_command_unsupported_shape"
+            ],
+            "skipped_command_nested_reference": result.stats[
+                "skipped_command_nested_reference"
+            ],
+            "skipped_command_line_continuation": result.stats[
+                "skipped_command_line_continuation"
+            ],
             "by_category": _by_category(result.units),
         },
         "units": units,

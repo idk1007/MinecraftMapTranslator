@@ -441,3 +441,20 @@ def test_the_new_skip_counters_reach_the_extract_document(tmp_path) -> None:
     assert extract["stats"]["skipped_datapack_zip"] == 2
     assert extract["stats"]["skipped_advancement_unparseable"] == 0
     assert extract["stats"]["skipped_advancement_shape"] == 0
+
+
+def test_the_command_stats_reach_the_extract_document(tmp_path) -> None:
+    """三個指令相關的 skip 計數器也要出現在 extract.json。"""
+    world = tmp_path / "test"
+    (world / "region").mkdir(parents=True)
+    result, extract, _ = documents(world)
+
+    # 計數器在 extract.json 的 stats 裡存在，即使值是 0。
+    assert "skipped_command_unsupported_shape" in extract["stats"]
+    assert "skipped_command_nested_reference" in extract["stats"]
+    assert "skipped_command_line_continuation" in extract["stats"]
+
+    # 數值與 result.stats 一致。
+    assert extract["stats"]["skipped_command_unsupported_shape"] == result.stats["skipped_command_unsupported_shape"]
+    assert extract["stats"]["skipped_command_nested_reference"] == result.stats["skipped_command_nested_reference"]
+    assert extract["stats"]["skipped_command_line_continuation"] == result.stats["skipped_command_line_continuation"]

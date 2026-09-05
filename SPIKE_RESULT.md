@@ -469,11 +469,10 @@ warnings：30（全部磁區重整，附前後大小）
 | **#2** `write/common.py::_decode_command_leaf` 不能還原「SNBT 字串包裝 JSON」的 `data merge` 訊息（三步 `command→snbt→json_component`） | **未遇到（0 次）。** MP2 的 21 個相異 `data merge block` 指令，訊息全是原生 compound（`{text:"Star Stealer",color:"yellow",…}`），沒有單／雙引號字串包一段轉義 JSON 的形式；`.mcfunction` 裡完全沒有 `data merge`。那 8 個 region 指令方塊的 `data merge` L2 路徑因此全部寫成功。 |
 | **#3** `write/mcfunction_apply.py` 沒有重放守門 | **本輪不觸發，但潛在。** 251 筆 `.mcfunction` 指令文字 edit 走的是無守門路徑，首次 apply 正常寫入；只有「拿同一份 plan 對 `.mcfunction` 重放」才會靜默重蓋（region/entities 會拒），本輪只 apply 一次故未暴露。 |
 
-**本輪新發現的第 4 個缺口（plumbing，非安全）**：`docs/contracts/extract.schema.json`
-有宣告 `stats.skipped_command_unsupported_shape`／`…_nested_reference`／
-`…_line_continuation` 三個欄位，但 `extract/emit.py` 組 `stats` dict 時沒有把它們
-從 `result.stats` 轉出來——計數器有在跑、值正確，卻進不了 `extract.json`，CLI 摘要
-也不印，使用者看不到「指令文字漏抽了多少」。合約有、實作沒接上。留給後續。
+**第 4 個缺口（plumbing，非安全）— 已於 2026-09-05 修正**：`extract/emit.py` 與
+`cli/extract.py` 都補上了三個指令計數器（`skipped_command_unsupported_shape`／
+`…_nested_reference`／`…_line_continuation`）的轉接，使其出現在 `extract.json`
+與 CLI 摘要裡。使用者現在可以看到「指令文字漏抽了多少」。測試已涵蓋。
 
 **結論**：
 
