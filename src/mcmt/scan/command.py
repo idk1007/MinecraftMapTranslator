@@ -178,7 +178,9 @@ def _yield_component(
         stats["skipped_command_unsupported_shape"] += 1
         return
     tag = _to_amulet(value)
-    yield from _yield_tag(text, arg_span, tag, "json_component", base_path, anchor, stats)
+    yield from _yield_tag(
+        text, [("json_component", arg_span)], tag, base_path, anchor, stats
+    )
 
 
 def _yield_snbt_span(
@@ -196,30 +198,40 @@ def _yield_snbt_span(
     except Exception:
         stats["skipped_command_unsupported_shape"] += 1
         return
-    yield from _yield_tag(text, span, tag, "snbt", base_path, anchor, stats)
+    yield from _yield_tag(text, [("snbt", span)], tag, base_path, anchor, stats)
 
 
 def _yield_tag(
     text: str,
-    span: tuple[int, int],
+    steps: list[tuple[str, tuple[int, int]]],
     tag: Any,
-    codec_name: str,
     base_path: NodePath,
     anchor: dict[str, Any] | None,
     stats: Counter,
 ) -> Iterator[TextNode]:
-    """通用收尾：L3 檢查、空文字檢查，組 `node_path` 並 yield。三個呼叫端
+    """通用收尾：L3 檢查、空文字檢查，組 `node_path` 並 yield。四個呼叫端
     （L1 的 `_yield_component`、`give`/`item` 的 `_yield_snbt_span`、L2 的
-    `_yield_message`）共用同一份收尾邏輯，只有 `codec_name`（這段文字最內層
-    是用哪個 codec 解出來的）不同。"""
+    `_yield_message` 的兩個分支）共用同一份收尾邏輯。
+
+    `steps` 是接在 `("command", 整條文字)` 這個固定第一步之後的 decode 步驟
+    序列，`(codec_name, span)` 依序排列。**大多數呼叫端只有一步**（這段文字
+    只被解碼過一次）；`_yield_message` 的「SNBT 字串包裝 JSON」分支需要兩步
+    ——先標記「這裡進了一層 SNBT」（span 是整個 SNBT 引數，不是這個 leaf
+    自己的位置，純粹記錄「此處是 SNBT 方言」這件事，不是 splice 目標），再
+    標記「這裡面的字串內容又被當 JSON 解了一次」（span 才是這個 leaf 自己的
+    位置，是真正的 splice 目標）。`NodePath.last_span`／`span_order()` 只看
+    **最後一個** decode 步驟的 span，所以不管 steps 有幾個，排序用的座標永遠
+    是最後一步、也就是這個 leaf 自己的位置，不會被中間那個「純標記用」的步驟
+    污染。"""
     if _has_nested_command_reference(tag):
         stats["skipped_command_nested_reference"] += 1
         return
     if _is_empty_text(tag):
-        return  # 空字串沒有可翻文字，跟 build.py 的 stats.skipped_empty 是分開的職責。
-    node_path = base_path.child(decode_step("command", span=(0, len(text)))).child(
-        decode_step(codec_name, span=span)
-    )
+        stats["skipped_empty"] += 1
+        return
+    node_path = base_path.child(decode_step("command", span=(0, len(text))))
+    for codec_name, span in steps:
+        node_path = node_path.child(decode_step(codec_name, span=span))
     yield TextNode(
         path=node_path, tag=tag, category="command_component_text", anchor=anchor
     )
@@ -327,16 +339,19 @@ def _scan_snbt_argument(
             except LocateError:
                 continue
             found_any = True
-            yield from _yield_message(text, leaf_span, message, base_path, anchor, stats)
+            yield from _yield_message(
+                text, arg_span, leaf_span, message, base_path, anchor, stats
+            )
 
     if not found_any and isinstance(document, amulet_nbt.CompoundTag):
         # 不是告示牌形狀（例如 `merge value` 直接給的一個 component，或物品
         # 組件的 custom_name）——整段 SNBT 文件本身就是要翻的節點。
-        yield from _yield_tag(text, arg_span, document, "snbt", base_path, anchor, stats)
+        yield from _yield_tag(text, [("snbt", arg_span)], document, base_path, anchor, stats)
 
 
 def _yield_message(
     text: str,
+    arg_span: tuple[int, int],
     leaf_span: tuple[int, int],
     message: Any,
     base_path: NodePath,
@@ -345,7 +360,17 @@ def _yield_message(
 ) -> Iterator[TextNode]:
     """一個 `messages[i]` 元素——可能是原生 SNBT compound（`{text:"..."}`），
     也可能是一個字串常值、內容剛好是一段跳脫過的 JSON（CLAUDE.md 二節的舊式
-    JSON 形狀，只是這次出現在指令字串的 SNBT 裡而不是 chunk 的 NBT 裡）。"""
+    JSON 形狀，只是這次出現在指令字串的 SNBT 裡而不是 chunk 的 NBT 裡）。
+
+    兩種形狀記錄的 decode 步驟數不同：原生 compound 只需要一步
+    `("snbt", leaf_span)`——這個節點本來就活在 SNBT 文件裡，沒有多一層編碼。
+    字串包裝 JSON 需要兩步：`("snbt", arg_span)` 先標記「這裡是 SNBT 方言的
+    地盤」（span 用整個 SNBT 引數，純粹標記方言、不是 splice 目標），再
+    `("json_component", leaf_span)` 標記「這個字串常值的內容又被當 JSON 解了
+    一次」（span 才是這個 leaf 自己的位置）。寫回層要分辨這兩種形狀——native
+    的可以直接用 SNBT 語法序列化，字串包裝的要先跳脫成字串常值再 splice
+    （design doc §4）——只看 decode 步驟數量／中間有沒有一個額外的 `snbt`
+    標記步驟就能分辨，不需要另外存一個旗標。"""
     if isinstance(message, amulet_nbt.StringTag):
         content = str(message)
         try:
@@ -355,14 +380,21 @@ def _yield_message(
         else:
             tag = _to_amulet(value)
             yield from _yield_tag(
-                text, leaf_span, tag, "json_component", base_path, anchor, stats
+                text,
+                [("snbt", arg_span), ("json_component", leaf_span)],
+                tag,
+                base_path,
+                anchor,
+                stats,
             )
             return
         # 解不出 JSON——就是字面文字（例如 `data merge` 直接寫了一句沒有格式的
-        # 文字），照原樣當一個 bare_string 節點。
-        yield from _yield_tag(text, leaf_span, message, "snbt", base_path, anchor, stats)
+        # 文字），照原樣當一個 bare_string 節點，只有一層 SNBT。
+        yield from _yield_tag(
+            text, [("snbt", leaf_span)], message, base_path, anchor, stats
+        )
         return
-    yield from _yield_tag(text, leaf_span, message, "snbt", base_path, anchor, stats)
+    yield from _yield_tag(text, [("snbt", leaf_span)], message, base_path, anchor, stats)
 
 
 def _find_component(

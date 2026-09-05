@@ -214,6 +214,56 @@ def test_data_merge_finds_a_json_string_wrapped_message():
     assert str(nodes[0].tag["text"]) == "Hello"
 
 
+def test_empty_message_increments_skipped_empty_stat():
+    stats = Counter()
+    nodes = list(
+        scan_command_string(
+            'data merge block ~ ~ ~ {front_text:{messages:['
+            '{text:"Line 1"},{text:""}]}}',
+            base_path=_path(),
+            anchor=None,
+            stats=stats,
+        )
+    )
+    assert len(nodes) == 1
+    assert stats["skipped_empty"] == 1
+
+
+def test_native_compound_message_has_two_decode_steps():
+    stats = Counter()
+    nodes = list(
+        scan_command_string(
+            'data merge block ~ ~ ~ {front_text:{messages:[{text:"Line 1"}]}}',
+            base_path=_path(),
+            anchor=None,
+            stats=stats,
+        )
+    )
+    assert len(nodes) == 1
+    decode_steps = [step for step in nodes[0].path if step.t == "decode"]
+    assert len(decode_steps) == 2
+    assert decode_steps[0].codec.value == "command"
+    assert decode_steps[1].codec.value == "snbt"
+
+
+def test_json_string_wrapped_message_has_three_decode_steps():
+    stats = Counter()
+    nodes = list(
+        scan_command_string(
+            'data merge block ~ ~ ~ {messages:["{\\"text\\":\\"Hello\\"}"]}',
+            base_path=_path(),
+            anchor=None,
+            stats=stats,
+        )
+    )
+    assert len(nodes) == 1
+    decode_steps = [step for step in nodes[0].path if step.t == "decode"]
+    assert len(decode_steps) == 3
+    assert decode_steps[0].codec.value == "command"
+    assert decode_steps[1].codec.value == "snbt"
+    assert decode_steps[2].codec.value == "json_component"
+
+
 def test_data_modify_set_value_is_recognised():
     stats = Counter()
     nodes = list(
