@@ -12,10 +12,11 @@ def _path():
 
 
 def test_say_yields_a_bare_string_text_node():
+    full = "say Welcome to the arena!"
     stats = Counter()
     nodes = list(
         scan_command_string(
-            "say Welcome to the arena!",
+            full,
             base_path=_path(),
             anchor={"kind": "block"},
             stats=stats,
@@ -26,15 +27,31 @@ def test_say_yields_a_bare_string_text_node():
     assert node.category == "command_say_text"
     assert isinstance(node.tag, amulet_nbt.StringTag)
     assert str(node.tag) == "Welcome to the arena!"
+    # node_path 必須以一個 decode("command") 收尾，不能停在 base_path 的最後
+    # 一個 key step 上——否則 write 層的 decode-dispatch 認不出它，會落到舊的
+    # 整值替換路徑，把 `say ` 前綴一起換掉（寫壞指令）。
+    decode_steps = [step for step in node.path if step.t == "decode"]
+    assert len(decode_steps) == 1
+    assert decode_steps[0].codec.value == "command"
+    span = decode_steps[0].span
+    assert span == (len("say "), len(full))
+    assert full[span[0] : span[1]] == "Welcome to the arena!"
 
 
 def test_me_is_treated_the_same_as_say():
+    full = "me waves"
     stats = Counter()
     nodes = list(
-        scan_command_string("me waves", base_path=_path(), anchor=None, stats=stats)
+        scan_command_string(full, base_path=_path(), anchor=None, stats=stats)
     )
     assert nodes[0].category == "command_say_text"
     assert str(nodes[0].tag) == "waves"
+    decode_steps = [step for step in nodes[0].path if step.t == "decode"]
+    assert len(decode_steps) == 1
+    assert decode_steps[0].codec.value == "command"
+    span = decode_steps[0].span
+    assert span == (len("me "), len(full))
+    assert full[span[0] : span[1]] == "waves"
 
 
 def test_an_unknown_verb_is_skipped_and_counted():
@@ -49,10 +66,11 @@ def test_an_unknown_verb_is_skipped_and_counted():
 
 
 def test_execute_prefix_is_stripped_before_verb_matching():
+    full = "execute as @a at @s run say hi there"
     stats = Counter()
     nodes = list(
         scan_command_string(
-            "execute as @a at @s run say hi there",
+            full,
             base_path=_path(),
             anchor=None,
             stats=stats,
@@ -60,19 +78,35 @@ def test_execute_prefix_is_stripped_before_verb_matching():
     )
     assert nodes[0].category == "command_say_text"
     assert str(nodes[0].tag) == "hi there"
+    # span 必須換算回**原始** text 的絕對位移，把 execute 剝掉的前綴也算進去
+    # ——不能只對剝除後的剩餘字串算 offset。
+    decode_steps = [step for step in nodes[0].path if step.t == "decode"]
+    assert len(decode_steps) == 1
+    span = decode_steps[0].span
+    assert span == (full.index("hi there"), len(full))
+    assert full[span[0] : span[1]] == "hi there"
 
 
 def test_the_word_run_inside_quotes_does_not_confuse_execute_stripping():
+    full = 'execute if block ~ ~ ~ minecraft:stone run say run for it'
     stats = Counter()
     nodes = list(
         scan_command_string(
-            'execute if block ~ ~ ~ minecraft:stone run say run for it',
+            full,
             base_path=_path(),
             anchor=None,
             stats=stats,
         )
     )
     assert str(nodes[0].tag) == "run for it"
+    decode_steps = [step for step in nodes[0].path if step.t == "decode"]
+    assert len(decode_steps) == 1
+    span = decode_steps[0].span
+    # 這裡的陷阱正是 payload 本身以 "run " 開頭——`full.index("run for it")`
+    # 若不小心從頭找可能撞到 execute 前綴裡的那個 "run"，所以改用
+    # `rfind` 找**最後**一次出現，確保比對的是 payload 自己那個。
+    assert span == (full.rfind("run for it"), len(full))
+    assert full[span[0] : span[1]] == "run for it"
 
 
 def test_tellraw_yields_a_decoded_json_component_node():

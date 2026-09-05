@@ -53,8 +53,19 @@ def scan_command_string(
         if not payload:
             stats["skipped_command_unsupported_shape"] += 1
             return
+        # `say`/`me` 沒有 component/SNBT 包裝層——這一個 span 同時是「這裡是
+        # command 方言」的標記，也是真正的 splice 目標（跟其他動詞不同，其他
+        # 動詞至少多一層 json_component/snbt，`say`/`me` 只有這一層）。少了這個
+        # decode step，node_path 會以 `key_step("Command")` 收尾，write 層的
+        # decode-dispatch 分支（`write/common.py`）認不出它，會落到舊的整值
+        # 替換路徑——那會把整個 `Command` 字串換成單獨的 payload，`say `／`me `
+        # 這個動詞前綴直接消失，寫壞指令方塊。
+        absolute_start = offset + lead + (len(stripped) - len(payload))
+        node_path = base_path.child(
+            decode_step("command", span=(absolute_start, len(text)))
+        )
         yield TextNode(
-            path=base_path,
+            path=node_path,
             tag=amulet_nbt.StringTag(payload),
             category="command_say_text",
             anchor=anchor,
