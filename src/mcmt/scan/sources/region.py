@@ -17,10 +17,12 @@
 
 實體不在這裡——它們從 1.17 起住在 `entities/*.mca`，由 `sources/entities.py` 負責。
 
-## 還沒掃的（M13b 掃描廣度）
+## 還沒掃的
 
-`level.dat`、記分板、進度、datapack 的 `.mcfunction`、`hover_event` 內的文字。
-**不是忘了，是還沒做。**
+`level.dat`、記分板、進度、`hover_event` 內的文字由其他 `sources/` 模組負責；
+datapack 的 `.mcfunction` 由 `sources/mcfunction.py` 掃、指令方塊的 `Command`
+在上面「v1 掃到的」已列（白名單動詞解析在 `scan/command.py`，2026-09-05）。
+這裡真正還沒做的：無。剩下的已知限制見 `docs/STATUS.md` 已知缺口。
 
 ## 刻意不去找的
 

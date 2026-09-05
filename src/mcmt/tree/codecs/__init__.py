@@ -11,7 +11,10 @@ SNBT 裡再包 component。codec 就是那份文件的讀寫器。
     json_component  ✅ 忠實（[實測] 真實地圖 78/78 位元組一致，compact 形式）
     lang_json       ✅ 讀寬容、寫嚴格
     snbt            ❌ **不忠實**：amulet-nbt 的 to_snbt() 會把鍵排序
-    command         ⛔ 尚未實作，明確拒絕
+    command         ✅ 標記用的 identity codec——真正的白名單動詞解析在
+                    scan/command.py、巢狀值組回在 write/command_span.py。
+                    decode/encode 近乎透明，`faithful_round_trip = False`。
+                    見 docs/superpowers/specs/2026-09-05-command-text-design.md §3
 """
 
 from mcmt.model.node import Codec
