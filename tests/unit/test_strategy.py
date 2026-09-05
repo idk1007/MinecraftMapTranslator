@@ -49,6 +49,16 @@ def test_an_unknown_category_defaults_to_translate_key():
     assert strategy_for("objective") == "translate_key"
 
 
+def test_command_say_text_is_in_place():
+    """command_say_text 的內容不能用 component 語法，只能直接替換文字。"""
+    assert strategy_for("command_say_text") == "in_place"
+
+
+def test_command_component_text_is_translate_key():
+    """command_component_text 可以用 component 語法插入 translate key。"""
+    assert strategy_for("command_component_text") == "translate_key"
+
+
 # --- 哪些形狀有 in_place 的寫入依據 ---------------------------------------
 
 

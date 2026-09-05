@@ -12,6 +12,7 @@
 | `book_title` / `book_author` | 同上，書名 `title.raw` 顯示原始 key |
 | `draft_book_page` | 草稿書頁不是 component |
 | `block_entity_name` | [遊戲實測 M11-3] native chunk 的 `CustomName` 寫入 SNBT 的 `{translate:…}`，容器 GUI 顯示**字面的大括號**——與告示牌 `messages[]` 在 M0-3 的行為完全一致 |
+| `command_say_text` | `say`／`me` 的參數沒有 component 語法可插 key，只能直接替換文字 |
 
 這幾個只能走 `in_place`：**把譯文直接寫進節點**，而且**保留節點既有的 NBT 形狀**。
 不把 `TAG_String` 提升成 compound——那個提升對 `CustomName` 從未實測過，而未測過的
@@ -35,6 +36,7 @@ IN_PLACE_CATEGORIES = frozenset(
         "book_author",
         "draft_book_page",
         "block_entity_name",
+        "command_say_text",
     }
 )
 
