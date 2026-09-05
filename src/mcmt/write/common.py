@@ -170,6 +170,7 @@ def apply_edits(
     """
     written = 0
     index_groups: dict[NodePath, list[dict]] = defaultdict(list)
+    decode_groups: dict[NodePath, list[dict]] = defaultdict(list)
 
     for edit in edits:
         steps = list(NodePath.from_json(edit["node_path"]))
@@ -180,6 +181,15 @@ def apply_edits(
             if _apply_to_key(root, steps, edit, outcome):
                 written += 1
             continue
+        if steps[-1].t == "decode":
+            # 找到最後一個非 decode 步驟，那就是這個字串節點的位址；同一個
+            # 字串節點收到的所有 decode 結尾 edits 分成一組，理由跟同一個
+            # native list 收到多筆 edit 要批次處理一樣（見本函式上面的說明）：
+            # 這裡改成委派給 command_span，一次 splice 完同一物理字串上的所有
+            # edit，而不是逐筆各自改一次字串（後面的 span 位移會被前一筆改壞）。
+            string_node_steps = [s for s in steps if s.t != "decode"]
+            decode_groups[NodePath(string_node_steps)].append(edit)
+            continue
         if steps[-1].t != "index":
             refuse(outcome, edit, "unsupported_encoding", "v1 的寫入路徑不支援 decode 步驟")
             continue
@@ -188,7 +198,129 @@ def apply_edits(
     for parent, group in index_groups.items():
         written += _apply_index_group(root, parent, group, outcome)
 
+    for parent, group in decode_groups.items():
+        written += _apply_decode_group(root, parent, group, outcome)
+
     return written
+
+
+def _apply_decode_group(
+    root: amulet_nbt.CompoundTag,
+    parent: NodePath,
+    edits: list[dict[str, Any]],
+    outcome: ApplyOutcome,
+) -> int:
+    """`decode` 結尾的 edits，分組鍵是「這個物理字串的位址」（`parent` = 最後
+    一個非 decode 步驟為止的路徑）。委派給 `command_span.apply_command_edits`
+    做字串內部的 splice，這裡只負責走到那個 `StringTag`、守門、寫回。
+
+    `apply_command_edits` 回傳的是新字串本身（不是筆數）——用 `outcome.unwritten`
+    在呼叫前後的長度差算出這組裡實際寫成幾筆，比逐筆用 dict 比對可靠：
+    `refuse()` 對每筆失敗的 edit 恰好 append 一筆進 `unwritten`，成功的不會。
+
+    **在委派給 `apply_command_edits` 之前，這裡要做跟 `_guarded_encoding` 一樣
+    的守門**——不然重放同一份 plan 時，指令字串裡已經被上一次 apply 寫過的
+    譯文會被當成「還是原文」再蓋一次，`raw_snapshot` 那道防線對指令文字整個
+    失效。指令文字沒有一棵獨立的 NBT tag 可以直接 sniff，所以先把 leaf 從
+    「現在的」物理字串重新解碼出一棵 tag，再丟給同一套 `_guarded_encoding`。
+    """
+    from mcmt.write.command_span import apply_command_edits
+
+    parent_steps = list(parent)
+    if not parent_steps or parent_steps[-1].t != "key":
+        for edit in edits:
+            refuse(outcome, edit, "unsupported_encoding", "指令文字目前只支援 key 結尾的父節點")
+        return 0
+    try:
+        container = _resolve(root, parent_steps[:-1])
+    except (KeyError, IndexError) as exc:
+        for edit in edits:
+            refuse(outcome, edit, "node_missing", str(exc))
+        return 0
+
+    key = parent_steps[-1].name
+    if not isinstance(container, amulet_nbt.CompoundTag) or key not in container:
+        for edit in edits:
+            refuse(outcome, edit, "node_missing", f"找不到鍵 {key}")
+        return 0
+
+    tag = container[key]
+    if not isinstance(tag, amulet_nbt.StringTag):
+        for edit in edits:
+            refuse(outcome, edit, "node_changed", f"{key} 不是字串節點，可能被改過了")
+        return 0
+
+    text = str(tag)
+    guarded: list[dict[str, Any]] = []
+    for edit in edits:
+        decode_chain = [
+            step for step in NodePath.from_json(edit["node_path"]) if step.t == "decode"
+        ]
+        if not _command_length_matches(text, decode_chain):
+            refuse(
+                outcome,
+                edit,
+                "node_changed",
+                "指令字串的長度跟 extract 當下不一樣——世界在 extract 之後被改過了",
+            )
+            continue
+        decoded = _decode_command_leaf(text, decode_chain)
+        if decoded is None:
+            refuse(outcome, edit, "unsupported_encoding", "無法重新解碼指令文字裡的節點")
+            continue
+        if _guarded_encoding(decoded, edit, outcome) is None:
+            continue
+        guarded.append(edit)
+
+    if not guarded:
+        return 0
+
+    before = len(outcome.unwritten)
+    new_text = apply_command_edits(text, guarded, outcome=outcome)
+    if new_text is None:
+        return 0
+    container[key] = amulet_nbt.StringTag(new_text)
+    return len(guarded) - (len(outcome.unwritten) - before)
+
+
+def _command_length_matches(text: str, decode_chain: list) -> bool:
+    """`decode_chain` 第一步永遠是 `("command", (0, 原始 Command 字串長度))`
+    （`scan/command.py::_yield_tag` 固定加的第一步）。長度都對不上，指令字串
+    一定已經變了——不用真的重新解碼，就能先用這個便宜的訊號擋下重放。"""
+    if not decode_chain:
+        return False
+    outer = decode_chain[0]
+    if outer.codec is None or outer.codec.value != "command" or outer.span is None:
+        return False
+    return outer.span[1] - outer.span[0] == len(text)
+
+
+def _decode_command_leaf(text: str, decode_chain: list) -> Any:
+    """`decode_chain` 最後一步才是真正的 splice 目標（`command_span.py` 的
+    說明）；把它對應的片段從**現在的**物理字串重新解碼回一棵 tag，只為了餵給
+    `_guarded_encoding` 走跟原生 NBT 節點同一套形狀／內容守門——不是重新做一次
+    `scan/command.py` 的動詞判斷，解碼失敗就承認解不出來，不猜。"""
+    if not decode_chain:
+        return None
+    last = decode_chain[-1]
+    if last.span is None:
+        return None
+    raw = text[last.span[0] : last.span[1]]
+    codec = last.codec.value if last.codec else None
+    from mcmt.tree.codecs import codec_for
+
+    try:
+        if codec == "command":
+            return amulet_nbt.StringTag(raw)
+        if codec == "json_component":
+            from mcmt.scan.sources.datapack import _to_amulet
+
+            return _to_amulet(codec_for("json_component").decode(raw))
+        if codec == "snbt":
+            return codec_for("snbt").decode(raw)
+    except Exception:
+        return None
+    return None
 
 
 def _apply_index_group(
