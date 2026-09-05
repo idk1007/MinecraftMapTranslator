@@ -53,17 +53,22 @@ def scan_command_string(
         if not payload:
             stats["skipped_command_unsupported_shape"] += 1
             return
-        # `say`/`me` 沒有 component/SNBT 包裝層——這一個 span 同時是「這裡是
-        # command 方言」的標記，也是真正的 splice 目標（跟其他動詞不同，其他
-        # 動詞至少多一層 json_component/snbt，`say`/`me` 只有這一層）。少了這個
-        # decode step，node_path 會以 `key_step("Command")` 收尾，write 層的
-        # decode-dispatch 分支（`write/common.py`）認不出它，會落到舊的整值
-        # 替換路徑——那會把整個 `Command` 字串換成單獨的 payload，`say `／`me `
-        # 這個動詞前綴直接消失，寫壞指令方塊。
+        # `say`/`me` 沒有 component/SNBT 包裝層，但**仍然需要兩個** decode
+        # 步驟，不是一個：第一步固定是 `("command", (0, len(text)))`——跟其他
+        # 每個動詞經過 `_yield_tag` 產生的第一步完全一樣，`write/common.py`
+        # 的 `_command_length_matches` 靠這個固定第一步的 span 快速判斷「指令
+        # 字串長度跟 extract 當下是否一致」，寫死假設它一定是第一步；只給一步
+        # 且把它的 span 換成 payload 自己的位置（start > 0）會讓那個檢查誤判
+        # 長度不對，把每一筆 `command_say_text` 的 edit 都當成「世界被改過」
+        # 拒寫，連 splice 都碰不到。第二步（最後一步）才是真正的 splice
+        # 目標——payload 自己在原始文字裡的絕對位置。少了這一步，node_path 會
+        # 以 `key_step("Command")` 收尾，write 層的 decode-dispatch 分支
+        # 認不出它，落到舊的整值替換路徑，把 `say `／`me ` 前綴一起換掉，寫壞
+        # 指令方塊。
         absolute_start = offset + lead + (len(stripped) - len(payload))
         node_path = base_path.child(
-            decode_step("command", span=(absolute_start, len(text)))
-        )
+            decode_step("command", span=(0, len(text)))
+        ).child(decode_step("command", span=(absolute_start, len(text))))
         yield TextNode(
             path=node_path,
             tag=amulet_nbt.StringTag(payload),
