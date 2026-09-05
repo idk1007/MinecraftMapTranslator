@@ -3,7 +3,25 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-09-03**（材質包過期 bug 修掉。`all-the-same` 在 Minecraft
+最後更新：**2026-09-05**（**「command text」功能落地並對 MP2 全掃驗證。**
+指令方塊的 `Command` 與 datapack 的 `.mcfunction` 現在會解析白名單動詞
+（`say`／`me`／`tellraw`／`title`／`bossbar`／`scoreboard objectives add`／
+`data merge`／`give`／`item`），把裡面的可翻文字抽出來、apply 時外科式寫回
+（動詞前綴原封不動，只換引數）。13 個任務，SCHEMA_VERSION **6 → 7**（editplan
+的 decode 步驟鏈與指令文字守門）。設計文件
+`docs/superpowers/specs/2026-09-05-command-text-design.md`。**MP2 全掃**
+（doctor → extract → no-op 譯文 → 真實 apply → 還原 → doctor 覆核 byte 一致、
+`world_fingerprint` 不變）：新增 `command_say_text` 150 單位 ／
+`command_component_text` 68 單位，3,331 筆 edit 全部寫入、**0 筆拒寫**，其中
+251 筆落在 `data.zip` 內的 `.mcfunction`、8 筆在指令方塊。L3（巢狀指令參照）
+在 MP2 是 **0**，行尾延續 2,094 條（佔非註解指令行 1.8%）——方案 2 零收益，
+不做。細節與四個已知缺口見 `SPIKE_RESULT.md`「指令文字方案 1 MP2 全掃」。
+已知缺口清單新增 command text 缺口 A–D〔見下方〕：Task 11 釘住的三個（`_find_component`
+不認命名空間組件鍵、`_decode_command_leaf` 不能還原字串包裝 JSON 訊息、
+`mcfunction_apply` 無重放守門）＋ 本輪新發現一個（三個 `skipped_command_*`
+stats 有 schema 沒接進 `emit.py`）。）
+
+前一次更新：**2026-09-03**（材質包過期 bug 修掉。`all-the-same` 在 Minecraft
 **26.2**（pack_format 88）上，`mcmt` 產的 `resources.zip` 宣告 `{75,75}` 被判過期，
 連譯文一起沒生效——`pack.py` 的 `PACK_FORMAT = 75` 寫死了。改法：`supported_formats`
 上下限都開很寬（`MIN_PACK_FORMAT = 4`「JSON lang 檔第一次存在的版本」到
@@ -51,7 +69,9 @@ resourcepack 後端的 in_place/translate_key 分派改由 `strategy_for(categor
 （`import → extract → 人工翻譯 → apply`）有自動化測試釘住，三條寫入路徑
 （translate key、in_place、legacy JSON）都走得通，字寬預算是量出來的、`enforcement`
 已經是 `error` 而且真的會擋。**M13a 把掃描廣度擴到容器物品與 `entities/*.mca`，
-M13b 再擴到 `level.dat`／`scoreboard.dat`／datapack advancement 三個非 region 來源**
+M13b 再擴到 `level.dat`／`scoreboard.dat`／datapack advancement 三個非 region 來源，
+「command text」（2026-09-05）再擴到指令方塊 `Command` 與 datapack `.mcfunction`
+的白名單動詞文字，SCHEMA_VERSION 6 → 7，MP2 全掃 0 筆拒寫**
 ——**M14**（CLI／報告／文件）的主體（重寫 `README.md`）已於 2026-09-01 完成，
 CLI `--help` 與人類可讀報告盤點過不需大改；剩下的是幾項功能缺口（見「已知缺口」）。
 
@@ -782,6 +802,39 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
   計數」，doctor 只是把這個結果提前到不用跑一次 extract 就看得到。真實地圖驗證：
   Arena of Darkness 的 doctor 報告正確印出「datapack 進度檔：30 個」，與 extract 的
   既有數字對得上。
+* **〔command text 缺口 A〕`scan/command.py::_find_component` 不認命名空間組件鍵。**
+  真實 1.20.5+ 語法是 `give @s minecraft:stone[minecraft:custom_name={...}]`，但
+  `_find_component` 拿裸字串 `"custom_name"` 去比 `key=value` 的 `key`，命名空間形式
+  永遠比不到，整條指令記進 `skipped_command_unsupported_shape`、一個字沒抽。
+  **MP2 實測影響**：`give`/`item` 出現 4,565 次，其中 3,935 次帶
+  `minecraft:custom_name=…` 全被跳過（去重後 8 個相異物品名）。Task 11 釘在
+  `test_a_give_commands_namespaced_component_is_a_known_scan_gap`。修好後那條測試的
+  斷言方向要反過來，`command_dispatch_combination()` 的分類鍵也要多一個維度
+  （`give` 修好後會跟 L2 撞同一格）。落在 `scan/`，可與其他修正同 commit。
+* **〔command text 缺口 B〕`write/common.py::_decode_command_leaf` 不能還原
+  「SNBT 字串包裝 JSON」的 `data merge` 訊息。** 三步鏈 `command→snbt→json_component`
+  時它只看最後一步的 codec，直接對含 SNBT 引號的原始 span 跑 `json.loads`——單引號
+  解析失敗（`unsupported_encoding`）、雙引號碰巧成功但解出字串而非物件
+  （`node_changed`）。底層 splice（Task 7）其實處理得了，是守門這關擋掉。
+  **MP2 實測影響**：0（MP2 的 21 個 `data merge block` 訊息全是原生 compound）。
+  Task 11 釘在 `test_a_json_string_wrapped_merge_message_is_a_known_write_gap`。
+  落在 `write/` 目錄——依 CLAUDE.md §五要獨立 commit 並說明理由。
+* **〔command text 缺口 C〕`write/mcfunction_apply.py` 完全沒有重放守門。**
+  `region`/`entities` 的指令文字在委派 splice 前會過
+  `_command_length_matches` ＋ `_decode_command_leaf` ＋ `_guarded_encoding` 三層；
+  `.mcfunction` 的 `apply_to_mcfunction_file` 直接呼叫 `apply_command_edits`，中間
+  沒有任何守門。重放同一份 plan 對 `.mcfunction` 永遠「成功」（把已翻的文字再蓋一次
+  同樣的譯文，no-op 但跟其他容器的拒絕保證不對稱）。**MP2 實測影響**：本輪只
+  apply 一次故未觸發，但 251 筆 `.mcfunction` edit 走的就是這條無守門路徑。
+  Task 11 釘在 `test_an_mcfunction_command_edit_is_not_guarded_against_replay_a_known_gap`。
+  落在 `write/` 目錄——獨立 commit。
+* **〔command text 缺口 D〕三個 `skipped_command_*` stats 有 schema、沒接進 `emit.py`。**
+  `docs/contracts/extract.schema.json` 宣告了
+  `stats.skipped_command_unsupported_shape`／`…_nested_reference`／
+  `…_line_continuation`，但 `extract/emit.py` 組 `stats` dict 時沒把它們從
+  `result.stats` 轉出來——計數器有在跑（MP2：113,692／0／2,094），值卻進不了
+  `extract.json`，CLI 摘要也不印。使用者看不到「指令文字漏抽了多少」。plumbing
+  缺口、非安全，2026-09-05 MP2 全掃時發現。三行的事，可與缺口 A 同 commit。
 
 ## 開工前該補掉的兩件事
 

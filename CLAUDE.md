@@ -235,6 +235,10 @@ CompoundTag({"text": "文字"})          # 官方文件形狀
 
 [實測] MP2 有 331 筆 `pages[]/raw/extra[]/hover_event/name`。category 為 `hover_text`，`node_path` 照常走 key 步驟即可。含 hover_event 的樹一律 `collapsible: false`。
 
+### 指令方塊 `Command` 與 datapack `.mcfunction` 的白名單動詞文字在掃描範圍內
+
+[實測 2026-09-05] 指令字串裡的可翻文字會被抽出來翻譯，寫回時**動詞前綴原封不動、只換引數**（`say ` 直接整段替換文字；`tellraw @a `／`title @a title `／`data merge block … ` 把引數換成 `{translate:…}`）。白名單動詞：`say`／`me`（→ `command_say_text`，走 `in_place`）與 `tellraw`／`title`／`bossbar`／`scoreboard objectives add`／`data merge`／`give`／`item`（→ `command_component_text`，走 translate key 或依巢狀層級走 L1/L2）。白名單以外的動詞（`execute`／`function`／`summon`／…）**逐條記入 `stats.skipped_command_unsupported_shape` 後略過**，不是漏抽——只認白名單。`node_path` 以一個或多個 `decode` 步驟收尾（指令→SNBT→component 的解碼鏈），`write/` 依鏈上最後一步的 codec 分派並用 `_command_length_matches` 守門。設計與 L1/L2/L3 定義見 `docs/superpowers/specs/2026-09-05-command-text-design.md`。**已知限制**（都不是安全問題、都有 pinned 測試釘住現狀，見 `docs/STATUS.md` 已知缺口 command text 缺口 A–D）：`give`/`item` 的命名空間組件鍵（`minecraft:custom_name=…`）目前比不到會整條略過；`data merge` 的「SNBT 字串包裝 JSON」訊息守門這關會拒寫；`.mcfunction` 寫入路徑沒有重放守門；三個 `skipped_command_*` 計數器有 schema 但沒接進 `extract.json`。
+
 ### v1 拒絕處理的世界結構
 
 [實測] `From Ashes Reborn 1.12`（DataVersion 1139/1241，**882 個 chunk 完全沒有 DataVersion 欄位**）的結構與 1.21 完全不同：

@@ -384,6 +384,110 @@ MP2 自己的 `resources.zip` 宣告 `pack_format 55`，1.21.11 會拒絕整包�
 3,515 筆真實地圖資料上生效——若它沒接上，這 3,515 筆會混進待翻檔，靜默蓋掉地圖
 自己的 5 語言中文化系統（見上方「M13b」一節與 STATUS.md 對此規則的說明）。
 
+### 指令文字方案 1 MP2 全掃 [實測 2026-09-05]
+
+「command text」功能（指令方塊 `Command` ＋ datapack `.mcfunction` 的白名單動詞
+解析／外科式寫回，13 個任務、SCHEMA_VERSION 6 → 7）落地後，第一次把整條鏈對
+語料裡 datapack 最大的一張地圖跑完：`mcmt doctor` → `mcmt extract --lang zh_tw`
+→ 把 `translations.zh_tw.json` 每筆 `target = source`（no-op 驗證譯文）→
+`mcmt apply --dry-run` 檢查 editplan → `mcmt apply` 真的寫入（非 dry-run）→
+從備份還原 → `mcmt doctor` 覆核。設計文件見
+`docs/superpowers/specs/2026-09-05-command-text-design.md`。
+
+**doctor（寫入前後 byte 級一致）**：
+
+```
+維度：5 個 region 目錄 · region 檔 406 · chunk 207,515
+實體 region 檔 185 · 實體 chunk 760 · level.dat 1 · scoreboard.dat 1 · datapack 進度檔 43
+DataVersion：3955 43.4% / 4438 43.1% / 4556 13.3% / 4325 0.2% / 4440 0.0%
+壓縮類型：全部 zlib
+節點形狀（文字節點 58,754）：bare_string 76.9%／compound_tree 10.7%／
+  empty_key_compound 4.7%／json_empty_quoted 4.0%／json_string_scalar 3.4%／
+  json_string_object 0.3%
+節點種類新增一列：command_component_text 31（doctor 的 survey 會數指令方塊
+  Command 內的 component 文字；`command_say_text` 不在 doctor 的分類清單裡）
+外部 .mcc：0，不支援的結構：0，疑似損壞：0
+```
+
+**extract**：
+
+```
+掃過 chunk 207,515 · 文字節點 62,105
+翻譯單位：1,280 個（出現 3,331 次，去重省下 2,051 次）
+  既有：sign 578 / objective 310 / hanging_sign 44 / team 39 / block_entity_name 36 /
+    book_page 34 / team_affix 10 / entity_name 4 / item_name 2 / book_title 2 /
+    custom_name 1 / book_author 1 / level_name 1
+  新增：command_say_text 150 / command_component_text 68
+    （共 218 單位，正好等於相對 2026-09-01 M13a/M13b 全掃的增量；
+     occurrence 增量 259 = command_say_text 151 + command_component_text 108）
+跳過：4,507 新世代 chunk 舊式 JSON、4,288 已在地化、50,772 空白節點
+```
+
+三個新的指令文字 stats（活在 `result.stats` 內，**但 `extract/emit.py` 組
+`stats` dict 時沒有把它們轉出來**，所以 `extract.json` 與 CLI 摘要都看不到——
+見下方「本輪新發現的第 4 個缺口」）：
+
+```
+skipped_command_unsupported_shape = 113,692
+skipped_command_nested_reference（L3）= 0
+skipped_command_line_continuation  = 2,094
+```
+
+`skipped_command_unsupported_shape` 的 113,692 幾乎全是「白名單以外的動詞」，
+**不是漏抽**：`data.zip` 有 2,613 個 `.mcfunction`、118,502 條非註解指令行，逐行
+都呼叫 `scan_command_string()`，非白名單動詞就記一次後返回。逐動詞拆解
+（`execute` 67,598、`scoreboard`〔players … 非 objectives add〕17,259、
+`summon` 9,261、`give` 3,277、`data` 2,069、`kill` 1,791、`tag` 1,582、
+`item` 1,288、`setblock` 1,138、`fill` 1,137、其餘尾巴）。這是設計行為
+（只認白名單動詞），不是缺口。
+
+**apply（no-op 譯文，真實寫入）**：
+
+```
+計畫要改的節點：3,331 → 實際寫入：3,331（unwritten 0，refuse 0）
+改動的 chunk：463（原封複製 28,200 個）· 重寫的檔案：259
+container.kind：region_chunk 2,714 / scoreboard_dat 361 /
+  datapack_mcfunction_file 251 / entities_chunk 4 / level_dat 1
+指令文字 edit：datapack_mcfunction_file 251、region_chunk 8
+  ——MP2 的指令文字絕大多數在 .mcfunction 裡，不在指令方塊
+value.kind：translate 2,704 / literal 366 / component 261
+NBT list 提升：829
+warnings：30（全部磁區重整，附前後大小）
+備份：33 個檔案 → sandbox/.mcmt-backups/MP2/20260905-213155/
+```
+
+**還原**：把備份的 33 個檔案覆蓋回去、刪掉 apply 新建的 `resources.zip`（這份 MP2
+匯入副本原本沒有 `resources.zip`）。三重覆核全部通過：(1) 33 個備份檔的 md5 與
+還原後的世界 byte 一致；(2) `mcmt doctor` 輸出與寫入前 byte 完全相同；
+(3) `world_fingerprint` == 匯入時記的 `blake2b:f688c4d4a49484a94f7083e742d4ae24`。
+
+**Task 11 釘住的三個已知缺口，在 MP2 上的真實影響**：
+
+| 缺口 | MP2 實際遇到 |
+|---|---|
+| **#1** `scan/command.py::_find_component` 不認命名空間組件鍵（`minecraft:custom_name=…`） | **遇到，佔比不小。** `give`/`item` 指令共 4,565 次出現，其中 **3,935 次**帶 `minecraft:custom_name=…`（命名空間形式），被 `_find_component` 拿裸字串 `"custom_name"` 比對比不到，整條記進 `skipped_command_unsupported_shape`，一個字沒抽。去重後只是 **8 個相異物品名**（`Jump Left`／`Jump Middle`／`Jump Right`／`Star Protector (Empty)`／`Star Protector (With Star)`／`Emerald Block`／`Diamond Block`／`Gold Block`；後三個看來是地圖自己 item-lock 系統的內部名，`emu_lock_name` 存同一字串），但 3,935／4,565 這個佔比說明真實 1.20.5+ 語料就是用命名空間寫的，非命名空間才是 fixture 的特例。 |
+| **#2** `write/common.py::_decode_command_leaf` 不能還原「SNBT 字串包裝 JSON」的 `data merge` 訊息（三步 `command→snbt→json_component`） | **未遇到（0 次）。** MP2 的 21 個相異 `data merge block` 指令，訊息全是原生 compound（`{text:"Star Stealer",color:"yellow",…}`），沒有單／雙引號字串包一段轉義 JSON 的形式；`.mcfunction` 裡完全沒有 `data merge`。那 8 個 region 指令方塊的 `data merge` L2 路徑因此全部寫成功。 |
+| **#3** `write/mcfunction_apply.py` 沒有重放守門 | **本輪不觸發，但潛在。** 251 筆 `.mcfunction` 指令文字 edit 走的是無守門路徑，首次 apply 正常寫入；只有「拿同一份 plan 對 `.mcfunction` 重放」才會靜默重蓋（region/entities 會拒），本輪只 apply 一次故未暴露。 |
+
+**本輪新發現的第 4 個缺口（plumbing，非安全）**：`docs/contracts/extract.schema.json`
+有宣告 `stats.skipped_command_unsupported_shape`／`…_nested_reference`／
+`…_line_continuation` 三個欄位，但 `extract/emit.py` 組 `stats` dict 時沒有把它們
+從 `result.stats` 轉出來——計數器有在跑、值正確，卻進不了 `extract.json`，CLI 摘要
+也不印，使用者看不到「指令文字漏抽了多少」。合約有、實作沒接上。留給後續。
+
+**結論**：
+
+* **L3（巢狀指令參照）在 MP2 是 0**。方案 2（處理 `skipped_command_nested_reference`
+  那類）在這張語料上零收益，不值得現在做。
+* **行尾延續 2,094 條**（佔非註解指令行 1.8%）：無法在不重組多行指令的前提下便宜地
+  判斷其中有多少帶可翻文字。同樣不急。
+* 方案 1（白名單 `say`／`me`／`tellraw`／`title`／`bossbar`／`scoreboard objectives
+  add`／`data merge`／`give`／`item`）在語料規模最大的 datapack（2,613 個
+  `.mcfunction`）上一次寫入 251 筆 `.mcfunction` edit ＋ 8 筆指令方塊 edit，
+  **0 筆拒寫，還原後世界指紋一致**。
+* 缺口 #1 是唯一有實質漏抽的：帶命名空間 `custom_name` 的 `give`/`item` 物品名
+  （MP2：3,935 次出現／8 個相異名）在修好前不會進待翻檔。
+
 ### tab 玩家列表 [實測]
 
 tab 列表沒有專屬的文字欄位，它顯示的東西全部來自上面已列的路徑：
