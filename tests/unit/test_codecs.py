@@ -99,16 +99,15 @@ def test_broken_snbt_raises_a_codec_error() -> None:
 # --- command --------------------------------------------------------------
 
 
-def test_the_command_codec_refuses_instead_of_guessing() -> None:
-    """指令字串裡哪一段是可翻譯的文字，需要指令語法解析——工作量最難估的一項。
+def test_the_command_codec_is_a_transparent_marker_layer() -> None:
+    """指令 codec 是標記層：真正的解析在掃描層（extract）與寫入層（apply）。
 
-    掃描層目前根本不去找 `Command` 欄位，所以這個 codec 沒有呼叫端。留一個「猜著
-    做」的實作，等於等著某天有人用它寫壞別人的指令方塊。
+    codec 本身只需要讓 `codec_for("command")` 不再 raise NotImplementedError，
+    以滿足合約允許「command」這個 codec 值的事實。decode/encode 都是 identity。
     """
-    with pytest.raises(NotImplementedError) as exc:
-        codec_for(Codec.COMMAND).decode("say hi")
-
-    assert "M13" in str(exc.value) or "尚未" in str(exc.value)
+    codec = codec_for(Codec.COMMAND)
+    assert codec.decode("say hi") == "say hi"
+    assert codec.encode("say hello") == "say hello"
 
 
 def test_lang_json_round_trips_tolerantly() -> None:

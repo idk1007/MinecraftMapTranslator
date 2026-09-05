@@ -35,6 +35,7 @@ IN_PLACE_CATEGORIES = frozenset(
         "book_author",
         "draft_book_page",
         "block_entity_name",
+        "command_say_text",
     }
 )
 
