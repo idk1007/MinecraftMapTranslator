@@ -1,0 +1,247 @@
+# M-command — 指令文字進遊戲驗證（可重跑程序）
+
+**目的**：把「command text」功能（指令方塊 `Command` ＋ datapack `.mcfunction` 的
+白名單動詞解析／外科式寫回，13 個任務、SCHEMA_VERSION 6 → 7）從
+`[待驗]` 升級。程式碼／單元／端到端／MP2 全掃已經驗過
+（見 `SPIKE_RESULT.md`「指令文字方案 1 MP2 全掃」）；**沒驗過的只有一件事——
+遊戲把工具寫回的指令算繪出來的結果對不對**。這件事只能進 1.21.11 用肉眼看。
+
+**狀態：尚未執行。** 執行完把結果寫回 `SPIKE_RESULT.md`（見最後一節），
+標 `[遊戲實測]`。這份文件留著可重跑：換 Minecraft 版本、或改動
+`write/command_span.py`／`write/common.py` 的指令寫入路徑時，照這套再跑一次。
+
+這一項不寫程式碼（除非第 ④ 點的結果要求改 `_snbt_string_literal`，見該節）。
+
+---
+
+## 為什麼用 `TT_WORLD_NAME_PROBE`
+
+跟 M0 同一個理由：這是本專案自建的 1.21.11 探測世界，DataVersion 全部是 native
+（doctor 覆核見 `SPIKE_RESULT.md`），沒有 legacy chunk 的變因，指令方塊寫進去
+就是 native 路徑。世界資料夾在 `%APPDATA%\.minecraft\saves\TT_WORLD_NAME_PROBE`；
+若已刪除，隨便開一個 1.21.11 創造模式世界、開作弊即可，這個驗證不依賴世界內容。
+
+**為什麼要你手動放指令方塊、手動貼指令**：跟 M8 放告示牌同一個理由——這個工具
+從不生成 `/setblock`，那要猜 1.21.11 的方塊實體 NBT 語法，猜錯的症狀是「進遊戲
+什麼都沒出現」，白跑一趟。你在遊戲裡打的指令，是**遊戲自己**把 `Command` 欄位
+寫成正確形狀，工具再從那個已知good的形狀去 extract／apply。指令方塊的 `Command`
+字串沒有「空白對照組」可挑（不像告示牌），所以改用「先看未翻版、再看已翻版」
+的前後對照。
+
+---
+
+## 一、進遊戲手動佈置（約五分鐘）
+
+在 `TT_WORLD_NAME_PROBE`，`/gamemode creative`，找一塊平地：
+
+1. **放一塊站立式告示牌**（`oak_sign` 之類，不上蠟），四行留空，按 Esc 離開編輯。
+   F3 記下它的座標，設為 `SX SY SZ`。這是第 ② 案 `data merge` 的目標。
+2. **放四個脈衝型指令方塊**（`/give @s command_block`），排成一列，每個前面放一個
+   按鈕或拉桿。F3 記下四個座標。四個分別貼下面四條指令（把 `SX SY SZ` 換成真的
+   數字，`~ ~ ~` 也可以但要站在告示牌上）：
+
+   | # | 指令方塊貼什麼 | 驗的是 |
+   |---|---|---|
+   | ① `tellraw` | `tellraw @a {"text":"MCMD tellraw source A"}` | L1：整包 JSON 參數 |
+   | ② `data merge`（原生 SNBT） | `data merge block SX SY SZ {front_text:{messages:[{text:"MCMD merge line one"},{text:""},{text:""},{text:""}]}}` | L2：指令內含 SNBT，SNBT 內含 component（`command→snbt` 兩步鏈） |
+   | ③ `say` | `say MCMD say source C` | in_place：純文字尾巴，動詞前綴不能動 |
+   | ④ `data merge`（字串包裝 JSON） | `data merge block SX SY SZ {back_text:{messages:['{"text":"MCMD wrapped line"}','""','""','""']}}` | L2 的子形狀：`command→snbt→json_component` 三步鏈，會走 `_snbt_string_literal`。**見第四節，這一格目前卡在已知寫入缺口。** |
+
+3. **放一個 datapack `.mcfunction`**（可選，覆蓋 `datapack_mcfunction_file` 容器）：
+   在世界的 `datapacks/` 底下建一個最小 datapack，`data/<ns>/function/mcmd_test.mcfunction`
+   放兩行：
+   ```
+   tellraw @a {"text":"MCMD mcfunction line one"}
+   say MCMD mcfunction line two
+   ```
+   `pack.mcmeta` 的 `pack_format` 用 94（1.21.11 的 datapack format，見 `SPIKE_RESULT.md`
+   標頭）。進遊戲 `/reload`，之後用 `/function <ns>:mcmd_test` 觸發。
+
+4. **先各觸發一次**（按鈕／`/function`），確認未翻版就能正常運作：聊天出現
+   `MCMD tellraw source A`、告示牌正面出現 `MCMD merge line one`、聊天出現
+   `<你> MCMD say source C`……等等。**這一步是「你佈置對了」的訊號**——之後任何
+   變化才確定是工具造成的。存檔離開遊戲。
+
+> 若嫌手動佈置四個指令方塊煩：這批佈置目前沒有 `tools/` 準備腳本
+> （不像 M4 的 `m4_prepare.py`）。理由是指令方塊要人進遊戲放、按鈕要人接，
+> 腳本頂多省下「不要打錯字」，收益低。未來若這個驗證要常跑，值得補一個
+> 「找出世界裡所有 `minecraft:command_block` 方塊實體、把它們的 `Command` 改寫成
+> 上表四條」的腳本，架構抄 `tools/m4_prepare.py`（`read_region` → 改 `block_entities`
+> → `BackupSet` → `write_region`），但仍需要人先進遊戲放方塊。
+
+---
+
+## 二、跑 extract / apply（在 worktree 內，`.venv`）
+
+```
+.venv\Scripts\python -X utf8 -m mcmt.cli sandbox import "%APPDATA%\.minecraft\saves\TT_WORLD_NAME_PROBE" --name mcmd
+.venv\Scripts\python -X utf8 -m mcmt.cli doctor "sandbox\mcmd"
+.venv\Scripts\python -X utf8 -m mcmt.cli extract "sandbox\mcmd" --lang zh_tw
+```
+
+`extract` 的摘要裡應該看到 `command_say_text` 與 `command_component_text` 兩個
+新分類各有數字（① tellraw 與 ④ 的 wrapped 是 `command_component_text`，
+② merge 是 `command_component_text`，③ say 是 `command_say_text`）。若某一格
+沒被抽到，先停下來查掃描端，不要進遊戲。
+
+編輯 `sandbox\.mcmt-out\mcmd\translations.zh_tw.json`，把這幾筆的 `target` 填上
+可分辨的中文（`source` 會告訴你哪筆是哪筆）：
+
+| source 大致長相 | 建議 target |
+|---|---|
+| `MCMD tellraw source A` | `聊天翻譯成功` |
+| `MCMD merge line one` | `告示牌翻譯成功` |
+| `MCMD say source C` | `說話翻譯成功` |
+| `MCMD wrapped line` | `字串包裝翻譯成功` |
+| `MCMD mcfunction line one` | `函式聊天翻譯成功` |
+| `MCMD mcfunction line two` | `函式說話翻譯成功` |
+
+```
+.venv\Scripts\python -X utf8 -m mcmt.cli apply "sandbox\mcmd" --translations "sandbox\.mcmt-out\mcmd\translations.zh_tw.json" --dry-run
+.venv\Scripts\python -X utf8 -m mcmt.cli apply "sandbox\mcmd" --translations "sandbox\.mcmt-out\mcmd\translations.zh_tw.json"
+```
+
+**看 apply 摘要的 `unwritten` / refuse 欄**：① ② ③ 與 `.mcfunction` 兩筆應該
+全部寫入、0 拒寫。**④ 的 wrapped 這筆預期會出現在 `unwritten`**，理由是
+`unsupported_encoding` 或 `node_changed`——那是**已知寫入缺口**
+（`SPIKE_RESULT.md`「指令文字方案 1 MP2 全掃」缺口 #2，端到端測試
+`test_a_json_string_wrapped_merge_message_is_a_known_write_gap` 釘著），
+不是這次佈置弄錯。第四節說明怎麼在缺口沒修的情況下仍然驗到 `[待驗]` 那件事。
+
+`apply` 會在 `sandbox\mcmd\` 產生 `resources.zip`（含 `mcmt.*` 的 zh_tw lang 檔）。
+
+---
+
+## 三、進遊戲看結果
+
+1. 把 `sandbox\mcmd` **整個資料夾複製**到 `%APPDATA%\.minecraft\saves\`
+   （工具永不自動複製回去——CLAUDE.md §1.1）。
+2. 用 **1.21.11** 開啟，語言切**繁體中文**，`/gamemode creative`。
+3. 資源包清單確認 `mcmd/resources.zip` 有生效（沒生效的話 `mcmt.*` key 會顯示
+   成字面 key，那是資源包的病不是寫入的病，見失敗分診）。
+4. 重新觸發四個指令方塊與 `/function <ns>:mcmd_test`，逐項核對：
+
+### 要回報的四件事（照抄 spec §9.3）
+
+| # | 檢查 | PASS | FAIL |
+|---|---|---|---|
+| ① `tellraw` 的 `{"translate":key}` | 聊天出現 **`聊天翻譯成功`**（資源包解出的譯文） | 聊天出現字面的 `{"translate":"mcmt.…"}` 或字面 key，或指令報紅字錯誤 |
+| ② `data merge` 寫的告示牌 | 告示牌正面第一行出現 **`告示牌翻譯成功`** | 出現字面 SNBT／字面 key，或 `data merge` 執行報錯 |
+| ③ `say` 的 in_place 替換 | 聊天出現 **`<你> 說話翻譯成功`**——**動詞前綴（`<你> ` 那段）完整、只有尾巴被換掉** | 前綴不見了、或整行變成 `say 說話翻譯成功` 字面顯示、或原文沒被換掉 |
+| ④ SNBT 字串常值的跳脫方式 | 見第四節（本身分成 4a／4b 兩小步） | 見第四節 |
+
+`.mcfunction` 兩行（`函式聊天翻譯成功` / `<你> 函式說話翻譯成功`）跟 ① ③ 同標準，
+順便確認 datapack 容器這一側寫入也 OK。
+
+**截圖每一項**，聊天內容從 `%APPDATA%\.minecraft\logs\latest.log` 抓原文，
+不要對著聊天視窗抄（抄會抹平引號與跳脫，而這次 ④ 要驗的正是引號與跳脫）。
+
+---
+
+## 四、第 ④ 點：SNBT 字串常值的跳脫方式（spec §4／§9.3 的 `[待驗]`）
+
+**背景**：`write/command_span.py::_snbt_string_literal` 目前把三步鏈
+（`command→snbt→json_component`）組出來的 JSON 包成一個**雙引號＋反斜線跳脫**的
+SNBT 字串常值：`"{\"translate\":\"mcmt.test.cmd_merge\"}"`。設計文件標
+`[待驗]`：Mojang 自己的序列化器可能傾向用**單引號、不跳脫**
+（`'{"translate":"mcmt.test.cmd_merge"}'`）。要驗的是：**1.21.11 的指令解析器
+接不接受雙引號＋跳脫這個形式，還是會報錯／把 `\"` 當字面字元顯示。**
+
+**問題**：走完整 mcmt 管線驗不到——第 ④ 格的 wrapped 訊息在 `apply` 階段就被
+已知缺口 #2（`_decode_command_leaf` 讀不回字串包裝 JSON）拒寫，那段
+`_snbt_string_literal` 產生的文字根本沒被寫進存檔。所以 `[待驗]` 這件事，
+**跟缺口 #2 解耦**，用底下的手打指令直接問遊戲的解析器。
+
+### 4a. 手打指令，問解析器（現在就能做，不依賴任何缺口）
+
+前提：世界裡有那份 `resources.zip`（第三節已複製），它含
+`mcmt.test.cmd_merge` → 某個可分辨中文。若沒有，照 `tools/make_m0_pack.py`
+的做法手搓一個最小 pack，key 用 `mcmt.test.cmd_merge`、value 用 `跳脫驗證成功`。
+
+站在告示牌 `SX SY SZ` 上，在聊天列**逐字**打這兩條，各按一次 Enter：
+
+```
+# 形式 A —— _snbt_string_literal 現在產生的形式（雙引號＋反斜線）
+data merge block SX SY SZ {front_text:{messages:["{\"translate\":\"mcmt.test.cmd_merge\"}","\"\"","\"\"","\"\""]}}
+
+# 形式 B —— 備援方案（單引號，內部不跳脫）
+data merge block SX SY SZ {back_text:{messages:['{"translate":"mcmt.test.cmd_merge"}','""','""','""']}}
+```
+
+觀察並回報：
+
+| 觀察 | 代表 |
+|---|---|
+| 形式 A 被接受（無紅字），告示牌正面出現 `跳脫驗證成功` | **雙引號＋跳脫成立，`_snbt_string_literal` 不用改。** `[待驗]` → `[遊戲實測]` |
+| 形式 A 報紅字，或告示牌顯示字面的 `\"translate\"` / `{"translate"` | **雙引號＋跳脫不成立。** 走下面的補救 |
+| 形式 B 被接受，告示牌背面出現 `跳脫驗證成功` | 單引號形式是安全的備援（不論 A 結果如何，記下來） |
+
+### 4b. 補救（只有 4a 的形式 A 失敗時才做）
+
+改 `src/mcmt/write/command_span.py::_snbt_string_literal`：改用**單引號分隔、
+內部不跳脫**（單引號字串裡的 `"` 不需要處理，只需處理字串內容自己出現的 `'`）：
+
+```python
+def _snbt_string_literal(text: str) -> str:
+    """把 text 包成一個 SNBT 單引號字串常值。單引號內 " 不需跳脫，
+    只跳脫字串內容自己的 '。[遊戲實測 M-command]：雙引號＋反斜線形式被
+    1.21.11 指令解析器拒絕／顯示成字面跳脫字元，故改用此形式。"""
+    return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
+```
+
+這是 `write/` 底下的檔案，照 CLAUDE.md §五**獨立 commit**，訊息寫明理由是
+M-command 遊戲實測推翻了雙引號方案。改完：
+- `tests/unit/test_command_span_write.py` 綁著雙引號預期字串的斷言會變紅，
+  **照新形式改斷言，不是把測試放寬**。
+- 同步更新 `docs/superpowers/specs/2026-09-05-command-text-design.md` §4／§9.3
+  的 `[待驗]` 註記為 `[遊戲實測]` 並記錄結論。
+- `_snbt_string_literal` 的 docstring 把 `[待驗]` 換成 `[遊戲實測 M-command]`。
+
+### 4c.（可選，缺口 #2 已修時才有意義）完整管線覆核
+
+若哪天缺口 #2（`_decode_command_leaf` 支援 `snbt→json_component`）被修好了，
+把第一節第 ④ 格重新納入 extract／apply：apply 不再把它列 `unwritten`，進遊戲
+確認 `back_text` 第一行顯示 `字串包裝翻譯成功`、`/data get block SX SY SZ back_text`
+的回讀是合法 SNBT（從 `latest.log` 抓，不要抄聊天視窗）。這一步驗的是
+「整條三步鏈寫回後遊戲能解析」，跟 4a 驗的「解析器接不接受這個跳脫形式」
+是兩件事，兩件都要 PASS 才算 ④ 完成。
+
+---
+
+## 五、失敗分診
+
+譯文沒出現時，**不要一次改兩個變因**，按這個順序排除：
+
+1. 語言真的切到 `zh_tw` 了嗎（不是 `zh_cn`）？
+2. `sandbox\mcmd\resources.zip` 在世界資源包清單裡有出現且在**已啟用**那側嗎？
+   （出現但沒生效 vs 根本沒出現，是兩種不同的病。）
+3. zip 內根目錄直接是 `assets/` 與 `pack.mcmeta`，**沒有外層包裹資料夾**嗎？
+   （`python -m zipfile -l sandbox\mcmd\resources.zip`）
+4. `assets\mcmt\lang\zh_tw.json` 是 UTF-8 **無 BOM** 嗎？
+5. **控制組**：把某一格指令方塊的參數改成原版 key
+   `{"translate":"block.minecraft.diamond_block"}`。它已是 `[遊戲實測]` 有效。
+   - 控制組**有效**、自訂 key 無效 → 問題在資源包（1–4）。
+   - 控制組**也無效** → 問題在指令的寫入形狀，不在資源包。
+6. ③ `say` 前綴不見了 → 看 `apply` 是不是把它當 `translate_key` 而不是
+   `in_place`（`command_say_text` 必須走 in_place，`strategy.py` 的對照）。
+7. ① 指令報紅字（指令根本沒執行）→ 從 `sandbox\mcmd` 用工具重讀那個
+   `Command` 字串貼出來看，八成是 splice 把括號／引號切壞了——那是
+   span 定位器或 `_compose_replacement` 的 bug，記進 `docs/journal/`。
+
+---
+
+## 六、收尾：把結果寫回
+
+**單人開發沒有第二個人會提醒你這一步。** 進完遊戲後：
+
+1. **`SPIKE_RESULT.md`**：新增一節「指令文字 M-command 遊戲實測（<日期>）」，
+   四項（① tellraw／② data merge／③ say／④ SNBT 跳脫）各記顯示結果與證據等級。
+   PASS 標 `[遊戲實測]`；有偏差就記實際現象並說明對策。同時更新
+   「尚待驗證」表——把對應列劃掉並註明本節。
+2. **④ 若形式 A 失敗**：照第 4b 節改 `src/mcmt/write/command_span.py`
+   （獨立 commit）、`docs/superpowers/specs/2026-09-05-command-text-design.md`
+   §4／§9.3 的 `[待驗]`、對應單元測試。
+3. **`docs/STATUS.md`**：把「指令文字進遊戲驗證 `[待驗]`，程序見
+   `docs/m-command-checklist.md`」這行改成已完成，或記下未過的項目。
+4. 若推翻了先前的推論，**保留原推論並說明為何被推翻**，不要直接改掉
+   （這份專案的證據分級與自承錯誤是它的價值所在）。

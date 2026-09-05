@@ -1295,6 +1295,7 @@ lang/zh_tw.json` 一起沒生效。告示牌顯示 key 本身而不是譯文。
 | ~~`pack_format` 過期是否只警告不拒載~~ | ~~刻意用過期號打包載入觀察~~ | **已完成（M0-5）**：無警告、無紅字、照常載入 |
 | `Teams[].MemberNamePrefix`/`MemberNameSuffix` 的 translate key 是否真的顯示 | 在一支隊伍上設定非空的前後綴、寫入 translate key、`/team list` 或 tab 列表肉眼確認 | 低 — 兩張語料地圖的實際內容全空，沒有實測動機驅動；`Objectives`/`Teams[].DisplayName` 本身已經是 [全部遊戲實測] |
 | `scoreboard.dat`（DV < 4325）的 legacy JSON 字串寫入是否被 DataFixer 正確解析 | 在一個 DV 3700 的 `scoreboard.dat` 寫入 JSON 字串型 translate key，1.21.11 開啟後看 `/scoreboard objectives list` 或側邊欄 | 中 — 與 chunk 層級的 M4-2 是同一個機制（DataFixerUpper 對任何版本化 NBT 文件一視同仁），但 `.dat` 檔本身沒有被單獨驗證過；寫入器完全沿用 M4 已驗證的 legacy.py，風險主要在「機制是否真的對 `.dat` 檔案一視同仁」這個推論本身 |
+| **指令文字（command text）進遊戲算繪** — ① `tellraw` 的 `{"translate":key}`、② `data merge` 寫的告示牌、③ `say`／`me` 的 in_place、④ `_snbt_string_literal` 的雙引號＋反斜線跳脫被 1.21.11 指令解析器接不接受 | 可重跑程序見 **`docs/m-command-checklist.md`**（在 `TT_WORLD_NAME_PROBE` 手動佈置四個指令方塊＋一塊告示牌，跑 extract／apply，進遊戲肉眼核對） | **中** — 程式碼／單元／端到端／MP2 全掃已驗（見「指令文字方案 1 MP2 全掃」），只差遊戲算繪。④ 目前 `[待驗]`，且與已知缺口 #2（`_decode_command_leaf` 讀不回字串包裝 JSON）解耦——checklist 第四節用手打指令直接問解析器；若雙引號形式被拒，補救是把 `write/command_span.py::_snbt_string_literal` 改成單引號分隔 |
 
 ---
 

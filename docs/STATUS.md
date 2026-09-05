@@ -19,7 +19,10 @@
 已知缺口清單新增 command text 缺口 A–D〔見下方〕：Task 11 釘住的三個（`_find_component`
 不認命名空間組件鍵、`_decode_command_leaf` 不能還原字串包裝 JSON 訊息、
 `mcfunction_apply` 無重放守門）＋ 本輪新發現一個（三個 `skipped_command_*`
-stats 有 schema 沒接進 `emit.py`）。）
+stats 有 schema 沒接進 `emit.py`）。**進遊戲驗證仍 `[待驗]`**：指令文字四項
+（tellraw／data merge／say 的算繪＋`_snbt_string_literal` 的雙引號跳脫被
+1.21.11 指令解析器接不接受）的可重跑程序已寫成 `docs/m-command-checklist.md`，
+等有人開 Minecraft 跑一次、把結果寫回 `SPIKE_RESULT.md`。）
 
 前一次更新：**2026-09-03**（材質包過期 bug 修掉。`all-the-same` 在 Minecraft
 **26.2**（pack_format 88）上，`mcmt` 產的 `resources.zip` 宣告 `{75,75}` 被判過期，
