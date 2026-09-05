@@ -96,23 +96,39 @@ def split_lines(text: str) -> list[tuple[str, str]]:
     return lines
 
 
+def _is_real_line(command: str) -> bool:
+    """這一行去掉頭尾空白後，是不是一條「真的」指令行——非空白、不是 `#`
+    註解。只有真的指令行才談得上「行尾延續」；空白行與註解行本來就沒有可以
+    延續的指令內容。"""
+    stripped = command.strip()
+    return bool(stripped) and not stripped.startswith("#")
+
+
 def _scan_lines(text: str, relative: str, stats: Counter) -> Iterator[ScannedNode]:
     lines = split_lines(text)
+    # **只有「真的」指令行才能觸發延續。** 反斜線結尾如果出現在空白行或
+    # `#` 註解行裡（例如 `# see also \`），那不是 1.20.2+ 的延續語法，只是
+    # 註解裡剛好有一個反斜線——把它當觸發點會把它後面那條貨真價實的指令
+    # 靜默吞掉，計入統計卻沒有任何可見訊號，正是 CLAUDE.md 點名最嚴重的
+    # 那類 bug（靜默漏抽）。
     continuation_indexes = {
-        i for i, (command, _) in enumerate(lines) if command.endswith("\\")
+        i
+        for i, (command, _) in enumerate(lines)
+        if _is_real_line(command) and command.endswith("\\")
     }
-    # 一個延續行的「下一行」也算在同一條邏輯指令裡，整批跳過。
+    # 一個延續行的「下一行」也算在同一條邏輯指令裡，整批跳過——即使那一行
+    # 本身是空白／註解（沒有可翻文字，但仍算進統計，不能因為它落進下面的
+    # 「非真實行」分支而漏計）。
     skip_indexes: set[int] = set()
     for i in continuation_indexes:
         skip_indexes.add(i)
         skip_indexes.add(i + 1)
 
     for index, (command, _terminator) in enumerate(lines):
-        stripped = command.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
         if index in skip_indexes:
             stats["skipped_command_line_continuation"] += 1
+            continue
+        if not _is_real_line(command):
             continue
         container = _container(relative, index)
         base_path = NodePath([key_step(f"{relative}:{index}")])

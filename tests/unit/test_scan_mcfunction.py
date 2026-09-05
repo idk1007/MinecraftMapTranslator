@@ -54,6 +54,40 @@ def test_a_line_ending_in_backslash_is_skipped_with_its_continuation(project):
     assert stats["skipped_command_line_continuation"] == 2  # 延續行本身 + 它的下一行
 
 
+def test_a_comment_line_ending_in_backslash_does_not_swallow_the_next_command(project):
+    # 迴歸測試（review finding #1）：`# see also \` 這種註解裡剛好有反斜線
+    # 結尾，不是 1.20.2+ 的延續語法。它不該觸發延續，更不該把後面那條真的
+    # 指令靜默吞掉。
+    world = project / "sandbox"
+    func = world / "datapacks" / "p" / "data" / "n" / "function" / "hello.mcfunction"
+    func.parent.mkdir(parents=True, exist_ok=True)
+    func.write_text("# see also \\\nsay hello\n", encoding="utf-8")
+
+    stats = Counter()
+    nodes = list(scan(world, stats))
+
+    assert len(nodes) == 1
+    assert nodes[0].node.category == "command_say_text"
+    assert stats["skipped_command_line_continuation"] == 0
+
+
+def test_a_real_continuation_followed_by_a_blank_line_is_still_counted(project):
+    # review finding #2：延續行的下一行如果剛好是空白／註解（沒有可翻文字），
+    # 仍然要算進 skipped_command_line_continuation，不能因為它落進
+    # 「非真實行」分支而漏計。
+    world = project / "sandbox"
+    func = world / "datapacks" / "p" / "data" / "n" / "function" / "hello.mcfunction"
+    func.parent.mkdir(parents=True, exist_ok=True)
+    func.write_text("tellraw @a \\\n\nsay hello\n", encoding="utf-8")
+
+    stats = Counter()
+    nodes = list(scan(world, stats))
+
+    assert len(nodes) == 1
+    assert nodes[0].node.category == "command_say_text"
+    assert stats["skipped_command_line_continuation"] == 2
+
+
 def test_container_path_uses_forward_slashes_even_on_windows(project):
     world = project / "sandbox"
     func = world / "datapacks" / "p" / "data" / "n" / "function" / "hello.mcfunction"
