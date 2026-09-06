@@ -18,7 +18,7 @@ review 判定「修完可以合併」，兩個不在既有四個已知缺口裡�
 一條線單獨不夠。端到端 dispatch 組合 5 → **6** 格。**不動合約、不 bump
 SCHEMA_VERSION**（C2 重用既有的 `command_say_text` category）。
 缺口 A（`give` 命名空間組件鍵）與 B（字串包裝 JSON 的 `data merge` 寫入路徑）
-**維持已知限制**，pinned 測試原樣保留。874 passed／contracts 48 passed。）
+**維持已知限制**，pinned 測試原樣保留。878 passed／contracts 48 passed。）
 
 前一次更新：**2026-09-05**（**「command text」功能落地並對 MP2 全掃驗證。**
 指令方塊的 `Command` 與 datapack 的 `.mcfunction` 現在會解析白名單動詞
@@ -896,6 +896,20 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
      `assert_command_reparses()`（`tests/conftest.py`）——每一次 splice 之後問一句
      「這還解得回來嗎」，套用在每一格 dispatch 組合與端到端全世界掃描上。
      端到端也補上第六格組合 `("entities_chunk","snbt","literal")`。
+* **〔command text 缺口 E〕`_snbt_string_literal` 不跳脫控制字元。**
+  `write/command_span.py::_snbt_string_literal`（約 140 行）只跳脫 `\` 與 `"`。
+  譯文裡若有一個裸換行，會原樣 splice 進去：`amulet_nbt.from_snbt` 收得下，但
+  1.21.11 的指令解析器收不下，而且在 `.mcfunction` 裡那個換行會把實體行切成兩行、
+  之後每一行的行號都平移。**是既有缺陷**——`say`／`me` 的 `innermost == "command"`
+  那一格從分支一開始就有這個曝險（`json_component` 那條路安全，因為 `json.dumps`
+  先跳脫過）；C2 讓它多涵蓋一個形狀（裸字串 `data merge` 訊息）。兩個修法：在
+  `_snbt_string_literal` 裡跳脫控制字元，或在驗證階段直接拒收含 `\n` 的
+  command-category 譯文。本波**不修**（不碰 `write/`）。
+* **〔擴範圍檢查清單，belt-and-braces〕新的寫入路徑有沒有經過那個 writer？**
+  擴大寫入範圍時要問一句：這條新路徑有沒有走過強制 list 同型／世代分派／
+  `raw_snapshot` 的那個 writer，還是繞過去了？C2 正是繞過去的實例（教訓目前只
+  寫在 CLAUDE.md §二的 command-text 註記裡）。`EXPECTED_COMMAND_COMBINATIONS`
+  的相等斷言已經機械性地逼問這件事，這條只是備援提醒。
 
 ## 開工前該補掉的兩件事
 
