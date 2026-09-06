@@ -320,6 +320,72 @@ def test_data_modify_set_value_is_recognised():
     assert len(nodes) == 1
 
 
+def test_data_merge_entity_text_field_holding_a_translate_component_is_skipped():
+    """`data merge entity … {text:{…,translate:"map.key"}}`——`text` 是 text_display
+    的**欄位名**，值是一棵指向地圖自己在地化系統的 component。攤平時 `text` 這層
+    外殼會把 `translate` 節點藏起來，build.py 的 M13b 守門看不到它，於是這棵樹被
+    當成純文字抽出來、`source.text` 變成 Python dict 的字串化。掃描層必須自己擋：
+    任何一處有 `translate` 節點就整條跳過，計入 `skipped_already_localised`
+    （與 region 路徑 M13b 同一個判準、同一個計數器）。"""
+    stats = Counter()
+    nodes = list(
+        scan_command_string(
+            'data merge entity @n[tag=NewsText] '
+            '{text:{color:black,translate:"text.iskerside.news1.text"}}',
+            base_path=_path(),
+            anchor=None,
+            stats=stats,
+        )
+    )
+    assert nodes == []
+    assert stats["skipped_already_localised"] == 1
+
+
+def test_tellraw_pointing_at_a_map_localisation_key_is_skipped():
+    """純 `translate` 參照——沒有字面文字可翻，翻了只會用我們的 key 蓋掉地圖
+    原本支援的多語言。掃描層直接擋，不倚賴下游。"""
+    stats = Counter()
+    nodes = list(
+        scan_command_string(
+            'tellraw @a {"translate":"text.iskerside.foo","fallback":"News"}',
+            base_path=_path(),
+            anchor=None,
+            stats=stats,
+        )
+    )
+    assert nodes == []
+    assert stats["skipped_already_localised"] == 1
+
+
+def test_data_merge_entity_customname_holding_a_translate_component_is_skipped():
+    stats = Counter()
+    nodes = list(
+        scan_command_string(
+            'data merge entity @n[tag=X] {CustomName:{translate:"text.iskerside.bar"}}',
+            base_path=_path(),
+            anchor=None,
+            stats=stats,
+        )
+    )
+    assert nodes == []
+    assert stats["skipped_already_localised"] == 1
+
+
+def test_a_plain_component_without_translate_still_yields():
+    """守門只擋含 `translate` 節點的樹——一般的字面文字 component 不受影響。"""
+    stats = Counter()
+    nodes = list(
+        scan_command_string(
+            'data merge entity @n[tag=X] {text:{color:black,text:"Real headline"}}',
+            base_path=_path(),
+            anchor=None,
+            stats=stats,
+        )
+    )
+    assert len(nodes) == 1
+    assert stats["skipped_already_localised"] == 0
+
+
 def test_give_finds_the_custom_name_component():
     stats = Counter()
     nodes = list(

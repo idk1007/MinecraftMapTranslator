@@ -246,6 +246,13 @@ def _yield_tag(
     if _has_nested_command_reference(tag):
         stats["skipped_command_nested_reference"] += 1
         return
+    if _contains_translate(tag):
+        # component 樹裡任何一處參照到別的在地化系統（地圖自己的 lang key，或
+        # 原版 key）——重建時我們的 key 會蓋掉它，把一張支援多語言的地圖靜默
+        # 降級成只支援我們寫進去的那一種。與 region 路徑的 M13b 守門同一個判準、
+        # 同一個計數器（`extract/build.py` 的 `_contains_translate`）。
+        stats["skipped_already_localised"] += 1
+        return
     if _is_empty_text(tag):
         stats["skipped_empty"] += 1
         return
@@ -253,6 +260,26 @@ def _yield_tag(
     for codec_name, span in steps:
         node_path = node_path.child(decode_step(codec_name, span=span))
     yield TextNode(path=node_path, tag=tag, category=category, anchor=anchor)
+
+
+def _contains_translate(tag: Any) -> bool:
+    """`tag`（或它任何一層子節點）裡有沒有 `translate` 節點。
+
+    `extract/build.py` 的同名函式走的是**攤平後的 skeleton**，只認 `type ==
+    "translate"` 與 `extra`。這裡走的是**還沒攤平的 amulet 樹**，而
+    `data merge entity … {text:{…}}` 會把 `translate` 藏在 `text` 底下——那個
+    `text` 是 text_display 的**欄位名**，不是文字 component 的 `text` 鍵，攤平
+    器不會鑽進去，於是下游那道守門看不到它。所以這裡遞迴進每一個 compound／
+    list 子節點，任何一處中了就算。判準與後果的說明見 CLAUDE.md
+    「component 樹（extra）不是「原封搬運」」一節末尾的 M13b 註記。
+    """
+    if isinstance(tag, amulet_nbt.CompoundTag):
+        if "translate" in tag:
+            return True
+        return any(_contains_translate(value) for value in tag.values())
+    if isinstance(tag, amulet_nbt.ListTag):
+        return any(_contains_translate(value) for value in tag)
+    return False
 
 
 def _is_empty_text(tag: Any) -> bool:
