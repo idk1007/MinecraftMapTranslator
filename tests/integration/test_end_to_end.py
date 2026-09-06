@@ -43,7 +43,12 @@ from pathlib import Path
 
 import amulet_nbt
 import pytest
-from conftest import RegionBuilder, modern_chunk, write_region_file
+from conftest import (
+    RegionBuilder,
+    assert_command_reparses,
+    modern_chunk,
+    write_region_file,
+)
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 
@@ -148,6 +153,23 @@ CMD_L2_MERGE = (
     "]}}"
 )
 
+# **L2 裸字串訊息**：同樣是 `data merge` 目標告示牌，但四個 `messages[]` 元素
+# 都是**純字串**，不是 compound——`data merge` 直接寫一句沒有格式的文字，一行字
+# ＋三行空，是最常見的告示牌形狀。
+#
+# 這一格（2026-09-06 的 C2）跟上面那個只差在元素型別，而那個差別決定了寫回去的
+# 方式完全不同：`TAG_List` 在 NBT 格式層帶單一元素型別 id，所以這一行**不能**
+# 換成 `{translate:…}` compound（會變成遊戲解析不了的異質 list，指令方塊寫得進
+# 磁碟卻再也跑不動，報告還說 `unwritten: []`）。它走 in_place，只換掉字串常值的
+# 內容。少了這格 fixture，`("entities_chunk","snbt","literal")` 這個 dispatch
+# 組合在端到端一次都不會被走到——正是 CLAUDE.md 五節說的「擴大範圍時要列出新的
+# **組合**，不是只列新的項目」。
+CMD_L2_MERGE_BARE = (
+    "data merge block ~ ~-2 ~-1 {front_text:{messages:["
+    '"TT_CMDBLOCK_MERGE_BARE_TEXT","","",""'
+    "]}}"
+)
+
 
 def entities_region():
     """`entities/*.mca`：具名實體、`text_display`、展示框裡的物品。
@@ -180,8 +202,16 @@ def entities_region():
         {"id": amulet_nbt.StringTag("minecraft:command_block_minecart")}
     )
     minecart["Command"] = amulet_nbt.StringTag(CMD_L2_MERGE)
+    bare_minecart = amulet_nbt.CompoundTag(
+        {"id": amulet_nbt.StringTag("minecraft:command_block_minecart")}
+    )
+    bare_minecart["Command"] = amulet_nbt.StringTag(CMD_L2_MERGE_BARE)
     root = modern_chunk(data_version=4671)
-    root["Entities"] = amulet_nbt.ListTag([stand, display, frame, minecart])
+    # **新的實體一律往後加。** 上面幾條測試用位置索引（`entities[0]`、`[1]`、
+    # `[2]`）取節點，插在中間會讓它們安靜地驗到別的東西。
+    root["Entities"] = amulet_nbt.ListTag(
+        [stand, display, frame, minecart, bare_minecart]
+    )
     return (
         RegionBuilder()
         .add_chunk_nbt(SYNTHETIC_LIVE, root)
@@ -384,6 +414,8 @@ TRANSLATIONS = {
     # `test_a_give_commands_namespaced_component_is_a_known_scan_gap`。
     # L2 巢狀 SNBT（`data merge` 目標告示牌的原生 compound 訊息）
     "TT_CMDBLOCK_MERGE_TEXT": "合併寫入的告示牌文字",
+    # L2 裸字串訊息（C2：走 in_place，list 維持全字串）
+    "TT_CMDBLOCK_MERGE_BARE_TEXT": "裸字串告示牌文字",
     # datapack `.mcfunction`
     "TT_MCFUNCTION_SAY_TEXT": "腳本說話文字",
     "TT_MCFUNCTION_TELLRAW_TEXT": "腳本提示文字",
@@ -801,6 +833,69 @@ def test_a_command_block_minecart_merge_writes_the_nested_snbt_message(round_tri
     assert [str(m.get("text", "")) for m in messages[1:]] == ["", "", ""]
 
 
+def test_a_bare_string_merge_message_is_written_in_place_and_stays_a_string(
+    round_trip,
+) -> None:
+    """**entities chunk × in_place（L2 裸字串訊息）。** C2 的端到端版本。
+
+    `data merge` 的訊息是純字串時，四個 `messages[]` 元素都是字串——`TAG_List`
+    在格式層帶單一元素型別 id，所以這一行**只能**換掉字串常值的內容，不能換成
+    `{translate:…}` compound。修好之前這裡寫出去的是異質 list，`amulet_nbt.
+    from_snbt` 與遊戲的指令解析器都吃不下，而 `apply_report` 說 `unwritten: []`。
+
+    在地化的譯文住在存檔裡（in_place），不在資源包的 lang 檔裡——這也是為什麼
+    這條測試直接讀指令字串本身，而不是去翻 lang 檔。
+    """
+    entities = entities_of(round_trip["world"])
+    (command,) = [
+        str(e["Command"])
+        for e in entities
+        if "Command" in e and "messages:[\"" in str(e["Command"])
+    ]
+
+    assert_command_reparses(command)
+    document = amulet_nbt.from_snbt(command[command.index("{") :])
+    messages = document["front_text"]["messages"]
+
+    assert all(isinstance(m, amulet_nbt.StringTag) for m in messages)
+    assert [str(m) for m in messages] == ["裸字串告示牌文字", "", "", ""]
+
+
+def all_commands_in(world) -> list[str]:
+    """整個世界寫回去之後，磁碟上每一條被我們碰得到的指令文字——指令方塊、
+    指令方塊礦車、`.mcfunction` 的每一行。"""
+    commands = list(commands_of(world))
+    commands += [
+        str(entity["Command"])
+        for entity in entities_of(world)
+        if "Command" in entity
+    ]
+    commands += [
+        line
+        for line in mcfunction_text(world).splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    return commands
+
+
+def test_every_command_written_back_still_reparses(round_trip) -> None:
+    """**安全網的第二條線，跨整個世界跑一次。**
+
+    `write/command_span.py` 只知道「這一段字串換成那一段字串」，它的第一條安全網
+    是 span 定位器抓對範圍。C2 證明那不夠：span 可以完全正確而塞進去的東西**型別**
+    是錯的，結果是一條寫得進磁碟、卻再也跑不動的指令，加上一份說 `unwritten: []`
+    的報告——沒有任何既有斷言會紅。
+
+    所以這裡對**每一條**指令問一次「這還解得回來嗎」，而不是只問新加的那一條。
+    每一格 dispatch 組合都會經過這裡，包括還沒出問題的那幾格。
+    """
+    commands = all_commands_in(round_trip["world"])
+
+    assert len(commands) >= 6, "指令太少，這條測試沒掃到東西"
+    for command in commands:
+        assert_command_reparses(command)
+
+
 def mcfunction_text(world) -> str:
     path = world / "datapacks" / "tt_probe" / "data" / "tt" / "function" / "hello.mcfunction"
     return path.read_text("utf-8")
@@ -855,18 +950,25 @@ EXPECTED_COMMAND_COMBINATIONS = {
     ("region_chunk", "command", "literal"),  # region/entities × in_place（say/me）
     ("region_chunk", "json_component", "translate"),  # region/entities × translate key，L1
     ("entities_chunk", "snbt", "translate"),  # region/entities × translate key，L2 巢狀 SNBT
+    ("entities_chunk", "snbt", "literal"),  # region/entities × in_place，L2 裸字串訊息（C2）
     ("datapack_mcfunction_file", "command", "literal"),  # .mcfunction × in_place
     ("datapack_mcfunction_file", "json_component", "translate"),  # .mcfunction × translate key
 }
 
 
-def test_the_round_trip_exercises_all_five_command_dispatch_combinations(
+def test_the_round_trip_exercises_all_six_command_dispatch_combinations(
     round_trip,
 ) -> None:
     """**這份測試自己的守門，照抄 `..._all_four_dispatch_combinations` 的做法。**
 
-    五格都得走到，否則某一格的 writer/scan 接線斷了也不會有任何測試變紅——
+    六格都得走到，否則某一格的 writer/scan 接線斷了也不會有任何測試變紅——
     這正是 M13a 那次「舊不變式在新範圍下靜默失效」的同一種盲點。
+
+    第六格（`("entities_chunk","snbt","literal")`）是 2026-09-06 C2 補的：同一個
+    `snbt` codec、同一個容器，只因為 `messages[]` 元素是裸字串而不是 compound，
+    寫回方式就從 translate key 變成 in_place。**`(codec, value.kind)` 才是分派的
+    座標，只看 codec 會把這兩格當成同一格**——而它們的寫入路徑完全不同，混為
+    一談的後果就是 C2（一個異質 list 與一條再也跑不動的指令）。
     """
     combinations = {
         combo

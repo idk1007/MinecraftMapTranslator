@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""測試共用的 region 合成工具。
+"""測試共用的 region 合成工具，以及指令 splice 的「還解得回來嗎」斷言。
 
 真實 region 切片（`tests/fixtures/regions/`）留給整合測試；單元測試用合成的
 位元組，才能精準地製造畸形檔。
 """
 
+import json
 import zlib
 
 import amulet_nbt
@@ -104,3 +105,99 @@ def legacy_chunk() -> amulet_nbt.CompoundTag:
     level["TileEntities"] = amulet_nbt.ListTag([])
     root["Level"] = level
     return root
+
+
+# --- 指令 splice 的第二條安全網 -------------------------------------------
+#
+# `write/command_span.py` 的 docstring 說安全網「全靠 extract 時 span 定位器
+# 抓對範圍」。C2 證明那**不夠**：span 可以完全正確，而塞進去的東西**型別**是錯
+# 的——把一個 SNBT compound splice 進一個全是字串的 `TAG_List`，位移一個都沒
+# 錯，產出的卻是遊戲的指令解析器吃不下的東西（`TAG_List` 在格式層帶單一元素
+# 型別 id，CLAUDE.md 二節「NBT list 同型」）。而且 `apply_edits` 回報
+# `written 1 / unwritten []`——一次乾淨的成功。
+#
+# 所以安全網要有第二條獨立的線：**splice 完的引數必須還解得回來**。這條線刻意
+# 不看 `node_path`、不看 edit、不重用 `scan/command.py` 的定位邏輯，只拿最後
+# 寫進磁碟的那個字串問一句「這還是一條解得開的指令嗎」。
+
+_JSON_ARGUMENT_VERBS = frozenset({"tellraw", "title", "bossbar", "scoreboard"})
+_SNBT_ARGUMENT_VERBS = frozenset({"data", "give", "item"})
+_NO_ARGUMENT_VERBS = frozenset({"say", "me"})
+
+
+def assert_command_reparses(command: str) -> None:
+    """**任何一次指令 splice 之後，引數都必須還解得回來。**
+
+    依動詞決定用哪個解析器：L1 動詞（`tellraw`／`title`／…）的引數是 JSON，用
+    `json.loads`；SNBT 方言的（`data`／`give`／`item`）用
+    `amulet_nbt.from_snbt`；`say`／`me` 的參數本來就是純文字，沒有結構化引數可
+    以解，跳過。
+
+    **不認得的動詞一律當失敗**——白名單有一天長出新動詞時，這條網不可以安靜地
+    變成 no-op（那正是它要防的那種 bug）。反過來，動詞認得但整條指令裡根本沒有
+    `{`（例如 `scoreboard objectives add x dummy` 沒有顯示名稱）代表沒有結構化
+    引數可 splice，那不是失敗。
+    """
+    inner = _after_execute(command).strip()
+    verb = inner.split(" ", 1)[0] if inner else ""
+    if verb in _NO_ARGUMENT_VERBS:
+        return
+    if verb not in _JSON_ARGUMENT_VERBS and verb not in _SNBT_ARGUMENT_VERBS:
+        raise AssertionError(
+            f"assert_command_reparses 不認得動詞 {verb!r}；白名單長出新動詞時"
+            f"這條安全網要跟著長，不能安靜地略過：{command!r}"
+        )
+
+    start = inner.find("{")
+    if start == -1:
+        return
+    argument = inner[start : _balanced_end(inner, start)]
+    try:
+        if verb in _JSON_ARGUMENT_VERBS:
+            json.loads(argument)
+        else:
+            amulet_nbt.from_snbt(argument)
+    except Exception as exc:  # noqa: BLE001 —— 解不開就是解不開，理由不重要
+        raise AssertionError(
+            f"splice 之後的指令引數解不回來（{type(exc).__name__}: {exc}）。\n"
+            f"  指令：{command!r}\n  引數：{argument!r}"
+        ) from exc
+
+
+def _after_execute(command: str) -> str:
+    """剝掉 `execute … run ` 前綴。**刻意不重用
+    `scan/command.py::_strip_execute`**——安全網跟被測的定位邏輯共用同一份程式碼
+    的話，那份程式碼錯了兩邊會一起錯到同一個地方去。"""
+    stripped = command.lstrip()
+    if not stripped.startswith("execute"):
+        return command
+    marker = stripped.find(" run ")
+    return stripped[marker + len(" run ") :] if marker != -1 else ""
+
+
+def _balanced_end(text: str, start: int) -> int:
+    """從 `text[start]` 的 `{` 起，回傳配對的 `}` 之後一格的位移。引號內的括號
+    不算，反斜線跳脫的引號不算閉合。"""
+    depth = 0
+    in_string = False
+    quote = ""
+    index = start
+    while index < len(text):
+        char = text[index]
+        if in_string:
+            if char == "\\":
+                index += 2
+                continue
+            if char == quote:
+                in_string = False
+        elif char in "\"'":
+            in_string = True
+            quote = char
+        elif char in "{[":
+            depth += 1
+        elif char in "}]":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+        index += 1
+    return len(text)

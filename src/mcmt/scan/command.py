@@ -224,6 +224,7 @@ def _yield_tag(
     base_path: NodePath,
     anchor: dict[str, Any] | None,
     stats: Counter,
+    category: str = "command_component_text",
 ) -> Iterator[TextNode]:
     """通用收尾：L3 檢查、空文字檢查，組 `node_path` 並 yield。四個呼叫端
     （L1 的 `_yield_component`、`give`/`item` 的 `_yield_snbt_span`、L2 的
@@ -238,7 +239,10 @@ def _yield_tag(
     位置，是真正的 splice 目標）。`NodePath.last_span`／`span_order()` 只看
     **最後一個** decode 步驟的 span，所以不管 steps 有幾個，排序用的座標永遠
     是最後一步、也就是這個 leaf 自己的位置，不會被中間那個「純標記用」的步驟
-    污染。"""
+    污染。
+
+    `category` 預設是 `command_component_text`（走 translate key）。唯一的例外
+    是 `_yield_message` 的裸字串分支——見那裡的說明，它必須走 in_place。"""
     if _has_nested_command_reference(tag):
         stats["skipped_command_nested_reference"] += 1
         return
@@ -248,9 +252,7 @@ def _yield_tag(
     node_path = base_path.child(decode_step("command", span=(0, len(text))))
     for codec_name, span in steps:
         node_path = node_path.child(decode_step(codec_name, span=span))
-    yield TextNode(
-        path=node_path, tag=tag, category="command_component_text", anchor=anchor
-    )
+    yield TextNode(path=node_path, tag=tag, category=category, anchor=anchor)
 
 
 def _is_empty_text(tag: Any) -> bool:
@@ -406,8 +408,32 @@ def _yield_message(
             return
         # 解不出 JSON——就是字面文字（例如 `data merge` 直接寫了一句沒有格式的
         # 文字），照原樣當一個 bare_string 節點，只有一層 SNBT。
+        #
+        # **這一支必須走 in_place（`command_say_text`），不能走 translate key。**
+        # 它的兄弟元素還是字串（`messages:["Hello","","",""]`——一行字＋三行空，
+        # 最常見的告示牌形狀），而 `TAG_List` 在 NBT 格式層帶單一元素型別 id：
+        # 把 `{translate:…}` 放進去就是異質 list，遊戲的指令解析器吃不下，指令
+        # 方塊寫得進磁碟卻再也跑不動，而報告會說 `unwritten: []`（CLAUDE.md 二節
+        # 「NBT list 同型」；2026-09-06 的 C2）。
+        #
+        # 「沒有地方可以放 key，只能直接替換文字」正是 `command_say_text` 這個
+        # category 在 `model/strategy.py` 的定義，也是 `draft_book_page` 的先例
+        # ——所以這裡**重用**它而不是新增一個 category（不動合約、不 bump
+        # SCHEMA_VERSION）。字串常值的內容怎麼換、譯文裡的引號與反斜線怎麼跳脫，
+        # 是 `write/command_span.py::_compose_replacement` 那一格的事。
+        #
+        # 註：真正的告示牌 NBT 有「四行全部改寫」這條退路（`write/native.py::
+        # apply_to_list` 會提升整個 list 並計 `list_promotions`）；指令字串裡沒有
+        # ——那是一段**文字**，我們只在它上面做位移替換，沒有一棵 tag 可以整個
+        # 重建。所以這裡只剩 in_place 一條路。
         yield from _yield_tag(
-            text, [("snbt", leaf_span)], message, base_path, anchor, stats
+            text,
+            [("snbt", leaf_span)],
+            message,
+            base_path,
+            anchor,
+            stats,
+            category="command_say_text",
         )
         return
     yield from _yield_tag(text, [("snbt", leaf_span)], message, base_path, anchor, stats)
