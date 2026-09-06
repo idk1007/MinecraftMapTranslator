@@ -137,6 +137,12 @@ def assert_command_reparses(command: str) -> None:
     變成 no-op（那正是它要防的那種 bug）。反過來，動詞認得但整條指令裡根本沒有
     `{`（例如 `scoreboard objectives add x dummy` 沒有顯示名稱）代表沒有結構化
     引數可 splice，那不是失敗。
+
+    **給 fixture 作者的約束**：`test_every_command_written_back_still_reparses`
+    會把這個函式套在來回世界裡的**每一條**指令上，包括從來沒被 splice 過的。
+    所以任何被那條測試吃到的世界 fixture，裡面只能有白名單動詞的指令——加一條
+    `function ns:x` 或行尾延續的指令（正是未來 gap #A／行尾延續測試會想放的形狀）
+    會讓整趟掃描失敗，看起來像 splice 弄壞了。這是設計如此，硬失敗行為不改。
     """
     inner = _after_execute(command).strip()
     verb = inner.split(" ", 1)[0] if inner else ""

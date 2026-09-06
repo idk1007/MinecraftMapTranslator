@@ -224,11 +224,15 @@ def test_format_result_renders_the_three_command_skip_lines_when_they_are_non_ze
         )
     )
 
-    assert "指令動詞不在白名單或形狀轉不出去" in text
-    assert "指令巢狀引用另一條指令（L3，未支援）" in text
-    assert "指令行尾反斜線延續（1.20.2+ 語法，未支援）" in text
-    # 數字本身也要在，而且是千分位格式（跟其他行一致）。
-    assert "12" in text and "3" in text and "7" in text
+    # 每個數字必須出現在**它自己那一行**（label 與 count 同一行印出），
+    # 而不是隨便散落在摘要某處——`"3"` / `"7"` 在「翻譯單位：3 個」「掃過
+    # chunk 7 個」裡本來就有，裸的 `"3" in text` 什麼都沒驗到。
+    def line_with(label: str) -> str:
+        return next(ln for ln in text.splitlines() if label in ln)
+
+    assert "12" in line_with("指令動詞不在白名單或形狀轉不出去")
+    assert "3" in line_with("指令巢狀引用另一條指令（L3，未支援）")
+    assert "7" in line_with("指令行尾反斜線延續（1.20.2+ 語法，未支援）")
 
 
 def test_format_result_omits_the_command_skip_lines_when_they_are_zero() -> None:
