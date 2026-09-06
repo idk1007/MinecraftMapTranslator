@@ -504,6 +504,18 @@ warnings：30（全部磁區重整，附前後大小）
 >   所以一個計數器都沒動，摘要跟「這張地圖沒有任何 function」逐位元組相同。
 >   （`sources/datapack.py` 對 advancement 目錄早就解過同一題，邏輯沒被抄過來。）
 >   MP2 沒暴露它是因為 MP2 的資料包用的是單數目錄。
+>
+>   **[實測 2026-09-06] 修正前後在 `Arena of Darkness` 上的實際數字**（唯讀掃描，
+>   `scan/sources/mcfunction.py::scan`）：
+>
+>   | | 抽到的文字節點 | `skipped_command_*` 計數 | 涉及檔案 |
+>   |---|---|---|---|
+>   | 修正前（只認單數） | **0** | **0**（一個都沒動） | 0 |
+>   | 修正後（兩個都認） | **149** | 1,094 | 40 |
+>
+>   「0 個節點 ＋ 0 個計數」正是這個 bug 最惡劣的地方：使用者看到的輸出，與
+>   「這張地圖真的沒有可翻的 function」**完全無法區分**。修正後那 1,094 筆
+>   `skipped_command_unsupported_shape`（白名單外的動詞）現在是**看得見的**跳過。
 > * **`data merge` 的裸字串訊息被寫成異質 SNBT list。**
 >   `messages:["Hello","","",""]` 這個形狀原本走 translate key，splice 進一個 SNBT
 >   compound，產出的 `TAG_List` 元素型別不一致，遊戲的指令解析器吃不下——指令方塊
