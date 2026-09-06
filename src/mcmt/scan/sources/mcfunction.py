@@ -1,6 +1,16 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """datapack `.mcfunction` 裡的可翻文字。
 
+**目錄名單複數都要認**：1.21 起改成單數 `function/`，1.20 及以前是複數
+`functions/`（[實測 2026-08-22] `Arena of Darkness`，1.20.4，四個資料包共 120 個
+`.mcfunction` 全部在複數 `functions/` 底下）。只認單數的話這些檔案是**完全隱形**
+的——連 glob 都掃不到，所以沒有任何計數器會動，印出來的摘要跟「這張地圖沒有任何
+function」一模一樣。這與 `sources/datapack.py::_ADVANCEMENT_DIR_NAMES` 是同一題、
+同一個解法，兩邊要一起看。
+
+**datapack 可以是資料夾也可以是 zip 檔，兩種都要支援**，而且兩種必須是**同一條
+規則**（[實測] `Arena of Darkness` 全部是 zip）。
+
 物理字串單位是**一行**，不是整個檔案（見
 docs/superpowers/specs/2026-09-05-command-text-design.md §6）。換行符全程當
 不透明資料——只切 `\n`，每行連同它自己的結尾（`"\r\n"`／`"\n"`／空字串）一起
@@ -21,6 +31,7 @@ from mcmt.scan.node import ScannedNode
 
 __all__ = ["scan", "split_lines"]
 
+_FUNCTION_DIR_NAMES = ("function", "functions")
 _ANCHOR = {"kind": "file", "id": None, "x": None, "y": None, "z": None, "uuid": None}
 
 
@@ -38,14 +49,19 @@ def scan(world: ReadOnlyPath, stats: Counter) -> Iterator[ScannedNode]:
 def _scan_folder_pack(
     world: ReadOnlyPath, pack_dir: ReadOnlyPath, stats: Counter
 ) -> Iterator[ScannedNode]:
-    for path in pack_dir.glob("data/*/function/**/*.mcfunction"):
-        relative = str(path.relative_to(world)).replace("\\", "/")
-        try:
-            data = path.read_bytes().decode("utf-8")
-        except UnicodeDecodeError:
-            stats["skipped_command_unsupported_shape"] += 1
-            continue
-        yield from _scan_lines(data, relative, stats)
+    for dir_name in _FUNCTION_DIR_NAMES:
+        # **`**` 不能省。** 真實資料包把 function 分在子資料夾裡（`Arena of
+        # Darkness` 的 `armor statues` 就是），只寫 `*.mcfunction` 的話那些檔案
+        # 對資料夾式資料包完全隱形——跟 `datapack.py::_scan_folder_pack` 同一條
+        # 理由，zip 那邊本來就是遞迴找得到的，兩種形式必須是同一條規則。
+        for path in pack_dir.glob(f"data/*/{dir_name}/**/*.mcfunction"):
+            relative = str(path.relative_to(world)).replace("\\", "/")
+            try:
+                data = path.read_bytes().decode("utf-8")
+            except UnicodeDecodeError:
+                stats["skipped_command_unsupported_shape"] += 1
+                continue
+            yield from _scan_lines(data, relative, stats)
 
 
 def _scan_zip_pack(
@@ -70,8 +86,14 @@ def _scan_zip_pack(
 
 
 def _is_function_entry(name: str) -> bool:
+    """zip 條目路徑是不是 `data/<ns>/function(s)/…/*.mcfunction`。
+
+    **比對的是路徑片段，不是子字串前綴**——`data/n/function_helpers/x.mcfunction`
+    不是 function 目錄，不該中獎；理由與 `datapack.py::_is_advancement_entry`
+    完全相同。
+    """
     parts = name.split("/")
-    return len(parts) >= 4 and parts[0] == "data" and parts[2] == "function"
+    return len(parts) >= 4 and parts[0] == "data" and parts[2] in _FUNCTION_DIR_NAMES
 
 
 def split_lines(text: str) -> list[tuple[str, str]]:

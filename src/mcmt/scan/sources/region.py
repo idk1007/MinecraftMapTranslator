@@ -22,7 +22,16 @@
 `level.dat`、記分板、進度、`hover_event` 內的文字由其他 `sources/` 模組負責；
 datapack 的 `.mcfunction` 由 `sources/mcfunction.py` 掃、指令方塊的 `Command`
 在上面「v1 掃到的」已列（白名單動詞解析在 `scan/command.py`，2026-09-05）。
-這裡真正還沒做的：無。剩下的已知限制見 `docs/STATUS.md` 已知缺口。
+
+**掃描來源本身沒有整類缺口了，但指令文字這條路上還有三個已知缺口**（都不是
+安全問題，都有 pinned 測試釘住現狀，完整說明見 `docs/STATUS.md` 已知缺口）：
+
+* `give`／`item` 的**命名空間組件鍵**（`minecraft:custom_name=…`）比不到，整條
+  指令計入 `skipped_command_unsupported_shape` 後略過（缺口 A，掃描層）。
+* `data merge` 的「SNBT 字串常值包一段 JSON」訊息，寫入前的重新解碼是壞的，
+  這筆合法的翻譯會被守門拒寫（缺口 B，`write/common.py`）。
+* `.mcfunction` 的寫入守門只做到長度比對，還沒有跟 region／entities 完全對齊的
+  `raw_snapshot` 逐位元組守門（缺口 C，`write/mcfunction_apply.py`）。
 
 ## 刻意不去找的
 

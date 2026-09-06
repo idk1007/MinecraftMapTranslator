@@ -119,6 +119,83 @@ def test_a_zip_datapack_mcfunction_is_scanned(project):
     assert "hello.mcfunction:1" in nodes[0].container["path"]
 
 
+def test_a_folder_datapack_under_the_plural_functions_dir_is_scanned(project):
+    """**目錄名單複數都要認。** 1.21 才把 `functions/` 改成單數 `function/`；
+    1.20 及以前寫的資料包用的是複數，而遊戲照樣載入它們。
+
+    只認單數的話，這些檔案對這個工具**完全隱形**——而且不是「有計數的跳過」，
+    是連 glob 都掃不到，所以一個計數器都不會動，摘要印出來跟「這張地圖沒有
+    任何 function」一模一樣，正是 CLAUDE.md 五節點名最難查的那類 bug。
+    `sources/datapack.py::_ADVANCEMENT_DIR_NAMES` 對進度已經解過同一題。
+    """
+    world = project / "sandbox"
+    func = world / "datapacks" / "p" / "data" / "n" / "functions" / "hello.mcfunction"
+    func.parent.mkdir(parents=True, exist_ok=True)
+    func.write_text('say hello\ntellraw @a {"text":"Hi"}\n', encoding="utf-8")
+
+    stats = Counter()
+    nodes = list(scan(world, stats))
+
+    categories = {n.node.category for n in nodes}
+    assert categories == {"command_say_text", "command_component_text"}
+    assert all(n.container["kind"] == "datapack_mcfunction_file" for n in nodes)
+
+
+def test_a_zip_datapack_under_the_plural_functions_dir_is_scanned(project):
+    """zip 形式與資料夾形式必須是同一條規則——[實測 2026-08-22]
+    `Arena of Darkness`（1.20.4）的 120 個 `.mcfunction` 全部在 zip 裡的複數
+    `functions/` 底下。"""
+    world = project / "sandbox"
+    world.mkdir(parents=True, exist_ok=True)
+    (world / "datapacks").mkdir(parents=True, exist_ok=True)
+    zip_path = world / "datapacks" / "p.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("pack.mcmeta", "{}")
+        archive.writestr("data/n/functions/hello.mcfunction", "say hello from zip\n")
+
+    stats = Counter()
+    nodes = list(scan(world, stats))
+
+    assert len(nodes) == 1
+    assert nodes[0].node.category == "command_say_text"
+    assert "hello.mcfunction:1" in nodes[0].container["path"]
+
+
+def test_a_nested_subdirectory_under_the_plural_functions_dir_is_scanned(project):
+    """`**` 不能省，複數那一支也一樣——真實資料包把 function 分在子資料夾裡
+    （`Arena of Darkness` 的 `armor statues` 就是）。"""
+    world = project / "sandbox"
+    func = (
+        world / "datapacks" / "p" / "data" / "n" / "functions" / "sub" / "deep.mcfunction"
+    )
+    func.parent.mkdir(parents=True, exist_ok=True)
+    func.write_text("say deep\n", encoding="utf-8")
+
+    nodes = list(scan(world, Counter()))
+
+    assert len(nodes) == 1
+    assert nodes[0].container["path"].endswith("sub/deep.mcfunction:1")
+
+
+def test_a_directory_merely_starting_with_function_is_not_scanned(project):
+    """比對的是**路徑片段**，不是前綴——`function_helpers/` 不是 function 目錄。
+    這條跟 `datapack.py::_is_advancement_entry` 的 docstring 是同一個顧慮。"""
+    world = project / "sandbox"
+    func = (
+        world / "datapacks" / "p" / "data" / "n" / "function_helpers" / "x.mcfunction"
+    )
+    func.parent.mkdir(parents=True, exist_ok=True)
+    func.write_text("say nope\n", encoding="utf-8")
+    (world / "datapacks").mkdir(parents=True, exist_ok=True)
+    zip_path = world / "datapacks" / "q.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("data/n/function_helpers/x.mcfunction", "say nope\n")
+
+    nodes = list(scan(world, Counter()))
+
+    assert nodes == []
+
+
 def test_blank_lines_and_comment_lines_are_skipped_without_counting(project):
     world = project / "sandbox"
     func = world / "datapacks" / "p" / "data" / "n" / "function" / "hello.mcfunction"
