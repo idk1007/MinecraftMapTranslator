@@ -54,8 +54,12 @@
    tellraw @a {"text":"MCMD mcfunction line one"}
    say MCMD mcfunction line two
    ```
-   `pack.mcmeta` 的 `pack_format` 用 94（1.21.11 的 datapack format，見 `SPIKE_RESULT.md`
-   標頭）。進遊戲 `/reload`，之後用 `/function <ns>:mcmd_test` 觸發。
+   `pack.mcmeta` 的 `pack_format` 用 94（`SPIKE_RESULT.md` 標頭記 94.1，`pack.mcmeta`
+   填整數主版本，兩者一致，不用停下來懷疑）。進遊戲 `/reload`，之後用
+   `/function <ns>:mcmd_test` 觸發。
+
+   > **目錄名用單數 `function/` 或複數 `functions/` 都可以**——工具兩種都認
+   > （1.21 起是單數，1.20 及以前是複數）。想順便驗到複數那條路徑就用複數。
 
 4. **先各觸發一次**（按鈕／`/function`），確認未翻版就能正常運作：聊天出現
    `MCMD tellraw source A`、告示牌正面出現 `MCMD merge line one`、聊天出現
@@ -168,6 +172,11 @@ data merge block SX SY SZ {front_text:{messages:["{\"translate\":\"mcmt.test.cmd
 data merge block SX SY SZ {back_text:{messages:['{"translate":"mcmt.test.cmd_merge"}','""','""','""']}}
 ```
 
+> **形式 B 會蓋掉 `back_text`**，而第一節第 ④ 格的指令方塊寫的也是 `back_text`。
+> 照本文件的順序跑，4c 讀到的會是你剛剛手打的結果，不是管線寫出來的結果——所以
+> 4c 開頭要先按一次 ④ 的按鈕把 `back_text` 重設回去（下面 4c 第一步已寫明）。
+> 想避開這件事的話，把形式 B 打在**第二個告示牌**上。
+
 觀察並回報：
 
 | 觀察 | 代表 |
@@ -200,7 +209,13 @@ M-command 遊戲實測推翻了雙引號方案。改完：
 ### 4c.（可選，缺口 #2 已修時才有意義）完整管線覆核
 
 若哪天缺口 #2（`_decode_command_leaf` 支援 `snbt→json_component`）被修好了，
-把第一節第 ④ 格重新納入 extract／apply：apply 不再把它列 `unwritten`，進遊戲
+把第一節第 ④ 格重新納入 extract／apply。
+
+> **第一步：先按一次 ④ 的按鈕，把 `back_text` 重設成管線的輸入。** 4a 的形式 B
+> 剛剛手打覆寫過 `back_text`，不重設的話這一步讀到的是那個手打結果，會把「管線
+> 寫對了」誤判成 PASS（或反過來）。
+
+重設之後：apply 不再把它列 `unwritten`，進遊戲
 確認 `back_text` 第一行顯示 `字串包裝翻譯成功`、`/data get block SX SY SZ back_text`
 的回讀是合法 SNBT（從 `latest.log` 抓，不要抄聊天視窗）。這一步驗的是
 「整條三步鏈寫回後遊戲能解析」，跟 4a 驗的「解析器接不接受這個跳脫形式」

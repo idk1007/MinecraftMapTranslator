@@ -3,7 +3,24 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-09-05**（**「command text」功能落地並對 MP2 全掃驗證。**
+最後更新：**2026-09-06**（**「command text」整支分支 review 後的修正波。**
+review 判定「修完可以合併」，兩個不在既有四個已知缺口裡的缺陷已修：**(C1)**
+`.mcfunction` 在 1.20 及以前的**複數 `functions/`** 目錄下完全隱形且沒有任何
+計數器（[實測] `Arena of Darkness` 120 個檔案全在複數目錄，摘要跟「這張地圖
+沒有 function」一模一樣）；**(C2)** `data merge` 的**裸字串**告示牌訊息被寫成
+異質 SNBT list，指令方塊寫得進磁碟卻再也跑不動，而報告說 `unwritten: []`
+——span 完全正確、錯的是型別，`write/native.py::apply_to_list` 守著的 list
+同型不變式被這條新路徑整個繞過。另外 **(I2)** `.mcfunction` 補上長度守門
+（那個缺口原本被記成「無害的 no-op」，**那是錯的**，見下方缺口 C），
+**(I4)** `format_result()` 從零覆蓋補上測試。新增安全網
+`assert_command_reparses()`：每一次指令 splice 之後都問一句「這還解得回來嗎」，
+套用在每一格 dispatch 組合與端到端全世界掃描上——C2 證明「span 抓對範圍」這
+一條線單獨不夠。端到端 dispatch 組合 5 → **6** 格。**不動合約、不 bump
+SCHEMA_VERSION**（C2 重用既有的 `command_say_text` category）。
+缺口 A（`give` 命名空間組件鍵）與 B（字串包裝 JSON 的 `data merge` 寫入路徑）
+**維持已知限制**，pinned 測試原樣保留。874 passed／contracts 48 passed。）
+
+前一次更新：**2026-09-05**（**「command text」功能落地並對 MP2 全掃驗證。**
 指令方塊的 `Command` 與 datapack 的 `.mcfunction` 現在會解析白名單動詞
 （`say`／`me`／`tellraw`／`title`／`bossbar`／`scoreboard objectives add`／
 `data merge`／`give`／`item`），把裡面的可翻文字抽出來、apply 時外科式寫回
@@ -19,7 +36,8 @@
 已知缺口清單新增 command text 缺口 A–D〔見下方〕：Task 11 釘住的三個（`_find_component`
 不認命名空間組件鍵、`_decode_command_leaf` 不能還原字串包裝 JSON 訊息、
 `mcfunction_apply` 無重放守門）＋ 本輪新發現一個（三個 `skipped_command_*`
-stats 有 schema 沒接進 `emit.py`）。**進遊戲驗證仍 `[待驗]`**：指令文字四項
+stats 有 schema 沒接進 `emit.py`）。〔2026-09-06 後記：D 已修；C 補上長度守門
+但 `raw_snapshot` 那層仍缺；A、B 維持已知限制。〕**進遊戲驗證仍 `[待驗]`**：指令文字四項
 （tellraw／data merge／say 的算繪＋`_snbt_string_literal` 的雙引號跳脫被
 1.21.11 指令解析器接不接受）的可重跑程序已寫成 `docs/m-command-checklist.md`，
 等有人開 Minecraft 跑一次、把結果寫回 `SPIKE_RESULT.md`。）
@@ -822,18 +840,62 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
   **MP2 實測影響**：0（MP2 的 21 個 `data merge block` 訊息全是原生 compound）。
   Task 11 釘在 `test_a_json_string_wrapped_merge_message_is_a_known_write_gap`。
   落在 `write/` 目錄——依 CLAUDE.md §五要獨立 commit 並說明理由。
-* **〔command text 缺口 C〕`write/mcfunction_apply.py` 完全沒有重放守門。**
-  `region`/`entities` 的指令文字在委派 splice 前會過
-  `_command_length_matches` ＋ `_decode_command_leaf` ＋ `_guarded_encoding` 三層；
-  `.mcfunction` 的 `apply_to_mcfunction_file` 直接呼叫 `apply_command_edits`，中間
-  沒有任何守門。重放同一份 plan 對 `.mcfunction` 永遠「成功」（把已翻的文字再蓋一次
-  同樣的譯文，no-op 但跟其他容器的拒絕保證不對稱）。**MP2 實測影響**：本輪只
-  apply 一次故未觸發，但 251 筆 `.mcfunction` edit 走的就是這條無守門路徑。
-  Task 11 釘在 `test_an_mcfunction_command_edit_is_not_guarded_against_replay_a_known_gap`。
-  落在 `write/` 目錄——獨立 commit。
+* **〔command text 缺口 C〕`write/mcfunction_apply.py` 的重放守門 — 2026-09-06
+  補上長度那一層，`raw_snapshot` 那一層仍缺（殘餘）。**
+
+  **先修正一個記錯的描述。** 這條原本寫成「重放永遠成功，把已翻的文字再蓋一次
+  同樣的譯文，no-op 但不對稱」。**那個描述只在檔案沒被改過時成立**，而且是因為
+  pinned 測試用的 `say Hello world` → `say 你好世界` 剛好冪等（走味的 span
+  `[4,15]` 落在 9 字元的字串上仍然解析成「`say ` 之後的全部」）。真實行為是：對
+  一行在 extract 之後**被改過**的指令重放，plan 裡的絕對位移會從一個 token 的
+  正中央切開，寫出語法壞掉的指令，而報告說 `unwritten: []`——
+
+      plan 抽自：tellraw @a {"text":"Hello"}
+      重放到　：tellraw @s {"text":"Hello there, friend","color":"red"}
+      結果　　：tellraw @s {"translate":"mcmt.…","fallback":"Hello"}here, friend","color":"red"}
+
+  把已知限制描述成無害，比不知道它存在更糟——這個 repo 的證據文化就建立在這個
+  區別上。（唯一擋著它的是 `cli/apply.py` 那個 `world_fingerprint` 閘門，而
+  `fingerprint.py::_datapack_files` 確實涵蓋 `datapacks/**`，所以走 `mcmt apply`
+  到不了這裡；但 `apply_editplan` 是函式庫進入點，而 `.mcfunction` 是**唯一**只靠
+  那一道外層閘門的容器。）
+
+  **2026-09-06 已補**：`_guard_by_length()`（資料夾式與 zip 式兩條路都接）重用
+  `write/common.py::_command_length_matches` 本尊做長度比對，長度對不上就拒寫成
+  `node_changed`，與 region／entities 同一個判準、同一個理由字串。上面那個示範的
+  損壞案例現在被擋下來。
+
+  **殘餘缺口**：`raw_snapshot` 那層逐位元組比對還沒接——使用者把字改成**一樣長**
+  的另一句時長度對得上，這一筆照樣寫下去，把使用者剛改的字蓋掉。**沒有一起接的
+  理由**：`_decode_command_leaf` 自己還帶著缺口 B，照搬過來會讓 `.mcfunction` 裡
+  目前寫得出去的那個形狀反而開始被拒寫——拿一個真缺陷換一個假保護。**缺口 B 修好
+  之後才該接上**，屆時
+  `test_a_same_length_change_after_extract_is_the_remaining_mcfunction_gap`
+  會變紅，那就是提醒。釘在 `tests/unit/test_write_mcfunction_apply.py` 的四條
+  （走味 span 被拒／重放被拒／zip 同樣被拒／殘餘缺口）。
 * **〔command text 缺口 D〕三個 `skipped_command_*` stats — 已於 2026-09-05 修正。**
   已補上 `extract/emit.py` 與 `cli/extract.py` 中三個計數器的轉接，使其出現在
   `extract.json` 與 CLI 摘要。新增單元測試 `test_the_command_stats_reach_the_extract_document` 涵蓋。
+* **〔command text，整支分支 review 抓到、2026-09-06 已修〕兩個不在上面四項裡的
+  缺陷。** 兩個都是「舊範圍下碰巧成立的不變式」（CLAUDE.md §五）：
+
+  1. **`.mcfunction` 在複數 `functions/` 目錄下完全隱形，而且沒有任何計數器。**
+     1.21 才改成單數 `function/`；1.20 及以前的資料包用複數，遊戲照樣載入。
+     [實測] `Arena of Darkness`（1.20.4）四個資料包共 **120 個 `.mcfunction`
+     全部**在複數目錄底下，全部被跳過，印出來的摘要跟「這張地圖沒有任何
+     function」逐位元組相同。同一個專案在 `sources/datapack.py::_ADVANCEMENT_DIR_NAMES`
+     已經對進度目錄解過同一題——該抄的邏輯沒抄過來。已照抄修正。
+  2. **`data merge` 的裸字串告示牌訊息被寫成異質 SNBT list，指令再也跑不動。**
+     `messages:["Hello","","",""]`（一行字＋三行空，最常見的告示牌形狀）原本走
+     translate key，writer splice 進一個 SNBT compound，產出的 `TAG_List` 元素
+     型別不一致——`TAG_List` 在格式層帶單一元素型別 id，遊戲的指令解析器吃不下。
+     指令方塊寫得進磁碟、指令卻壞了，而報告說 `unwritten: []`。**span 完全正確、
+     錯的是型別**：`write/native.py::apply_to_list` 一直守著的 list 同型不變式，
+     指令 splice 這條新路徑整個繞過那個 writer。已改走 in_place（重用
+     `command_say_text`，不動合約）。同時補上安全網的第二條線
+     `assert_command_reparses()`（`tests/conftest.py`）——每一次 splice 之後問一句
+     「這還解得回來嗎」，套用在每一格 dispatch 組合與端到端全世界掃描上。
+     端到端也補上第六格組合 `("entities_chunk","snbt","literal")`。
 
 ## 開工前該補掉的兩件事
 

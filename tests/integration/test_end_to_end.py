@@ -1240,7 +1240,7 @@ def test_replaying_the_same_plan_is_refused_wherever_a_snapshot_was_captured_for
     字串裡任何一筆改過，整條字串的長度就變了），跟這裡的 shape/raw_snapshot
     判準是兩回事，混在一起比對只會撞出假陽性。指令文字自己的重放行為見
     `test_a_translated_region_or_entities_command_edit_is_refused_on_replay`
-    與 `test_an_mcfunction_command_edit_is_not_guarded_against_replay_a_known_gap`。
+    與 `tests/unit/test_write_mcfunction_apply.py` 的那四條 `.mcfunction` 守門測試。
     """
     from mcmt.write.apply import apply_editplan
 
@@ -1371,25 +1371,31 @@ def test_a_translated_region_or_entities_command_edit_is_refused_on_replay(
     assert {e["occurrence_id"] for e in command_edits} <= refused
 
 
-def test_an_mcfunction_command_edit_is_not_guarded_against_replay_a_known_gap() -> None:
-    """**已知缺口，Task 11 端到端才照出來，不在本任務授權修改的檔案清單裡
-    （`write/mcfunction_apply.py` 屬於 CLAUDE.md 安全規則要求獨立 commit 的
-    目錄）。**
+def test_the_command_span_primitive_itself_has_no_replay_guard_by_design() -> None:
+    """**這條測試換過一次意義，換的理由本身是結論。**
 
-    `region`／`entities` 的指令文字重放守門（見上一條測試）是
-    `write/common.py::_apply_decode_group` 在委派給 `command_span.py` 之前
-    自己加的一層——`_command_length_matches` ＋ `_decode_command_leaf` ＋
-    `_guarded_encoding`。`write/mcfunction_apply.py::_apply_to_folder_line`／
-    `_apply_to_zip_line` 沒有走 `write/common.py` 那條路：兩者都是直接呼叫
-    `command_span.py::apply_command_edits(command, edits, outcome=outcome)`，
-    中間完全沒有任何守門——重放同一份 plan 對 `.mcfunction` 檔案永遠會成功，
-    把已經翻譯過的文字再蓋一次同樣的譯文（no-op，沒有損害，但跟 region/
-    entities 的行為不對稱，也跟 `in_place` 節點「使用者自己在 extract 之後
-    改的字會被守住」這條保證不一致——`.mcfunction` 完全沒有這層保護）。
+    它原本叫 `..._an_mcfunction_command_edit_is_not_guarded_against_replay_a_known_gap`，
+    釘的是「`.mcfunction` 完全沒有重放守門」這個缺口，並把後果描述成「把已翻
+    的文字再蓋一次同樣的譯文（no-op，沒有損害）」。
 
-    這裡釘住現狀，是需要一個後續任務補齊的真實缺口：`apply_to_mcfunction_file`
-    委派給 `command_span.py` 之前，該補上跟 `_apply_decode_group` 對稱的
-    長度／內容守門。
+    **那個描述是錯的，而它之所以看起來對，就是因為這條測試挑的例子。**
+    `say Hello world` → `say 你好世界` 剛好冪等：走味的 span `[4,15]` 落在 9
+    字元的新字串上，仍然解析成「`say ` 之後的全部」。換一個在 extract 之後
+    長度變了的指令行，同一條路徑會從一個 token 的正中央切開，寫出語法壞掉的
+    指令，而 `unwritten` 是空的。**釘住現狀的測試挑了最方便的例子，於是「測試
+    是綠的」被讀成「行為是無害的」。**
+
+    2026-09-06 已補：`write/mcfunction_apply.py::_guard_by_length()`（資料夾式
+    與 zip 式兩條路都接）。`.mcfunction` 的重放行為現在釘在
+    `tests/unit/test_write_mcfunction_apply.py` 的四條，包括還沒補上的
+    `raw_snapshot` 那一層（殘餘缺口）。
+
+    **這條測試留下來，釘的是另一件仍然為真、而且是刻意的事**：
+    `command_span.py::apply_command_edits` 這個**原語本身**不做任何 extract-當下
+    快照比對，它只負責 splice。守門是呼叫端的責任（`write/common.py::
+    _apply_decode_group` 與 `write/mcfunction_apply.py::_guard_by_length`）。
+    把守門下放到原語裡會讓兩個呼叫端各自的分組／快照語意糊掉——所以這裡不是
+    缺口，是分層。
     """
     from collections import Counter
 
@@ -1420,12 +1426,12 @@ def test_an_mcfunction_command_edit_is_not_guarded_against_replay_a_known_gap() 
     assert once == "say 你好世界"
     assert not outcome.unwritten
 
-    # 第二次：對**已經被翻譯過**的字串重放同一筆 edit——`command_span.py`
-    # 本身不做任何 extract-當下快照比對，只單純 splice，所以永遠成功。
-    # `write/common.py` 那條路會在委派給它之前用 `_command_length_matches`
-    # 擋下這個情境（見上一條測試）；`.mcfunction` 沒有這一層，所以這裡直接
-    # 呼叫 `apply_command_edits` 就足以重現缺口，不需要真的走一次
-    # `apply_to_mcfunction_file`。
+    # 第二次：對**已經被翻譯過**的字串重放同一筆 edit——原語本身不做任何
+    # extract-當下快照比對，只單純 splice，所以永遠成功。兩個呼叫端各自在
+    # 委派給它之前擋（`write/common.py::_apply_decode_group` 的三層、
+    # `write/mcfunction_apply.py::_guard_by_length` 的長度那層），所以**走
+    # 真實入口的重放是被拒的**——那件事釘在
+    # `tests/unit/test_write_mcfunction_apply.py::test_replaying_the_same_plan_on_an_mcfunction_is_refused`。
     twice = apply_command_edits(once, [edit], outcome=outcome)
     assert twice == "say 你好世界"
     assert not outcome.unwritten

@@ -469,6 +469,50 @@ warnings：30（全部磁區重整，附前後大小）
 | **#2** `write/common.py::_decode_command_leaf` 不能還原「SNBT 字串包裝 JSON」的 `data merge` 訊息（三步 `command→snbt→json_component`） | **未遇到（0 次）。** MP2 的 21 個相異 `data merge block` 指令，訊息全是原生 compound（`{text:"Star Stealer",color:"yellow",…}`），沒有單／雙引號字串包一段轉義 JSON 的形式；`.mcfunction` 裡完全沒有 `data merge`。那 8 個 region 指令方塊的 `data merge` L2 路徑因此全部寫成功。 |
 | **#3** `write/mcfunction_apply.py` 沒有重放守門 | **本輪不觸發，但潛在。** 251 筆 `.mcfunction` 指令文字 edit 走的是無守門路徑，首次 apply 正常寫入；只有「拿同一份 plan 對 `.mcfunction` 重放」才會靜默重蓋（region/entities 會拒），本輪只 apply 一次故未暴露。 |
 
+> **[2026-09-06] #3 那一格的「靜默重蓋（no-op）」是錯的，保留原文並說明為何被推翻。**
+>
+> 「重蓋同樣的譯文、無害」這個結論來自 pinned 測試用的例子
+> （`say Hello world` → `say 你好世界`）**剛好冪等**：走味的 span `[4,15]` 落在
+> 9 字元的新字串上，仍然解析成「`say ` 之後的全部」。換一個在 extract 之後**長度
+> 變了**的指令行重放，同一條路徑會從一個 token 的正中央切開，寫出語法壞掉的指令，
+> 而 `outcome.unwritten` 是空的：
+>
+> ```
+> plan 抽自：tellraw @a {"text":"Hello"}
+> 重放到　：tellraw @s {"text":"Hello there, friend","color":"red"}
+> 結果　　：tellraw @s {"translate":"mcmt.…","fallback":"Hello"}here, friend","color":"red"}
+> ```
+>
+> 也就是說它跟 #2 不同：#2 失敗的方向是**拒寫**（安全），#3 失敗的方向是**寫壞**。
+> 「MP2 本輪不觸發」仍然成立（只 apply 一次，且 `cli/apply.py` 的
+> `world_fingerprint` 閘門涵蓋 `datapacks/**`），但「無害」不成立。
+>
+> **已補**（2026-09-06）：`_guard_by_length()`，資料夾式與 zip 式兩條路都接，判準
+> 與拒寫理由重用 `write/common.py::_command_length_matches` 本尊。**殘餘**：
+> `raw_snapshot` 逐位元組那一層還沒接（改成一樣長的另一句仍會被蓋掉），沒有一起接
+> 的理由是 `_decode_command_leaf` 自己還帶著 #2 的缺陷——用一個已知壞掉的解碼器去
+> 守門，是拿一個真缺陷換一個假保護。
+>
+> **這一格真正的教訓是關於證據，不是關於那個 bug**：pinned 測試挑了一個最方便的
+> 例子，於是「測試是綠的」被讀成「行為是無害的」。釘住現狀的測試要挑**會痛的**例子。
+
+> **[2026-09-06] 整支分支 review 另外抓到兩個不在這四項裡的缺陷，都已修。**
+>
+> * **`.mcfunction` 在複數 `functions/` 目錄下完全隱形，且沒有任何計數器。**
+>   1.21 才改成單數 `function/`。[實測] `Arena of Darkness`（1.20.4）四個資料包共
+>   **120 個 `.mcfunction` 全部**在複數目錄底下，全部被跳過——連 glob 都掃不到，
+>   所以一個計數器都沒動，摘要跟「這張地圖沒有任何 function」逐位元組相同。
+>   （`sources/datapack.py` 對 advancement 目錄早就解過同一題，邏輯沒被抄過來。）
+>   MP2 沒暴露它是因為 MP2 的資料包用的是單數目錄。
+> * **`data merge` 的裸字串訊息被寫成異質 SNBT list。**
+>   `messages:["Hello","","",""]` 這個形狀原本走 translate key，splice 進一個 SNBT
+>   compound，產出的 `TAG_List` 元素型別不一致，遊戲的指令解析器吃不下——指令方塊
+>   寫得進磁碟、指令再也跑不動，而報告說 `unwritten: []`。**span 完全正確，錯的是
+>   型別。** MP2 沒暴露它是因為 MP2 的 21 個 `data merge` 訊息**全是原生 compound**
+>   （見上面 #2 那一格的同一個觀察）——同一個語料事實同時解釋了為什麼 #2 影響為 0、
+>   以及為什麼這個更嚴重的缺陷一次都沒被照到。**一張語料掃乾淨了，不等於形狀都走過
+>   一遍。**
+
 **第 4 個缺口（plumbing，非安全）— 已於 2026-09-05 修正**：`extract/emit.py` 與
 `cli/extract.py` 都補上了三個指令計數器（`skipped_command_unsupported_shape`／
 `…_nested_reference`／`…_line_continuation`）的轉接，使其出現在 `extract.json`
