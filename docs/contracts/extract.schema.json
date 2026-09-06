@@ -89,15 +89,18 @@
         },
         "skipped_command_unsupported_shape": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Command occurrences skipped because the verb is not on the whitelist (execute/function/summon/...), or because the whitelisted verb's argument could not be located or decoded into a text node. A deliberate skip, not a failure: v1 only translates shapes it has a tested write path for, and every skip is counted rather than silently dropped. Also covers `give`/`item` occurrences whose component key carries a namespace (`minecraft:custom_name=...`) — a known scan gap, see docs/STATUS.md."
         },
         "skipped_command_nested_reference": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Command occurrences skipped because the component tree contains a click_event whose run_command/suggest_command target is itself a whitelisted command with translatable text (the L3 case in the design spec §1). A deliberate skip, not a failure: translating the outer text would leave the nested command untranslated and editing both would need two coordinated splices into the same physical string. [實測] MP2 has 0 of these."
         },
         "skipped_command_line_continuation": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "`.mcfunction` lines skipped because they take part in a 1.20.2+ backslash line continuation — the continuing line itself plus the line it continues onto, counted once each. A deliberate skip, not a failure: a logical command split across physical lines has no single span to splice into, so v1 excludes the whole group. Comment and blank lines ending in a backslash do NOT trigger this (they cannot continue a command)."
         },
         "by_category": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
       }
