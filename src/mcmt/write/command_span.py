@@ -8,8 +8,24 @@ codec 解出來的；`_compose_replacement()` 沿著這條鏈由內往外組字�
 「值是一個字串常值、內容才是這段文字」，就多一次跳脫；每多一層「值本來就是
 原生 compound/list」，不需要跳脫，直接換方言序列化），最後只在鏈上**最後一個
 decode 步驟**記錄的絕對位移做一次替換。**這個函式完全不理解指令語法本身**
-——它只知道「這一段字串換成那一段字串」，安全網（會不會切壞指令）全靠 extract
-時 span 定位器抓對範圍。
+——它只知道「這一段字串換成那一段字串」。
+
+**安全網有兩條線，缺一條就漏。**
+
+1. **位置**：切在對的地方，靠 extract 時 span 定位器抓對範圍。
+2. **型別**：塞進去的東西型別要對。這條是 2026-09-06 補的——span 可以完全
+   正確而型別是錯的：把一棵 component 序列化成 SNBT compound、splice 進一個
+   元素全是字串的 `TAG_List`（`data merge` 最常見的告示牌形狀「一行字＋三行
+   空」），位移一個都沒錯，產出的卻是異質 list，而 `TAG_List` 在 NBT 格式層
+   帶單一元素型別 id，遊戲的指令解析器吃不下（CLAUDE.md 二節「NBT list 同
+   型」）。指令方塊被寫進磁碟、指令再也跑不動，報告卻說 `unwritten: []`。
+   所以 `_compose_replacement()` 依 `value.kind` 決定要不要包成 SNBT 字串
+   常值，而測試端有一條獨立的 `assert_command_reparses()`
+   （`tests/conftest.py`）對每一次 splice 的結果問「這還解得回來嗎」。
+
+`write/native.py::apply_to_list` 對**真的** NBT list 一直守著同型不變式（並計
+`list_promotions`）；指令 splice 這條路整個繞過那個寫入器，所以那份保護在這裡
+就是不在，必須自己重新長出來——CLAUDE.md 五節「舊範圍下碰巧成立的不變式」。
 
 **同一物理字串收到多筆 edit 時必須由後往前 splice**（`span_order()`）——改完
 前面那處，後面所有 span 的位移就失效了（`model/node.py` 的說明；[實測] 三層
@@ -86,6 +102,22 @@ def _compose_replacement(edit: dict[str, Any], decode_chain: list) -> str | None
         text = value["text"]
         refuse_residue(text)
         return text
+
+    if innermost == "snbt" and value is not None and value.get("kind") == "literal":
+        # **in_place 的 SNBT leaf：換掉字串常值的內容，不換掉它的型別。**
+        #
+        # 這一格對應 `data merge` 的訊息本來就是一句沒有格式的裸文字
+        # （`messages:["Hello","","",""]`）。它的兄弟元素還是字串，而 `TAG_List`
+        # 在 NBT 格式層帶單一元素型別 id——把一棵 component 序列化成 SNBT
+        # compound 塞進去，位移完全正確，產出的卻是遊戲解析不了的異質 list
+        # （CLAUDE.md 二節「NBT list 同型」）。所以這裡走的是「重新包一個 SNBT
+        # 字串常值」，list 維持全字串。
+        #
+        # 譯文在這裡是**資料不是語法**：`_snbt_string_literal` 負責把 `"` 與
+        # `\` 跳脫掉，不然譯文裡一個引號就提前閉合了常值。
+        text = value["text"]
+        refuse_residue(text)
+        return _snbt_string_literal(text)
 
     plain = component_for(value)
     if plain is None:
