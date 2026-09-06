@@ -199,9 +199,17 @@ def _snbt_string_literal(text: str) -> str:
 ```
 
 這是 `write/` 底下的檔案，照 CLAUDE.md §五**獨立 commit**，訊息寫明理由是
-M-command 遊戲實測推翻了雙引號方案。改完：
-- `tests/unit/test_command_span_write.py` 綁著雙引號預期字串的斷言會變紅，
-  **照新形式改斷言，不是把測試放寬**。
+M-command 遊戲實測推翻了雙引號方案。改完，下面這些綁著雙引號＋反斜線預期形式的
+測試會變紅，**照新形式改斷言，不是把測試放寬**：
+- `tests/unit/test_command_span.py::test_a_string_wrapped_json_leaf_is_re_escaped_correctly`
+  ——splice 的位移替換單元測試。
+- `tests/unit/test_command_span.py::test_a_bare_string_merge_message_escapes_quotes_and_backslashes`
+  與 `::test_a_bare_string_merge_message_stays_a_string_and_the_command_reparses`
+  ——C2（`48240ea`／`d0a09ce`）加的兩條裸字串 `data merge` 跳脫測試。
+- `tests/conftest.py::assert_command_reparses`——修正波加的重新解析輔助函式；
+  它按動詞挑解析器，改跳脫形式後要確認 `data merge` 那條回讀仍然通過。
+
+另外：
 - 同步更新 `docs/superpowers/specs/2026-09-05-command-text-design.md` §4／§9.3
   的 `[待驗]` 註記為 `[遊戲實測]` 並記錄結論。
 - `_snbt_string_literal` 的 docstring 把 `[待驗]` 換成 `[遊戲實測 M-command]`。
@@ -220,6 +228,32 @@ M-command 遊戲實測推翻了雙引號方案。改完：
 的回讀是合法 SNBT（從 `latest.log` 抓，不要抄聊天視窗）。這一步驗的是
 「整條三步鏈寫回後遊戲能解析」，跟 4a 驗的「解析器接不接受這個跳脫形式」
 是兩件事，兩件都要 PASS 才算 ④ 完成。
+
+### 4d. 裸字串 `data merge` 訊息（現在就能端到端驗，不等任何缺口）
+
+形式 A／B 都是**字串包裝 JSON**（缺口 #2 的形狀），管線目前拒寫，所以 4a–4c
+全都繞過管線在問解析器。但 C2（`d0a09ce`／`48240ea`）之後多了一條**現在就會
+在真實地圖上寫出去**的路徑：`messages[]` 的元素是一句**解不出 JSON 的裸文字**時
+（`messages:["中文","","",""]`——一行字＋三行空，最常見的告示牌形狀），這筆改走
+`command_say_text` → in_place，writer 用 `_snbt_string_literal` 把譯文包成一個
+SNBT 字串常值 splice 回去，list 維持全字串。**這條路徑前面沒有缺口**，extract →
+編輯 → apply 一路走得通。
+
+步驟：
+
+- 在一個指令方塊放
+  `data merge block SX SY SZ {front_text:{messages:["中文","","",""]}}`
+  （`中文` 換成任何解不出 JSON 的純文字，例如 `merge 裸字串來源`）。
+- 跑 extract／apply（第二節那套），把這筆的 `target` 填成可分辨的譯文
+  （例如 `裸字串翻譯成功`）。apply 摘要裡這筆**應該寫入、0 拒寫**——它不是
+  缺口 #2 的形狀，不會進 `unwritten`。
+- 進遊戲觸發那個指令方塊，確認：
+  - 告示牌正面第一行顯示 `裸字串翻譯成功`（直接是譯文，不是 `{translate:…}`）；
+  - `/data get block SX SY SZ front_text` 從 `latest.log` 讀回的是**合法 SNBT**
+    ——沒有紅字錯誤、沒有字面反斜線、`messages` 仍是四個字串。
+
+**這一格是 live 的，不是 deferred**：不像形式 A，它不需要 4c 的「缺口 #2 修好後」
+前提。PASS 就直接標 `[遊戲實測]` 寫回 `SPIKE_RESULT.md`。
 
 ---
 
