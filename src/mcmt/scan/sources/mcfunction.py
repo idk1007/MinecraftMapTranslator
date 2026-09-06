@@ -8,8 +8,13 @@
 function」一模一樣。這與 `sources/datapack.py::_ADVANCEMENT_DIR_NAMES` 是同一題、
 同一個解法，兩邊要一起看。
 
-**datapack 可以是資料夾也可以是 zip 檔，兩種都要支援**，而且兩種必須是**同一條
-規則**（[實測] `Arena of Darkness` 全部是 zip）。
+**datapack 可以是資料夾也可以是 zip 檔，兩種都要支援**，兩邊瞄準的是**同一條
+規則**（[實測] `Arena of Darkness` 全部是 zip）。**一個已知的不對稱**：資料夾式
+用 `pack_dir.glob(...)`，在不分大小寫的檔案系統（Windows／macOS 預設）上是不分
+大小寫的，而 zip 式的 `_is_function_entry` 用 `parts[2] in _FUNCTION_DIR_NAMES`
+是分大小寫的——所以 `data/n/Functions/x.mcfunction` 這種怪大小寫的目錄名，資料夾
+式會多收、zip 式會略過。這是從 `datapack.py` 繼承來的既有現象（單數名也一樣），
+無害：遊戲本身也不載入大小寫不對的 datapack 目錄，這裡不修。
 
 物理字串單位是**一行**，不是整個檔案（見
 docs/superpowers/specs/2026-09-05-command-text-design.md §6）。換行符全程當
