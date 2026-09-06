@@ -7,11 +7,14 @@
 
 import gzip
 import json
+from pathlib import Path
 
 import amulet_nbt
 from conftest import RegionBuilder, modern_chunk, write_region_file
 
 from mcmt.cli.__main__ import main
+from mcmt.cli.extract import format_result
+from mcmt.extract.build import ExtractResult
 
 
 def sign(*lines, x=1, y=2, z=3):
@@ -159,3 +162,112 @@ def test_a_corrupt_level_dat_is_reported_not_silently_ignored(project, capsys) -
 
     extract = json.loads((out_dir(project, "corrupt") / "extract.json").read_text("utf-8"))
     assert extract["stats"]["skipped_level_dat"] == 1
+
+
+# --- format_result()：摘要渲染器本身 ---------------------------------------
+#
+# 這個函式在 2026-09-06 之前**一條測試都沒有**（`grep -rn format_result tests/`
+# 什麼都找不到）。它是使用者唯一看得到的東西：跳過了多少節點、為什麼跳過，全靠
+# 它印出來。一個沒被印出來的計數器，跟那個節點根本沒被掃到，對使用者是同一件事。
+#
+# `cli/extract.py` 對 `stats` 做的是**裸鍵查詢**（`stats["skipped_command_…"]`），
+# 而 `docs/contracts/extract.schema.json` 的 `stats` 刻意沒有 `required` 清單。
+# 今天 `extract/emit.py` 一定會寫這三個鍵，所以會動；這幾條測試就是釘住「一定會
+# 寫」這件事，而不是去合約裡加一個選擇性的 `required`（那會跟其他欄位不一致）。
+
+
+def _summary(**stat_overrides) -> dict:
+    """一份最小但**欄位齊全**的 summary——刻意不用 `Counter` 當 `extract.stats`。
+
+    `Counter` 對缺鍵回傳 0，用它當 fixture 的話「渲染器查了一個 emit 根本沒寫的
+    鍵」這種 bug 會被靜默吸收掉，測試永遠是綠的。這裡用普通 `dict`，少一個鍵就
+    `KeyError`——這正是我們要它會痛的地方。
+    """
+    stats = {
+        "unit_count": 3,
+        "occurrence_count": 5,
+        "deduped_count": 2,
+        "by_category": {"sign_text": 3},
+        "skipped_legacy_json_in_native_chunk": 0,
+        "skipped_unparseable": 0,
+        "skipped_already_localised": 0,
+        "skipped_command_unsupported_shape": 0,
+        "skipped_command_nested_reference": 0,
+        "skipped_command_line_continuation": 0,
+    }
+    stats.update(stat_overrides)
+    result = ExtractResult(chunks=7, text_nodes=9)
+    # `result.stats` 在真實產物裡就是 `Counter`（`ExtractResult` 的預設），這裡
+    # 照原樣，只有 `extract["stats"]` 那半刻意換成嚴格的 dict。
+    return {
+        "world": Path("sandbox") / "w",
+        "out": Path("sandbox") / ".mcmt-out" / "w",
+        "language": "zh_tw",
+        "result": result,
+        "extract": {"stats": stats},
+        "translations_path": Path("sandbox") / ".mcmt-out" / "w" / "translations.zh_tw.json",
+    }
+
+
+def test_format_result_renders_the_three_command_skip_lines_when_they_are_non_zero() -> None:
+    """三個指令 skip 計數器不是 0 的時候，摘要必須印出中文標籤。
+
+    它們是「刻意跳過」而不是「失敗」，但**看不見的刻意跳過等於漏抽**——使用者
+    要能從摘要看出「這張地圖有 2,613 個 mcfunction，其中這麼多條的動詞不在
+    白名單」。
+    """
+    text = format_result(
+        _summary(
+            skipped_command_unsupported_shape=12,
+            skipped_command_nested_reference=3,
+            skipped_command_line_continuation=7,
+        )
+    )
+
+    assert "指令動詞不在白名單或形狀轉不出去" in text
+    assert "指令巢狀引用另一條指令（L3，未支援）" in text
+    assert "指令行尾反斜線延續（1.20.2+ 語法，未支援）" in text
+    # 數字本身也要在，而且是千分位格式（跟其他行一致）。
+    assert "12" in text and "3" in text and "7" in text
+
+
+def test_format_result_omits_the_command_skip_lines_when_they_are_zero() -> None:
+    """0 的時候不印——`if n` 過濾器。一張沒有指令文字的地圖不該被三行
+    「跳過 0 個」洗版，那會讓真正有數字的那幾行更難被看到。"""
+    text = format_result(_summary())
+
+    assert "指令動詞不在白名單" not in text
+    assert "指令巢狀引用另一條指令" not in text
+    assert "指令行尾反斜線延續" not in text
+    # 整個「跳過的節點」區塊在全部都是 0 的時候根本不該出現。
+    assert "跳過的節點" not in text
+
+
+def test_format_result_always_renders_the_things_the_user_needs_next() -> None:
+    """摘要的另一半職責：告訴使用者**下一步做什麼**。這幾行沒了，使用者拿到
+    三個檔案卻不知道該編輯哪一個。"""
+    summary = _summary()
+    text = format_result(summary)
+
+    assert str(summary["world"]) in text
+    assert "translations.zh_tw.json" in text
+    assert "編輯這個檔案" in text
+    assert "mcmt apply" in text
+    assert "翻譯單位：3 個" in text
+
+
+def test_format_result_does_not_swallow_a_missing_stats_key() -> None:
+    """**這條測試守的是這份 fixture 本身。**
+
+    合約的 `stats` 沒有 `required` 清單，渲染器卻做裸鍵查詢——今天成立是因為
+    `extract/emit.py` 一定會寫。如果哪天有人把某個鍵從 emit 拿掉，這裡要爆炸而
+    不是印出一份少一行的摘要。用 `Counter` 當 fixture 就會把它吸收掉，所以這條
+    測試把「少一個鍵會痛」這件事本身釘起來。
+    """
+    import pytest
+
+    summary = _summary()
+    del summary["extract"]["stats"]["skipped_command_nested_reference"]
+
+    with pytest.raises(KeyError):
+        format_result(summary)
