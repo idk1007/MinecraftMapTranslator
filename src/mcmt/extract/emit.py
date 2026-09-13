@@ -80,6 +80,14 @@ def build_extract_document(
                 "skipped_non_collapsible_in_place"
             ],
             "skipped_already_localised": result.stats["skipped_already_localised"],
+            # **不支援的世界結構也要有數字。** [實測] `Against Iskerside
+            # [1.21.11]`（2026-09-06）是混合世代地圖，1,519 個 chunk 有 1.12
+            # 的 `Level` 包裝層——`scan/sources/region.py`／`entities.py` 早就
+            # 會跳過並繼續掃描其餘部分，但這個決定完全不會反映在這裡；一份看起
+            # 來完整的 `extract.json` 底下可能有大量 chunk 從未被掃到。
+            "skipped_unsupported_structure": result.stats[
+                "skipped_unsupported_structure"
+            ],
             # **讀不下去的來源檔也要有數字。** 這幾個計數器原本只活在
             # `result.stats` 裡，沒有任何一條路把它們帶到使用者眼前——一個壞掉
             # 的 `level.dat` 產出的報告和「這個世界沒有東西可翻」一模一樣，那是

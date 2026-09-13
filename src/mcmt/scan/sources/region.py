@@ -45,7 +45,7 @@ from typing import Any, Iterator
 
 import amulet_nbt
 
-from mcmt.errors import FormatError
+from mcmt.errors import FormatError, UnsupportedWorldStructureError
 from mcmt.model.node import NodePath, index_step, key_step
 from mcmt.nbtio.region import read_region, region_files
 from mcmt.nbtio.structure import ensure_supported_structure, load_chunk_root
@@ -192,6 +192,18 @@ def scan(world: ReadOnlyPath, stats: Counter) -> Iterator[ScannedNode]:
                 try:
                     root = load_chunk_root(raw)
                     data_version = ensure_supported_structure(root, chunk_index=raw.index)
+                except UnsupportedWorldStructureError:
+                    # **不是「壞掉」，是「認得出來、v1 不支援」**（CLAUDE.md 二節
+                    # 「v1 拒絕處理的世界結構」）。與真正損毀的 chunk（磁區偏移
+                    # 錯誤、未知壓縮類型）共用 `skipped_chunk` 會讓兩種完全不同
+                    # 意義的事情變成同一個數字——一張混合世代的地圖（[實測]
+                    # `Against Iskerside [1.21.11]`，2026-09-06）因此靜默漏翻
+                    # 1,519 個 chunk，`extract.json` 卻完全看不出來。分開計數
+                    # 才有辦法接進 `extract.json` 讓使用者看見（`doctor` 早就
+                    # 看得到，只是遇到就直接拒絕整個世界；`extract`／`apply`
+                    # 目前是跳過單一 chunk 並繼續，這裡先讓「跳過了什麼」誠實）。
+                    stats["skipped_unsupported_structure"] += 1
+                    continue
                 except (FormatError, amulet_nbt.NBTLoadError):
                     stats["skipped_chunk"] += 1
                     continue

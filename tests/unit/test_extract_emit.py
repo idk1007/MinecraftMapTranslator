@@ -11,7 +11,7 @@ from pathlib import Path
 
 import amulet_nbt
 import pytest
-from conftest import RegionBuilder, modern_chunk, write_region_file
+from conftest import RegionBuilder, legacy_chunk, modern_chunk, write_region_file
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 
@@ -441,6 +441,23 @@ def test_the_new_skip_counters_reach_the_extract_document(tmp_path) -> None:
     assert extract["stats"]["skipped_datapack_zip"] == 2
     assert extract["stats"]["skipped_advancement_unparseable"] == 0
     assert extract["stats"]["skipped_advancement_shape"] == 0
+
+
+def test_the_unsupported_structure_count_reaches_the_extract_document(tmp_path) -> None:
+    """同一個回歸再一次：[實測] `Against Iskerside [1.21.11]`（2026-09-06）是一張
+    混合世代的地圖，1,519 個 chunk 有 1.12 的 `Level` 包裝層。`scan/sources/
+    region.py` 早就會跳過這種 chunk 並繼續掃描其餘部分（沒有這一步的話，
+    `doctor` 就該拒絕整個世界了），但那個決定此前完全不會反映在 `extract.json`
+    ——使用者看到的摘要和「這張地圖每個 chunk 都掃到了」一模一樣。"""
+    world = tmp_path / "mixed_generation"
+    write_region_file(
+        world / "region",
+        RegionBuilder().add_chunk_nbt(0, legacy_chunk()).add_chunk_nbt(1, modern_chunk()).build(),
+    )
+
+    result, extract, _ = documents(world)
+
+    assert extract["stats"]["skipped_unsupported_structure"] == 1
 
 
 def test_the_command_stats_reach_the_extract_document(tmp_path) -> None:

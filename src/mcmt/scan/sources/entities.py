@@ -28,7 +28,7 @@ from typing import Any, Iterator
 
 import amulet_nbt
 
-from mcmt.errors import FormatError
+from mcmt.errors import FormatError, UnsupportedWorldStructureError
 from mcmt.model.node import NodePath, index_step, key_step
 from mcmt.nbtio.region import entities_files, read_region
 from mcmt.nbtio.structure import ensure_supported_structure, load_chunk_root
@@ -67,6 +67,11 @@ def scan(world: ReadOnlyPath, stats: Counter) -> Iterator[ScannedNode]:
                 try:
                     root = load_chunk_root(raw)
                     data_version = ensure_supported_structure(root, chunk_index=raw.index)
+                except UnsupportedWorldStructureError:
+                    # 與 `sources/region.py` 同一個理由：不是「壞掉」，是「認得出
+                    # 來、v1 不支援」，不該混進真正損毀 chunk 的計數器。
+                    stats["skipped_unsupported_structure"] += 1
+                    continue
                 except (FormatError, amulet_nbt.NBTLoadError):
                     stats["skipped_chunk"] += 1
                     continue

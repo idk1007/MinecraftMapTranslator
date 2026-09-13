@@ -100,6 +100,14 @@ def format_result(summary: dict) -> str:
         ("JSON 解析失敗", stats["skipped_unparseable"]),
         ("已在地化（地圖自己的 translate key，翻了會蓋掉別人做好的多語言支援）",
          stats["skipped_already_localised"]),
+        # **警告後仍可繼續，但要讓使用者看得到。** 混合世代地圖（[實測]
+        # `Against Iskerside [1.21.11]`，2026-09-06）裡 v1 不支援的舊結構
+        # chunk（`doctor` 會拒絕整個世界的那三種：1.12 `Level` 包裝層、
+        # `Text1..Text4`、缺 `DataVersion`）——這裡選擇跳過那些 chunk 並繼續
+        # 掃描其餘部分，而不是像 `doctor` 一樣直接拒絕整個世界。這個數字不是 0
+        # 時，代表地圖裡有這麼多個 chunk 完全沒被掃到、翻不到。
+        ("不支援的世界結構（1.12 舊格式，這幾個 chunk 完全沒被掃到）",
+         stats["skipped_unsupported_structure"]),
         ("空白節點", result.stats["skipped_empty"]),
         # **讀不下去的來源檔要看得見。** 這幾行不在的時候，一個壞掉的
         # `level.dat` 印出來的摘要和「這個世界沒有東西可翻」一模一樣——使用者

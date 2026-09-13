@@ -191,6 +191,7 @@ def _summary(**stat_overrides) -> dict:
         "skipped_legacy_json_in_native_chunk": 0,
         "skipped_unparseable": 0,
         "skipped_already_localised": 0,
+        "skipped_unsupported_structure": 0,
         "skipped_command_unsupported_shape": 0,
         "skipped_command_nested_reference": 0,
         "skipped_command_line_continuation": 0,
@@ -233,6 +234,20 @@ def test_format_result_renders_the_three_command_skip_lines_when_they_are_non_ze
     assert "12" in line_with("指令動詞不在白名單或形狀轉不出去")
     assert "3" in line_with("指令巢狀引用另一條指令（L3，未支援）")
     assert "7" in line_with("指令行尾反斜線延續（1.20.2+ 語法，未支援）")
+
+
+def test_format_result_warns_about_skipped_unsupported_structure_chunks() -> None:
+    """**Against Iskerside 的重現。** 這個計數器不是 0 時，代表這張地圖是混合
+    世代——`doctor` 會拒絕整個世界，但 `extract`／`apply` 選擇跳過那些 chunk
+    並繼續（使用者要的是「警告後仍可繼續」，不是強制中止），所以警告只能靠
+    這一行印出來；沒有它，使用者拿到的摘要和「整個世界都掃到了」一模一樣，
+    而地圖裡有幾百上千個 chunk 從未被翻譯過。"""
+    text = format_result(_summary(skipped_unsupported_structure=1519))
+
+    def line_with(label: str) -> str:
+        return next(ln for ln in text.splitlines() if label in ln)
+
+    assert "1,519" in line_with("不支援的世界結構")
 
 
 def test_format_result_omits_the_command_skip_lines_when_they_are_zero() -> None:

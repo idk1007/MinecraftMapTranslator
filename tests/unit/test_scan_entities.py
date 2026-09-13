@@ -13,7 +13,13 @@ import zlib
 from collections import Counter
 
 import amulet_nbt
-from conftest import RegionBuilder, modern_chunk, set_offset_entry, write_region_file
+from conftest import (
+    RegionBuilder,
+    legacy_chunk,
+    modern_chunk,
+    set_offset_entry,
+    write_region_file,
+)
 
 from mcmt.safety.paths import ensure_readable
 from mcmt.scan.sources.entities import scan, scan_entities_chunk
@@ -227,3 +233,27 @@ def test_scan_entities_chunk_still_works_without_stats_for_backward_compatibilit
     nodes = list(scan_entities_chunk(root))
 
     assert any(n.category == "command_say_text" for n in nodes)
+
+
+def test_a_level_wrapper_chunk_is_counted_separately_from_generic_corruption(
+    tmp_path,
+) -> None:
+    """與 `tests/unit/test_scan_region.py` 同名測試同一個回歸——`entities/` 這一側
+    的 `ensure_supported_structure` 拒絕也要跟真正損毀的 chunk 分開計數，不然
+    `skipped_chunk` 一樣看不出「有多少實體因為舊結構被跳過」。"""
+    world = tmp_path / "world"
+    write_region_file(
+        world / "entities",
+        RegionBuilder()
+        .add_chunk_nbt(0, legacy_chunk())
+        .add_chunk_nbt(1, modern_chunk())
+        .build(),
+    )
+    stats = Counter()
+
+    found = list(scan(ensure_readable(world), stats))
+
+    assert stats["entity_chunks"] == 1
+    assert stats["skipped_unsupported_structure"] == 1
+    assert stats["skipped_chunk"] == 0
+    assert found == []

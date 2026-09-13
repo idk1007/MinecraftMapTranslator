@@ -9,12 +9,15 @@
 """
 
 import json
+from collections import Counter
 from pathlib import Path
 
 import amulet_nbt
 import pytest
+from conftest import RegionBuilder, legacy_chunk, modern_chunk, write_region_file
 
-from mcmt.scan.sources.region import scan_chunk
+from mcmt.safety.paths import ensure_readable
+from mcmt.scan.sources.region import scan, scan_chunk
 
 CONTRACTS = Path(__file__).resolve().parents[2] / "docs" / "contracts"
 
@@ -326,3 +329,36 @@ def test_a_command_block_yields_a_command_text_node() -> None:
 def test_scan_chunk_still_works_without_stats_for_backward_compatibility() -> None:
     nodes = list(scan_chunk(_chunk_with_command_block("say hi")))
     assert any(n.category == "command_say_text" for n in nodes)
+
+
+def test_a_level_wrapper_chunk_is_counted_separately_from_generic_corruption(
+    tmp_path,
+) -> None:
+    """`ensure_supported_structure` 拒絕的 chunk（1.12 `Level` 包裝層、
+    `Text1..Text4`、缺 `DataVersion`）此前跟磁區偏移錯誤、未知壓縮類型這些
+    **真正壞掉**的 chunk 共用同一個 `skipped_chunk` 計數器——兩者對使用者的
+    意義完全不同：後者是資料真的讀不下去，前者是**我們認得出這是什麼、只是
+    v1 不支援**（CLAUDE.md 二節「v1 拒絕處理的世界結構」）。共用一個計數器時，
+    一張混合世代的地圖（`Against Iskerside [1.21.11]`，[實測] 2026-09-06）
+    静默漏翻 1,519 個 chunk，`extract.json` 卻完全看不出來——這正是
+    `skipped_legacy_json_in_native_chunk` 已經解決過的同一類問題，只是輪到
+    這裡還沒補上。這裡先鎖住掃描層要能區分兩者；`extract.json`／CLI 摘要要不要
+    印出來是下一步。"""
+    world = tmp_path / "world"
+    write_region_file(
+        world / "region",
+        RegionBuilder()
+        .add_chunk_nbt(0, legacy_chunk())
+        .add_chunk_nbt(1, modern_chunk())
+        .build(),
+    )
+    stats = Counter()
+
+    found = list(scan(ensure_readable(world), stats))
+
+    assert stats["chunks"] == 1, "現代 chunk（index 1）仍要被掃到"
+    assert stats["skipped_unsupported_structure"] == 1
+    assert stats["skipped_chunk"] == 0, (
+        "不支援的結構不是「壞掉」——不該混進真正損毀 chunk 的計數器"
+    )
+    assert found == []  # 兩棵 chunk 都沒有可翻文字，這裡只驗證計數器分得開

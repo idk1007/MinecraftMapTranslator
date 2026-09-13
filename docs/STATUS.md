@@ -3,7 +3,44 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-09-06**（**「command text」整支分支 review 後的修正波。**
+最後更新：**2026-09-13**（**`Against Iskerside [1.21.11]` 翻譯失敗事後檢查，兩個修正。**
+使用者實際拿一張地圖跑壞了，回頭查出兩個獨立缺陷：
+
+**(1) 指令文字漏了 M13b 的「已在地化就跳過」守門**（`scan/command.py`）。
+`data merge entity … {text:{color:black,translate:"text.iskerside.news1.text"}}`
+這類指令——`text` 是 text_display 的**欄位名**，值是一棵指向地圖自己在地化系統
+（它自帶 en_us/ru_ru 語言檔＋`text.iskerside.*` key）的 component。`_yield_tag`
+（四個 yield 路徑的收斂點）原本只擋 L3 巢狀指令引用，沒擋 translate 節點；
+build.py 的同名守門走的是**攤平後的骨架**，看不到被 `text` 這層外殼藏起來的
+`translate`——攤平時巢狀 compound 被直接 `str()` 掉。後果：23 個
+`command_component_text` 單位被抽成 Python dict 的字串化，apply 後把地圖原本
+的多語言支援靜默蓋掉。修法：`_yield_tag` 加一個遞迴版 `_contains_translate`，
+任何一處有 `translate` 節點就跳過、計入 `skipped_already_localised`（重用既有
+計數器，不動合約）。commit `a06b3bb`。
+
+**(2) 不支援的世界結構被 `extract`／`apply` 靜默吞掉，`doctor` 卻整個拒絕**。
+這張地圖同時暴露了另一件事：它是 1.20 世代地圖被 1.21.11 開過，`DataVersion`
+橫跨 3218～4671，1,519 個 chunk 還帶 1.12 的 `Level` 包裝層。`doctor` 正確地
+拒絕整個世界，但 `scan/sources/region.py`／`entities.py` 對這種
+`UnsupportedWorldStructureError` 原本跟磁區偏移錯誤、未知壓縮類型這些**真正
+損毀**的 chunk 共用同一個 `skipped_chunk` 計數器，而且這個計數器根本沒被接進
+`extract.json`——使用者上次那次「apply 成功」的報告完全沒有任何跡象顯示有
+1,519 個 chunk 從未被掃到。
+
+> **討論後決定：不讓 `extract`／`apply` 也跑 doctor 那道拒絕整個世界的閘門**
+> ——使用者明確要「警告後仍可繼續」，不要強制中止（之後會做一個更精簡的使用者
+> 輸入包裝層，那個閘門要不要做成硬性中止是那時候的設計決定，不是現在）。
+> 所以這裡做的是**讓警告可見**，不是**擋下**：
+> `UnsupportedWorldStructureError` 現在有自己的計數器 `skipped_unsupported_structure`
+> （與 `skipped_chunk` 分開），接進 `extract.json` 的 `stats` 與 `mcmt extract`
+> 的 CLI 摘要（「不支援的世界結構（1.12 舊格式，這幾個 chunk 完全沒被掃到）」）。
+> 這個決定是**有條件的**：如果將來的包裝層設計改成「doctor 拒絕就整個流程中止
+> 不給使用者選」，或者允許裸指令繞過包裝層直接跑 `extract`，這個「跳過但可見」
+> 的設計就不夠了，要重新考慮在函式庫層強制拒絕。
+
+886 passed（+4）／contracts 48 passed。
+
+前一次更新：**2026-09-06**（**「command text」整支分支 review 後的修正波。**
 review 判定「修完可以合併」，兩個不在既有四個已知缺口裡的缺陷已修：**(C1)**
 `.mcfunction` 在 1.20 及以前的**複數 `functions/`** 目錄下完全隱形且沒有任何
 計數器（[實測] `Arena of Darkness` 120 個檔案全在複數目錄，摘要跟「這張地圖
