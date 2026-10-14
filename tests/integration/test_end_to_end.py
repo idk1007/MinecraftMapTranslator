@@ -142,11 +142,9 @@ def old_format_region():
 # 順便驗到 entities 容器這一側。
 #
 # **這裡刻意不用「字串包裝 JSON」的訊息形狀**（單引號或雙引號字串常值包一段
-# 轉義過的 JSON，例如 MP2 語料裡 `'""'` 那種）——Task 11 過這條端到端鏈路時
-# 發現 `write/common.py::_decode_command_leaf` 對這個子形狀的重新解碼是壞的
-# （見下面 `test_a_json_string_wrapped_merge_message_is_a_known_write_gap`），
-# 用它會讓這裡的 fixture 帶著一個目前寫不進去的 edit，把本來要驗證「L2 這格
-# 能走通」的測試變成在驗證一個已知缺口。
+# 轉義過的 JSON，例如 MP2 語料裡 `'""'` 那種）——那個形狀在 1.21.11 是字面亂碼，
+# 掃描端跳過不抽（2026-10-14 缺口 B 的裁定，見下面
+# `test_a_json_string_wrapped_merge_message_is_skipped_not_translated`）。
 CMD_L2_MERGE = (
     "data merge block ~ ~-1 ~-1 {front_text:{messages:["
     '{text:"TT_CMDBLOCK_MERGE_TEXT"},{text:""},{text:""},{text:""}'
@@ -999,51 +997,58 @@ def test_no_command_edit_is_refused_for_an_unsupported_encoding(round_trip) -> N
     assert [item for item in unwritten if item["reason"] == "unsupported_encoding"] == []
 
 
-def test_a_json_string_wrapped_merge_message_is_a_known_write_gap() -> None:
-    """**已知缺口，Task 11 端到端才照出來，不在本任務授權修改的檔案清單裡
-    （`write/common.py` 屬於 CLAUDE.md 安全規則要求獨立 commit 的目錄）。**
+def test_a_json_string_wrapped_merge_message_is_skipped_not_translated() -> None:
+    """**缺口 B 的裁定（2026-10-14）：這個形狀不抽、不寫。**
 
     `data merge` 目標告示牌的訊息若是**字串包裝 JSON**（單引號或雙引號字串
-    常值包一段轉義過的 JSON——CLAUDE.md 二節「舊式 JSON 也可能出現在 SNBT
-    裡」的那個形狀，MP2 語料的 `'""'` 就是這一類的空訊息版本），`decode_chain`
-    是三步 `command → snbt → json_component`。
+    常值包一段 JSON，MP2 語料的 `'""'` 是它的空訊息版本），在 1.21.11 是
+    **字面亂碼**：[遊戲實測 M0-3] 當初就是用 `/data merge block` 寫入
+    `messages:['{"translate":…}', '""', …]`，遊戲顯示字面文字。
 
-    `write/common.py::_decode_command_leaf` 只看鏈上**最後一步**的 codec，對
-    `json_component` 一律直接 `json.loads(原始 span 文字)`——但那段 span 文字
-    是 SNBT 字串常值本身（含引號，可能還帶跳脫），不是已經被 SNBT 解開過的
-    JSON 內容。單引號字串（MP2 那種）直接 JSON 解析失敗，整筆被拒寫成
-    `unsupported_encoding`；雙引號字串（`tests/unit/test_scan_command.py` 自己
-    的測試樣本用的那種）恰好因為 JSON 也用雙引號跳脫，`json.loads` 語法上
-    「解析成功」，但解出來的是**一個字串**（`'{"text":"Hello"}'` 這串文字
-    本身），不是那個 JSON 物件——`_guarded_encoding` 拿它的嗅探結果
-    （`json_string_object`）跟 `expected_encoding`（`text_compound`）比對，
-    形狀對不上，一樣被拒寫成 `node_changed`。兩種引號風格都走不通，只是拒寫
-    的理由不同，所以這裡兩種都接受。
+    這條測試原本叫 `test_a_json_string_wrapped_merge_message_is_a_known_write_gap`，
+    釘的是「`_decode_command_leaf` 讀不回 `command → snbt → json_component`
+    三步鏈，所以拒寫」，當時的修法方向是讓寫入層讀得回來。那個方向會把一個
+    亂碼換成另一個亂碼，所以改成在掃描端跳過並計入
+    `skipped_legacy_json_in_native_chunk`（CLAUDE.md 二節「native chunk 裡的
+    舊式 JSON 一律跳過」，同一個理由、同一個計數器）。
 
-    這裡釘住現狀：這筆合法、沒被使用者動過的翻譯被拒寫了。修法方向：
-    `_decode_command_leaf` 在鏈上出現 `snbt` 接著 `json_component` 時，該先用
-    `snbt` codec 把外層的字串常值解開拿到內容，再對內容跑 `json_component`
-    ——跟 `command_span.py::_compose_replacement` 寫入時的反向邏輯對稱（它靠
-    `codecs[-2] == "snbt"` 判斷要不要包一層 SNBT 字串常值）。
+    兩件事都要成立：
+
+    1. **掃描端不產生這個單位**——主線防線。
+    2. **寫入端照舊拒寫**這種三步鏈 edit（裁定之前產生的舊 editplan）——
+       `_decode_command_leaf` 讀不回它，守門拒寫成 `unsupported_encoding`
+       或 `node_changed`。這不是缺陷了，是兜底。
     """
     from collections import Counter
 
-    from mcmt.model.node import NodePath, key_step
+    from mcmt.model.node import NodePath, decode_step, key_step
     from mcmt.scan.command import scan_command_string
     from mcmt.write.common import ApplyOutcome, apply_edits
 
     cmd = 'data merge block ~ ~ ~ {messages:[\'{"text":"Hello"}\']}'
     stats: Counter = Counter()
-    (node,) = list(
+    nodes = list(
         scan_command_string(
             cmd, base_path=NodePath([key_step("Command")]), anchor=None, stats=stats
         )
+    )
+
+    assert nodes == []
+    assert stats["skipped_legacy_json_in_native_chunk"] == 1
+
+    arg_start = cmd.index("{")
+    leaf_start = cmd.index("'")
+    path = (
+        NodePath([key_step("Command")])
+        .child(decode_step("command", span=(0, len(cmd))))
+        .child(decode_step("snbt", span=(arg_start, len(cmd))))
+        .child(decode_step("json_component", span=(leaf_start, cmd.index("']") + 1)))
     )
     edit = {
         "occurrence_id": "o:00001",
         "unit_id": "u:command_component_text:cccccccccccccccc",
         "container": {"kind": "region_chunk", "path": "r.0.0.mca", "data_version": 4671},
-        "node_path": [step.to_json() for step in node.path],
+        "node_path": [step.to_json() for step in path],
         "expected_encoding": "text_compound",
         "value": {
             "kind": "translate",
@@ -1058,6 +1063,7 @@ def test_a_json_string_wrapped_merge_message_is_a_known_write_gap() -> None:
     written = apply_edits(root, [edit], outcome)
 
     assert written == 0
+    assert str(root["Command"]) == cmd
     assert [item["reason"] for item in outcome.unwritten] in (
         ["unsupported_encoding"],
         ["node_changed"],

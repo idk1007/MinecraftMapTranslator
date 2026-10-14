@@ -15,6 +15,7 @@ from typing import Any, Iterator
 
 import amulet_nbt
 
+from mcmt.model.component import Encoding, sniff
 from mcmt.model.node import NodePath, decode_step
 from mcmt.scan.node import TextNode
 from mcmt.scan.sources.datapack import _to_amulet
@@ -34,6 +35,16 @@ LINE_CONTINUES = "line_continuation"
 _SAY_VERBS = ("say", "me")
 _CLICK_ACTIONS = {"run_command", "suggest_command"}
 _COMPONENT_VERBS = {"tellraw", "title", "bossbar", "scoreboard", "data", "give", "item"}
+# 與 `extract/build.py::_LEGACY_JSON` 同一組形狀。不 import 那份：掃描層不依賴
+# extract 層（`docs/ownership.md`）。
+_LEGACY_JSON = frozenset(
+    {
+        Encoding.JSON_STRING_OBJECT,
+        Encoding.JSON_STRING_ARRAY,
+        Encoding.JSON_STRING_SCALAR,
+        Encoding.JSON_EMPTY_QUOTED,
+    }
+)
 
 
 def scan_command_string(
@@ -231,15 +242,12 @@ def _yield_tag(
     `_yield_message` 的兩個分支）共用同一份收尾邏輯。
 
     `steps` 是接在 `("command", 整條文字)` 這個固定第一步之後的 decode 步驟
-    序列，`(codec_name, span)` 依序排列。**大多數呼叫端只有一步**（這段文字
-    只被解碼過一次）；`_yield_message` 的「SNBT 字串包裝 JSON」分支需要兩步
-    ——先標記「這裡進了一層 SNBT」（span 是整個 SNBT 引數，不是這個 leaf
-    自己的位置，純粹記錄「此處是 SNBT 方言」這件事，不是 splice 目標），再
-    標記「這裡面的字串內容又被當 JSON 解了一次」（span 才是這個 leaf 自己的
-    位置，是真正的 splice 目標）。`NodePath.last_span`／`span_order()` 只看
-    **最後一個** decode 步驟的 span，所以不管 steps 有幾個，排序用的座標永遠
-    是最後一步、也就是這個 leaf 自己的位置，不會被中間那個「純標記用」的步驟
-    污染。
+    序列，`(codec_name, span)` 依序排列。目前每個呼叫端都只有一步（這段文字
+    只被解碼過一次）。曾經有一個兩步的呼叫端——`_yield_message` 的「SNBT
+    字串包裝 JSON」分支（`("snbt", arg_span)` 標記方言、`("json_component",
+    leaf_span)` 才是 splice 目標）——2026-10-14 缺口 B 的裁定把那個形狀改成
+    跳過不抽。`NodePath.last_span`／`span_order()` 只看**最後一個** decode
+    步驟的 span，所以這裡收 list 的介面仍然成立。
 
     `category` 預設是 `command_component_text`（走 translate key）。唯一的例外
     是 `_yield_message` 的裸字串分支——見那裡的說明，它必須走 in_place。"""
@@ -407,33 +415,33 @@ def _yield_message(
     也可能是一個字串常值、內容剛好是一段跳脫過的 JSON（CLAUDE.md 二節的舊式
     JSON 形狀，只是這次出現在指令字串的 SNBT 裡而不是 chunk 的 NBT 裡）。
 
-    兩種形狀記錄的 decode 步驟數不同：原生 compound 只需要一步
-    `("snbt", leaf_span)`——這個節點本來就活在 SNBT 文件裡，沒有多一層編碼。
-    字串包裝 JSON 需要兩步：`("snbt", arg_span)` 先標記「這裡是 SNBT 方言的
-    地盤」（span 用整個 SNBT 引數，純粹標記方言、不是 splice 目標），再
-    `("json_component", leaf_span)` 標記「這個字串常值的內容又被當 JSON 解了
-    一次」（span 才是這個 leaf 自己的位置）。寫回層要分辨這兩種形狀——native
-    的可以直接用 SNBT 語法序列化，字串包裝的要先跳脫成字串常值再 splice
-    （design doc §4）——只看 decode 步驟數量／中間有沒有一個額外的 `snbt`
-    標記步驟就能分辨，不需要另外存一個旗標。"""
+    三種形狀，三種處理：
+
+    - 原生 compound：一步 `("snbt", leaf_span)`，走 translate key。
+    - 字串常值、嗅探成舊式 JSON：**跳過**，計入
+      `skipped_legacy_json_in_native_chunk`（理由見函式內的註解）。原本記成
+      `snbt → json_component` 三步鏈走 translate key（design doc §4），
+      2026-10-14 缺口 B 的裁定推翻了它。
+    - 字串常值、其餘（字面文字）：一步 `("snbt", leaf_span)`，走 in_place。"""
     if isinstance(message, amulet_nbt.StringTag):
-        content = str(message)
-        try:
-            value = codec_for("json_component").decode(content)
-        except Exception:
-            pass
-        else:
-            tag = _to_amulet(value)
-            yield from _yield_tag(
-                text,
-                [("snbt", arg_span), ("json_component", leaf_span)],
-                tag,
-                base_path,
-                anchor,
-                stats,
-            )
+        shape = sniff(message)
+        if shape.encoding in _LEGACY_JSON and shape.problem is None:
+            # **字串包裝 JSON 在 1.21.11 是字面亂碼，不是內容**（缺口 B 的裁定，
+            # 2026-10-14）。[遊戲實測 M0-3] 當初就是用 `/data merge block` 寫入
+            # `messages:['{"translate":…}', '""', …]`，遊戲顯示字面文字：1.21.5
+            # 起指令裡的 component 是 SNBT，字串元素就是字面文字，而 `data merge`
+            # 不經過 DataFixer。抽出來翻，寫回去的是另一段同樣顯示成亂碼的字串
+            # ——跟 CLAUDE.md 二節「native chunk 裡的舊式 JSON 一律跳過」同一個
+            # 理由、同一個計數器。也不「順手修好」成原生 compound：那是地圖自身
+            # 的瑕疵。
+            #
+            # 判準用嗅探器（逐節點形狀的唯一權威），不用「`json.loads` 成功」：
+            # `123`／`true` 解得開，但它們是字面文字，嗅探器判成 `bare_string`。
+            # `unparseable_json`（`{` 開頭卻解不開）也是字面文字，維持走下面
+            # 的裸字串那一支，行為不變。
+            stats["skipped_legacy_json_in_native_chunk"] += 1
             return
-        # 解不出 JSON——就是字面文字（例如 `data merge` 直接寫了一句沒有格式的
+        # 不是舊式 JSON——就是字面文字（例如 `data merge` 直接寫了一句沒有格式的
         # 文字），照原樣當一個 bare_string 節點，只有一層 SNBT。
         #
         # **這一支必須走 in_place（`command_say_text`），不能走 translate key。**

@@ -243,7 +243,15 @@ def test_data_merge_finds_each_message_in_a_native_snbt_list():
     assert texts == {"Line 1", "Line 2"}
 
 
-def test_data_merge_finds_a_json_string_wrapped_message():
+def test_data_merge_skips_a_json_string_wrapped_message():
+    """**缺口 B 的裁定（2026-10-14）**：字串包裝 JSON 的訊息在 1.21.11 是字面
+    亂碼，不是內容——跳過並計入 `skipped_legacy_json_in_native_chunk`，不抽。
+
+    [遊戲實測 M0-3] 當初就是用 `/data merge block` 寫入
+    `messages:['{"translate":…}', '""', …]`，遊戲顯示字面文字：1.21.5 起指令裡的
+    component 是 SNBT，字串元素就是字面文字，`data merge` 也不經過 DataFixer。
+    抽出來翻譯，寫回去的是另一段同樣顯示成亂碼的字串（CLAUDE.md 二節「native
+    chunk 裡的舊式 JSON 一律跳過」，同一個理由、同一個計數器）。"""
     stats = Counter()
     nodes = list(
         scan_command_string(
@@ -253,8 +261,46 @@ def test_data_merge_finds_a_json_string_wrapped_message():
             stats=stats,
         )
     )
+    assert nodes == []
+    assert stats["skipped_legacy_json_in_native_chunk"] == 1
+
+
+def test_data_merge_skips_every_legacy_json_shape_in_single_quotes():
+    """MP2 語料的形狀：單引號字串常值，四種舊式 JSON（物件、陣列、純量、`""`）
+    全部跳過並計數。`""` 原本被當成「空文字」計入 `skipped_empty`——在 1.21.11
+    它顯示成兩個引號（[遊戲實測 M0-4]），是舊式 JSON 不是空白。"""
+    stats = Counter()
+    nodes = list(
+        scan_command_string(
+            "data merge block ~ ~ ~ {back_text:{messages:["
+            """'{"text":"Hello"}','["",{"text":"A"}]','"B"','""'"""
+            "]}}",
+            base_path=_path(),
+            anchor=None,
+            stats=stats,
+        )
+    )
+    assert nodes == []
+    assert stats["skipped_legacy_json_in_native_chunk"] == 4
+    assert stats["skipped_empty"] == 0
+
+
+def test_data_merge_still_extracts_a_bare_message_that_json_could_parse():
+    """`123`／`true` 這類字 `json.loads` 解得開，但嗅探器（逐節點形狀的唯一權威）
+    判成 `bare_string`——它們是字面文字，照舊走 in_place 的裸字串那一支。判準
+    跟 chunk 路徑同一個（`model/component.py::sniff`），不是「`json.loads` 成功」。"""
+    stats = Counter()
+    nodes = list(
+        scan_command_string(
+            'data merge block ~ ~ ~ {messages:["123"]}',
+            base_path=_path(),
+            anchor=None,
+            stats=stats,
+        )
+    )
     assert len(nodes) == 1
-    assert str(nodes[0].tag["text"]) == "Hello"
+    assert nodes[0].category == "command_say_text"
+    assert stats["skipped_legacy_json_in_native_chunk"] == 0
 
 
 def test_empty_message_increments_skipped_empty_stat():
@@ -287,24 +333,6 @@ def test_native_compound_message_has_two_decode_steps():
     assert len(decode_steps) == 2
     assert decode_steps[0].codec.value == "command"
     assert decode_steps[1].codec.value == "snbt"
-
-
-def test_json_string_wrapped_message_has_three_decode_steps():
-    stats = Counter()
-    nodes = list(
-        scan_command_string(
-            'data merge block ~ ~ ~ {messages:["{\\"text\\":\\"Hello\\"}"]}',
-            base_path=_path(),
-            anchor=None,
-            stats=stats,
-        )
-    )
-    assert len(nodes) == 1
-    decode_steps = [step for step in nodes[0].path if step.t == "decode"]
-    assert len(decode_steps) == 3
-    assert decode_steps[0].codec.value == "command"
-    assert decode_steps[1].codec.value == "snbt"
-    assert decode_steps[2].codec.value == "json_component"
 
 
 def test_data_modify_set_value_is_recognised():
