@@ -143,6 +143,7 @@ def _scan_block_entity(
             base_path=path.child(key_step("Command")),
             anchor=anchor,
             stats=stats,
+            allow_leading_slash=True,
         )
 
 

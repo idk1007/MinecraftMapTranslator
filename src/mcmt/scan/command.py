@@ -48,10 +48,28 @@ _LEGACY_JSON = frozenset(
 
 
 def scan_command_string(
-    text: str, *, base_path: NodePath, anchor: dict[str, Any] | None, stats: Counter
+    text: str,
+    *,
+    base_path: NodePath,
+    anchor: dict[str, Any] | None,
+    stats: Counter,
+    allow_leading_slash: bool = False,
 ) -> Iterator[TextNode]:
-    """給一條**已確定不是延續行**的指令文字，yield 白名單動詞找到的文字節點。"""
-    inner, offset = _strip_execute(text)
+    """給一條**已確定不是延續行**的指令文字，yield 白名單動詞找到的文字節點。
+
+    `allow_leading_slash`：指令方塊（與指令方塊礦車）允許可有可無的前導 `/`，
+    遊戲照樣執行——[實測 2026-10-15] `escape_the_illusion` 的 `/tellraw`、
+    `/title` 原本被當成不認得的動詞整條略過。`.mcfunction` 不放寬（預設
+    `False`）：那裡前導 `/` 是語法錯誤，函式載入不了。斜線只在這裡跳過、不從
+    字串裡移除——後面所有 span 仍是原始 `text` 的絕對位移，寫回時斜線原封不動。
+    """
+    slash = 0
+    if allow_leading_slash:
+        unindented = text.lstrip()
+        if unindented.startswith("/"):
+            slash = len(text) - len(unindented) + 1
+    inner, offset = _strip_execute(text[slash:])
+    offset += slash
     stripped = inner.lstrip()
     lead = len(inner) - len(stripped)
     verb, rest = _split_first_token(stripped)

@@ -154,6 +154,7 @@ def _scan_entity(
             base_path=path.child(key_step("Command")),
             anchor=anchor,
             stats=stats,
+            allow_leading_slash=True,
         )
 
     for key in _SINGLE_ITEM_KEYS:

@@ -458,3 +458,108 @@ def test_give_ignores_a_custom_name_from_another_namespace():
 
     assert nodes == []
     assert stats["skipped_command_unsupported_shape"] == 1
+
+
+# --- 指令方塊開頭的斜線 ---------------------------------------------------------
+#
+# [實測 2026-10-15] `escape_the_illusion` 的指令方塊寫 `/tellraw @p …`、
+# `/title @p title …`：指令方塊允許可有可無的前導 `/`，遊戲照樣執行。掃描器原本
+# 把 `/tellraw` 當成動詞，對不上白名單，整條略過。`.mcfunction` 不一樣——那裡
+# 前導 `/` 是語法錯誤，函式根本載入不了，所以只有指令方塊放寬。
+
+
+def test_a_command_block_leading_slash_is_accepted():
+    text = '/title @p title {"text":"Ice Cave","color":"aqua"}'
+    stats = Counter()
+    nodes = list(
+        scan_command_string(
+            text, base_path=_path(), anchor=None, stats=stats, allow_leading_slash=True
+        )
+    )
+
+    assert len(nodes) == 1
+    assert str(nodes[0].tag["text"]) == "Ice Cave"
+    assert stats["skipped_command_unsupported_shape"] == 0
+    # span 是原始字串（含斜線）裡的絕對位移，寫回時斜線原封不動。
+    span = nodes[0].path.last_span
+    assert text[span[0] : span[1]] == '{"text":"Ice Cave","color":"aqua"}'
+    first = [step for step in nodes[0].path if step.t == "decode"][0]
+    assert first.span == (0, len(text))
+
+
+def test_a_leading_slash_works_for_say_and_tellraw_arrays_too():
+    stats = Counter()
+    say = list(
+        scan_command_string(
+            "/say Hello", base_path=_path(), anchor=None, stats=stats, allow_leading_slash=True
+        )
+    )
+    tellraw_text = (
+        '/tellraw @p [{"text":"x ","color":"white"},'
+        '{"text":"Need Help?","color":"yellow","bold":true}]'
+    )
+    tellraw = list(
+        scan_command_string(
+            tellraw_text, base_path=_path(), anchor=None, stats=stats, allow_leading_slash=True
+        )
+    )
+
+    assert len(say) == 1
+    assert "/say Hello"[say[0].path.last_span[0] :] == "Hello"
+    assert len(tellraw) == 1
+    assert stats["skipped_command_unsupported_shape"] == 0
+
+
+def test_a_leading_slash_is_still_skipped_by_default():
+    """預設（`.mcfunction` 的呼叫端）不放寬：前導 `/` 在函式檔裡是語法錯誤。"""
+    stats = Counter()
+    nodes = list(
+        scan_command_string('/say Hello', base_path=_path(), anchor=None, stats=stats)
+    )
+
+    assert nodes == []
+    assert stats["skipped_command_unsupported_shape"] == 1
+
+
+def test_a_leading_slash_survives_the_write_back():
+    """掃描 → 寫回走完一趟，斜線還在、指令還解得回來。"""
+    from conftest import assert_command_reparses
+
+    from mcmt.write.common import ApplyOutcome, apply_edits
+
+    text = '/title @p title {"text":"Ice Cave","color":"aqua"}'
+    (node,) = list(
+        scan_command_string(
+            text,
+            base_path=NodePath([key_step("Command")]),
+            anchor=None,
+            stats=Counter(),
+            allow_leading_slash=True,
+        )
+    )
+    edit = {
+        "occurrence_id": "o:00001",
+        "unit_id": "u:command_component_text:1111111111111111",
+        "container": {"kind": "region_chunk", "path": "r.0.0.mca", "data_version": 4671},
+        "node_path": [step.to_json() for step in node.path],
+        # 帶 color 的 component 嗅探成 compound_tree，沒有單一字串快照。
+        "expected_encoding": "compound_tree",
+        "raw_snapshot": None,
+        "value": {
+            "kind": "translate",
+            "key": "mcmt.command_component_text.1111111111111111",
+            "fallback": "Ice Cave",
+            "style": None,
+        },
+    }
+    root = amulet_nbt.CompoundTag({"Command": amulet_nbt.StringTag(text)})
+    outcome = ApplyOutcome()
+
+    written = apply_edits(root, [edit], outcome)
+    result = str(root["Command"])
+
+    assert written == 1
+    assert not outcome.unwritten
+    assert result.startswith("/title @p title {")
+    assert "mcmt.command_component_text.1111111111111111" in result
+    assert_command_reparses(result[1:])
