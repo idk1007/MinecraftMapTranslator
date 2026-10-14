@@ -1330,7 +1330,7 @@ lang/zh_tw.json` 一起沒生效。告示牌顯示 key 本身而不是譯文。
 環境：`TT_WORLD_NAME_PROBE` 匯入成 `sandbox\mcmd`，照 `docs/m-command-checklist.md`
 手動佈置六個指令方塊、一塊告示牌、一個資料夾形式 datapack（`function/` 單數目錄），
 跑 extract → 編輯 → apply，整份複製回 saves 用 Minecraft 1.21.11（checklist 指定版本）
-開啟，結果由使用者在遊戲內肉眼核對、回報。程式碼是缺口 A／B／C／E 修完之後的版本
+開啟（使用者確認版本為 1.21.11），結果由使用者在遊戲內肉眼核對、回報。程式碼是缺口 A／B／C／E 修完之後的版本
 （`0b686f0`／`e9b03d2`／`4be093e`／`5dfb416`）。
 
 ### 結果
@@ -1382,7 +1382,8 @@ SNBT、`data merge` 不經過 DataFixer」這個 `[文件]` 級推論。④ 這�
 CLI 摘要把「say 譯文含控制字元」的拒寫印成「這種節點形狀還沒有寫入路徑」——那是
 `unsupported_encoding` 共用的說明文字（`cli/apply.py::_REASON_TEXT`），套在這裡會
 誤導；正確原因只在 `apply_report.json` 的 `detail` 裡。不影響安全，記進
-`docs/STATUS.md` 已知缺口。
+`docs/STATUS.md` 已知缺口。〔同日後記：已修（`143c688`），摘要在每個 reason 底下
+印出 detail，不動合約。〕
 
 ---
 

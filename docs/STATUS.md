@@ -39,7 +39,10 @@
   字串包裝 JSON 在 1.21.11 是字面文字，缺口 B 的裁定有了直接證據。checklist 本身
   兩處錯誤（③ 的前綴範例、4d 同文兩筆）已修正。
 
-894 passed／contracts 48 passed。
+- **CLI 摘要的拒寫說明**：每個 reason 底下印出 detail（`143c688`），不動合約。
+  遊戲版本確認為 1.21.11。
+
+898 passed／contracts 48 passed。
 
 前一次更新：**2026-09-13**（**`Against Iskerside [1.21.11]` 翻譯失敗事後檢查，兩個修正。**
 使用者實際拿一張地圖跑壞了，回頭查出兩個獨立缺陷：
@@ -1004,7 +1007,10 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
   先跳脫過）；C2 讓它多涵蓋一個形狀（裸字串 `data merge` 訊息）。兩個修法：在
   `_snbt_string_literal` 裡跳脫控制字元，或在驗證階段直接拒收含 `\n` 的
   command-category 譯文。本波**不修**（不碰 `write/`）。
-* **〔CLI 摘要的拒寫原因說明不夠細〕**（2026-10-14 遊戲實測時發現）`say` 譯文含
+* ~~**〔CLI 摘要的拒寫原因說明不夠細〕**~~ → **2026-10-14 已修**（`143c688`）：
+  採「只改 CLI」的做法，不動合約。`format_apply` 在寫入層拒寫的每個 reason 底下
+  列出 detail（相同的合併計數、最多 3 種，其餘指向 `apply_report.json`），新增
+  `tests/unit/test_cli_apply_format.py`。原描述：（2026-10-14 遊戲實測時發現）`say` 譯文含
   控制字元被拒寫時，`mcmt apply` 摘要印的是 `unsupported_encoding` 共用的說明
   「這種節點形狀還沒有寫入路徑」，會誤導；正確原因只在 `apply_report.json` 的
   `detail`。不影響安全。修法方向：摘要對 `unsupported_encoding` 同時印出 detail，
@@ -1032,7 +1038,7 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
 - `spike/.venv` 與 `spike/.venv_alt` 共 134 MB，已 gitignore。
 - `claude-code-stats/` 是**放在同一個資料夾裡的第三方工具**，與 mcmt 無關，已 gitignore。
 - 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 48 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
-- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（2026-10-14 為 894 passed；`pyproject` 的 `addopts = "-q"` 會吃掉摘要行，要看總數加 `-o addopts=""`）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
+- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（2026-10-14 為 898 passed；`pyproject` 的 `addopts = "-q"` 會吃掉摘要行，要看總數加 `-o addopts=""`）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
 - 跑 CLI：`.venv\Scripts\python -X utf8 -m mcmt.cli {doctor|sandbox import|extract|apply} …`。
 - **heredoc 會吃掉反斜線**：用 `bash << 'PY'` 寫含 `
 `、``、` ` 的 Python 原始碼會被破壞（曾寫出 NUL byte 讓檔案無法解析）。含跳脫序列的檔案改用 Write 工具，或用 `chr(92)` 組出反斜線。
