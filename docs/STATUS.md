@@ -3,7 +3,17 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-10-14**（**指令文字已知缺口 A／B／C 殘餘／E 全部處理完畢。**
+最後更新：**2026-10-15**（**指令方塊的前導斜線**，commit `b70518b`。[實測]
+`escape_the_illusion` 的指令方塊寫 `/tellraw`、`/title`，掃描器把 `/tellraw`
+當成不認得的動詞整條略過。`scan_command_string` 新增 `allow_leading_slash`，只有
+指令方塊與指令方塊礦車開啟；`.mcfunction` 不放寬（函式檔裡前導 `/` 是語法錯誤）。
+這張地圖略過數 931 → 787。902 passed。
+
+**已知殘餘**：`_has_nested_command_reference`（L3 檢查）認 click_event 裡的指令時
+也不認前導斜線，而 click_event 的 `run_command` 慣例上帶 `/`。後果是那種 component
+不會被保守地整個跳過，外層文字照翻、裡面那條指令的文字沒翻——是少翻，不是寫壞。）
+
+前一次更新：**2026-10-14**（**指令文字已知缺口 A／B／C 殘餘／E 全部處理完畢。**
 
 - **缺口 E（`write/command_span.py`）已修**，commit `5dfb416`：SNBT 字串常值與
   原生 SNBT component 的輸出裡，C0 控制字元與 DEL 一律寫成跳脫序列
@@ -1038,7 +1048,7 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
 - `spike/.venv` 與 `spike/.venv_alt` 共 134 MB，已 gitignore。
 - `claude-code-stats/` 是**放在同一個資料夾裡的第三方工具**，與 mcmt 無關，已 gitignore。
 - 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 48 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
-- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（2026-10-14 為 898 passed；`pyproject` 的 `addopts = "-q"` 會吃掉摘要行，要看總數加 `-o addopts=""`）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
+- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（2026-10-15 為 902 passed；`pyproject` 的 `addopts = "-q"` 會吃掉摘要行，要看總數加 `-o addopts=""`）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
 - 跑 CLI：`.venv\Scripts\python -X utf8 -m mcmt.cli {doctor|sandbox import|extract|apply} …`。
 - **heredoc 會吃掉反斜線**：用 `bash << 'PY'` 寫含 `
 `、``、` ` 的 Python 原始碼會被破壞（曾寫出 NUL byte 讓檔案無法解析）。含跳脫序列的檔案改用 Write 工具，或用 `chr(92)` 組出反斜線。
