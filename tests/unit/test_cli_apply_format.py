@@ -82,3 +82,85 @@ def test_a_refusal_without_detail_does_not_print_an_empty_line() -> None:
 
     assert "找不到那個節點" in text
     assert not any(line.strip() in ("└", "└ 1") for line in text.splitlines())
+
+
+# --- F5／F6／F7：摘要文字 --------------------------------------------------------
+
+
+def _with_backend_refusals(refusals, entries):
+    summary = _summary([])
+    summary["plan"] = SimpleNamespace(document={"unwritten": refusals})
+    summary["translations"] = {"entries": entries}
+    return summary
+
+
+def _entry(source, where):
+    return {"source": source, "where": where, "target": "x"}
+
+
+def test_f5_a_placeholder_mismatch_says_it_was_not_written() -> None:
+    summary = _with_backend_refusals(
+        [{"unit_id": "u:a", "reason": "placeholder_mismatch"}],
+        {"u:a": _entry("[[0]]Hello [[1]]world", "overworld 1,2,3")},
+    )
+
+    text = format_apply(summary)
+
+    assert "格式標記 [[n]] 數量與原文不符（未寫入）" in text
+    assert "hard fail" not in text
+
+
+def test_f6_an_unreadable_chunk_is_described_plainly() -> None:
+    text = format_apply(_summary([_refusal("chunk_unreadable", "")]))
+
+    assert "區塊讀取失敗（存檔可能損毀）" in text
+
+
+def test_f7_rejected_entries_are_listed_with_source_and_where() -> None:
+    refusals = [
+        {"unit_id": f"u:{i}", "reason": "placeholder_mismatch"} for i in range(8)
+    ]
+    entries = {f"u:{i}": _entry(f"原文{i}", f"overworld {i},64,0") for i in range(8)}
+
+    text = format_apply(_with_backend_refusals(refusals, entries))
+
+    for i in range(5):
+        assert f"原文{i}" in text
+        assert f"overworld {i},64,0" in text
+    assert "原文5" not in text
+    assert "另有 3 筆" in text
+    assert "apply_report.json" in text
+
+
+def test_f7_untranslated_entries_are_not_listed() -> None:
+    """「還沒翻」可能有幾百筆，逐筆列出來只是噪音。"""
+    refusals = [{"unit_id": f"u:{i}", "reason": "untranslated"} for i in range(30)]
+    entries = {f"u:{i}": _entry(f"原文{i}", "somewhere") for i in range(30)}
+
+    text = format_apply(_with_backend_refusals(refusals, entries))
+
+    assert "還沒翻" in text
+    assert "原文0" not in text
+
+
+def test_f7_writer_refusals_list_their_entries_too() -> None:
+    summary = _summary([_refusal("node_changed", "預期 A，現在是 B", n=1)])
+    summary["translations"] = {"entries": {"u:command_say_text:0000000000000001": _entry("Hello", "3,-60,19")}}
+
+    text = format_apply(summary)
+
+    assert "Hello" in text
+    assert "3,-60,19" in text
+
+
+def test_f7_a_long_source_is_shortened() -> None:
+    long = "很長的原文" * 40
+    text = format_apply(
+        _with_backend_refusals(
+            [{"unit_id": "u:a", "reason": "overflow_rejected"}],
+            {"u:a": _entry(long, "here")},
+        )
+    )
+
+    assert long not in text
+    assert "…" in text

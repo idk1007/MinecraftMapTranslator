@@ -231,7 +231,7 @@ def test_format_result_renders_the_three_command_skip_lines_when_they_are_non_ze
     def line_with(label: str) -> str:
         return next(ln for ln in text.splitlines() if label in ln)
 
-    assert "12" in line_with("指令動詞不在白名單或形狀轉不出去")
+    assert "12" in line_with("暫不支援文字抽取的指令")
     assert "3" in line_with("指令巢狀引用另一條指令（L3，未支援）")
     assert "7" in line_with("指令行尾反斜線延續（1.20.2+ 語法，未支援）")
 
@@ -247,7 +247,7 @@ def test_format_result_warns_about_skipped_unsupported_structure_chunks() -> Non
     def line_with(label: str) -> str:
         return next(ln for ln in text.splitlines() if label in ln)
 
-    assert "1,519" in line_with("不支援的世界結構")
+    assert "1,519" in line_with("舊格式區塊")
 
 
 def test_format_result_omits_the_command_skip_lines_when_they_are_zero() -> None:
@@ -255,7 +255,7 @@ def test_format_result_omits_the_command_skip_lines_when_they_are_zero() -> None
     「跳過 0 個」洗版，那會讓真正有數字的那幾行更難被看到。"""
     text = format_result(_summary())
 
-    assert "指令動詞不在白名單" not in text
+    assert "暫不支援文字抽取的指令" not in text
     assert "指令巢狀引用另一條指令" not in text
     assert "指令行尾反斜線延續" not in text
     # 整個「跳過的節點」區塊在全部都是 0 的時候根本不該出現。

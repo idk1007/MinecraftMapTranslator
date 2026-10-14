@@ -105,10 +105,10 @@ def format_result(summary: dict) -> str:
 
     skipped = [
         ("denylist（識別碼，翻了地圖會壞）", result.stats["skipped_denylist"]),
-        ("新世代 chunk 裡的舊式 JSON（遊戲裡本來就是亂碼）",
+        ("地圖裡本來就顯示成亂碼的文字（遊戲不會解析它，所以也不動它）",
          stats["skipped_legacy_json_in_native_chunk"]),
         ("JSON 解析失敗", stats["skipped_unparseable"]),
-        ("已在地化（地圖自己的 translate key，翻了會蓋掉別人做好的多語言支援）",
+        ("地圖內建的多語言文字（略過以防覆蓋原作者做好的翻譯）",
          stats["skipped_already_localised"]),
         # **警告後仍可繼續，但要讓使用者看得到。** 混合世代地圖（[實測]
         # `Against Iskerside [1.21.11]`，2026-09-06）裡 v1 不支援的舊結構
@@ -116,9 +116,9 @@ def format_result(summary: dict) -> str:
         # `Text1..Text4`、缺 `DataVersion`）——這裡選擇跳過那些 chunk 並繼續
         # 掃描其餘部分，而不是像 `doctor` 一樣直接拒絕整個世界。這個數字不是 0
         # 時，代表地圖裡有這麼多個 chunk 完全沒被掃到、翻不到。
-        ("不支援的世界結構（1.12 舊格式，這幾個 chunk 完全沒被掃到）",
+        ("舊格式區塊（遊戲尚未升級的區域，完全沒被掃到）",
          stats["skipped_unsupported_structure"]),
-        ("空白節點", result.stats["skipped_empty"]),
+        ("空白項目（無文字）", result.stats["skipped_empty"]),
         # **讀不下去的來源檔要看得見。** 這幾行不在的時候，一個壞掉的
         # `level.dat` 印出來的摘要和「這個世界沒有東西可翻」一模一樣——使用者
         # 沒有任何跡象可以知道有一整個檔案根本沒被讀到。
@@ -129,7 +129,7 @@ def format_result(summary: dict) -> str:
         ("資料包 zip 打不開（整包進度沒掃到）", result.stats["skipped_datapack_zip"]),
         ("進度 JSON 解析失敗", result.stats["skipped_advancement_unparseable"]),
         ("進度的文字形狀轉不出去", result.stats["skipped_advancement_shape"]),
-        ("指令動詞不在白名單或形狀轉不出去", stats["skipped_command_unsupported_shape"]),
+        ("暫不支援文字抽取的指令（略過）", stats["skipped_command_unsupported_shape"]),
         ("指令巢狀引用另一條指令（L3，未支援）", stats["skipped_command_nested_reference"]),
         ("指令行尾反斜線延續（1.20.2+ 語法，未支援）",
          stats["skipped_command_line_continuation"]),

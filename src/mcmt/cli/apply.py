@@ -108,6 +108,7 @@ def run_apply(
         "world": world_path,
         "out": out,
         "plan": plan,
+        "translations": translations,
         "outcome": outcome,
         "report": report,
         "pack": pack_report,
@@ -161,6 +162,8 @@ def format_apply(summary: dict[str, Any]) -> str:
             f"（告示牌整面四行改寫成 compound——格式強制，不是選擇）"
         )
 
+    entries = summary.get("translations", {}).get("entries", {})
+
     backend_refusals: dict[str, int] = {}
     for item in plan.document["unwritten"]:
         backend_refusals[item["reason"]] = backend_refusals.get(item["reason"], 0) + 1
@@ -168,6 +171,10 @@ def format_apply(summary: dict[str, Any]) -> str:
         lines += ["", "後端沒有產生 edit 的單位"]
         for reason, count in sorted(backend_refusals.items(), key=lambda kv: -kv[1]):
             lines.append(f"  {count:>7,}  {_REASON_TEXT.get(reason, reason)}")
+            if reason not in _NOT_WORTH_LISTING:
+                lines += _example_lines(
+                    [i for i in plan.document["unwritten"] if i["reason"] == reason], entries
+                )
 
     if outcome.unwritten:
         writer_refusals: dict[str, int] = {}
@@ -176,9 +183,9 @@ def format_apply(summary: dict[str, Any]) -> str:
         lines += ["", "寫入層拒絕的節點"]
         for reason, count in sorted(writer_refusals.items(), key=lambda kv: -kv[1]):
             lines.append(f"  {count:>7,}  {_REASON_TEXT.get(reason, reason)}")
-            lines += _detail_lines(
-                [item for item in outcome.unwritten if item["reason"] == reason]
-            )
+            of_reason = [item for item in outcome.unwritten if item["reason"] == reason]
+            lines += _detail_lines(of_reason)
+            lines += _example_lines(of_reason, entries)
 
     for warning in outcome.warnings:
         lines += ["", f"※ {warning['detail']}"]
@@ -199,6 +206,35 @@ def format_apply(summary: dict[str, Any]) -> str:
 
 
 _MAX_DETAILS_PER_REASON = 3
+_MAX_EXAMPLES_PER_REASON = 5
+_MAX_SOURCE_CHARS = 40
+
+# 「還沒翻」「刻意不翻」可能有幾百筆，逐筆列出來只是噪音；其餘的拒寫原因才是
+# 譯者要回頭修的東西，要讓他在畫面上就找得到是哪幾筆。
+_NOT_WORTH_LISTING = {"untranslated", "skipped"}
+
+
+def _example_lines(items: list[dict[str, Any]], entries: dict[str, Any]) -> list[str]:
+    """把被拒的條目列成「位置 · 原文」，最多 5 筆，其餘指向報告。
+
+    只印數字的話（「格式標記對不上：3」），要去翻 `apply_report.json` 才知道是哪三筆
+    ——而譯者要回頭修的正是那三筆。"""
+    seen: list[str] = []
+    for item in items:
+        unit_id = item.get("unit_id")
+        if unit_id in entries and unit_id not in seen:
+            seen.append(unit_id)
+    lines = []
+    for unit_id in seen[:_MAX_EXAMPLES_PER_REASON]:
+        entry = entries[unit_id]
+        source = str(entry.get("source", "")).replace("\n", " ").strip()
+        if len(source) > _MAX_SOURCE_CHARS:
+            source = source[:_MAX_SOURCE_CHARS] + "…"
+        lines.append(f"  {'':>7}    · {entry.get('where', '?')}：{source}")
+    rest = len(seen) - _MAX_EXAMPLES_PER_REASON
+    if rest > 0:
+        lines.append(f"  {'':>7}    · 另有 {rest} 筆，見 apply_report.json 的 unwritten")
+    return lines
 
 
 def _detail_lines(items: list[dict[str, Any]]) -> list[str]:
@@ -228,10 +264,10 @@ def _detail_lines(items: list[dict[str, Any]]) -> list[str]:
 _REASON_TEXT = {
     "untranslated": "還沒翻（target 是空的）",
     "skipped": "刻意不翻（status: skip）",
-    "placeholder_mismatch": "佔位符對不上——hard fail，少一個標記 § 碼會染到行尾",
+    "placeholder_mismatch": "格式標記 [[n]] 數量與原文不符（未寫入）",
     "overflow_rejected": "譯文太長，那一行放不下（寬度已校準，見報告的 detail）",
     "node_changed": "節點形狀變了（世界在 extract 之後被改過，多半是在遊戲裡開過）",
     "node_missing": "找不到那個節點",
-    "chunk_unreadable": "chunk 讀不下去",
+    "chunk_unreadable": "區塊讀取失敗（存檔可能損毀）",
     "unsupported_encoding": "這種節點形狀還沒有寫入路徑",
 }
