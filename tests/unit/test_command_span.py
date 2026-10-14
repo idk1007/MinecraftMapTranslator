@@ -325,3 +325,156 @@ def test_a_node_path_with_no_leading_key_step_works_the_same_way():
     )
     assert not outcome.unwritten
     assert_command_reparses(result)
+
+
+# --- 缺口 E：控制字元 ---------------------------------------------------------
+#
+# amulet 的 `from_snbt` 收得下裸換行、也不認 `\n` 跳脫（兩個字元原樣保留），
+# 所以 `assert_command_reparses()` 單獨抓不到這一格：它會說「解得回來」，而
+# 1.21.11 的指令解析器說不。這幾條因此直接斷言「輸出裡沒有任何控制字元」，
+# 再用 `_minecraft_unescape()` 照 1.21.5+ SNBT 的跳脫規則解回去比對原文。
+
+
+def _minecraft_unescape(literal: str) -> str:
+    """把一個雙引號 SNBT 字串常值照 Minecraft 1.21.5+ 的跳脫規則解回原文。
+    **刻意不重用 `write/command_span.py` 的任何東西**——跟 conftest 的
+    `assert_command_reparses` 同一個理由：被測的程式碼錯了，兩邊不能一起錯。"""
+    assert literal[0] == literal[-1] == '"'
+    body = literal[1:-1]
+    simple = {"n": "\n", "r": "\r", "t": "\t", "b": "\b", "f": "\f", "\\": "\\", '"': '"'}
+    out = []
+    i = 0
+    while i < len(body):
+        ch = body[i]
+        if ch != "\\":
+            out.append(ch)
+            i += 1
+            continue
+        nxt = body[i + 1]
+        if nxt in simple:
+            out.append(simple[nxt])
+            i += 2
+        elif nxt == "u":
+            out.append(chr(int(body[i + 2 : i + 6], 16)))
+            i += 6
+        else:
+            raise AssertionError(f"不認得的跳脫 \\{nxt}：{literal!r}")
+    return "".join(out)
+
+
+def _has_control_char(text: str) -> bool:
+    return any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in text)
+
+
+def _bare_merge_edit(text: str):
+    from collections import Counter
+
+    from mcmt.model.node import NodePath, key_step
+    from mcmt.scan.command import scan_command_string
+
+    original = 'data merge block ~ ~ ~ {front_text:{messages:["Hello","","",""]}}'
+    (node,) = list(
+        scan_command_string(
+            original, base_path=NodePath([key_step("Command")]), anchor=None, stats=Counter()
+        )
+    )
+    edit = {
+        "occurrence_id": "o:00001",
+        "unit_id": f"u:{node.category}:ffffffffffffffff",
+        "container": {"kind": "region_chunk", "path": "r.0.0.mca", "data_version": 4671},
+        "node_path": [step.to_json() for step in node.path],
+        "expected_encoding": "bare_string",
+        "value": {"kind": "literal", "text": text, "style": None},
+    }
+    return original, edit
+
+
+def test_a_bare_string_merge_message_escapes_control_characters():
+    """**缺口 E**：譯文裡的換行／歸位／tab 原樣 splice 進去，amulet 收得下，
+    1.21.11 的指令解析器收不下；在 `.mcfunction` 裡那個換行還會把實體行切成
+    兩行。`_snbt_string_literal` 必須把它們寫成跳脫序列。"""
+    from mcmt.write.common import apply_edits
+
+    translated = "第一行\n第二行\r\t尾\x01"
+    original, edit = _bare_merge_edit(translated)
+    root = amulet_nbt.CompoundTag({"Command": amulet_nbt.StringTag(original)})
+    outcome = ApplyOutcome()
+
+    apply_edits(root, [edit], outcome)
+    result = str(root["Command"])
+
+    assert not outcome.unwritten
+    assert not _has_control_char(result)
+    assert_command_reparses(result)
+    start = result.index("messages:[") + len("messages:[")
+    literal = result[start : result.index('","', start) + 1]
+    assert _minecraft_unescape(literal) == translated
+
+
+def test_a_native_snbt_component_escapes_control_characters_too():
+    """原生 SNBT compound 那一格（`{text:"…"}` → `{translate:…,fallback:…}`）
+    走的是 amulet 的 `to_snbt()`，它對字串裡的換行一樣原樣輸出。fallback 是原文，
+    原文帶換行時同樣會寫出一條解析不了的指令。"""
+    from collections import Counter
+
+    from mcmt.model.node import NodePath, key_step
+    from mcmt.scan.command import scan_command_string
+    from mcmt.write.common import apply_edits
+
+    original = (
+        "data merge block ~ ~ ~ {front_text:{messages:["
+        '{text:"Hello"},{text:""},{text:""},{text:""}]}}'
+    )
+    (node,) = list(
+        scan_command_string(
+            original, base_path=NodePath([key_step("Command")]), anchor=None, stats=Counter()
+        )
+    )
+    edit = {
+        "occurrence_id": "o:00001",
+        "unit_id": "u:command_component_text:abababababababab",
+        "container": {"kind": "region_chunk", "path": "r.0.0.mca", "data_version": 4671},
+        "node_path": [step.to_json() for step in node.path],
+        "expected_encoding": "text_compound",
+        "value": {
+            "kind": "translate",
+            "key": "mcmt.command_component_text.abababababababab",
+            "fallback": "上\n下",
+            "style": None,
+        },
+    }
+    root = amulet_nbt.CompoundTag({"Command": amulet_nbt.StringTag(original)})
+    outcome = ApplyOutcome()
+
+    apply_edits(root, [edit], outcome)
+    result = str(root["Command"])
+
+    assert not outcome.unwritten
+    assert not _has_control_char(result)
+    assert "\\n" in result
+    assert_command_reparses(result)
+
+
+def test_a_say_translation_with_a_control_character_is_refused():
+    """`say`／`me` 的參數是純文字，**沒有任何跳脫語法**——寫 `\\n` 進去遊戲就
+    印出反斜線加 n，寫裸換行進 `.mcfunction` 就把一行切成兩行。沒有正確的寫法，
+    所以拒寫，而且要說清楚為什麼，不是籠統的「無法組出替換文字」。"""
+    original = "say Hello world"
+    edit = {
+        "occurrence_id": "o:00001",
+        "unit_id": "u:command_say_text:cccccccccccccccc",
+        "container": {"kind": "region_chunk", "path": "r.0.0.mca"},
+        "node_path": [
+            {"t": "key", "name": "Command"},
+            {"t": "decode", "codec": "command", "arg": None, "span": [4, len(original)]},
+        ],
+        "expected_encoding": "bare_string",
+        "value": {"kind": "literal", "text": "第一行\n第二行", "style": None},
+    }
+    outcome = ApplyOutcome()
+
+    result = apply_command_edits(original, [edit], outcome=outcome)
+
+    assert result is None
+    assert [item["reason"] for item in outcome.unwritten] == ["unsupported_encoding"]
+    assert "控制字元" in outcome.unwritten[0]["detail"]

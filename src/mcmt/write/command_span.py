@@ -71,6 +71,20 @@ def apply_command_edits(
 
         decode_chain = [step for step in path if step.t == "decode"]
 
+        if _is_raw_command_text(decode_chain) and _has_control_char(
+            (edit.get("value") or {}).get("text") or ""
+        ):
+            # `say`／`me` 的參數是純文字，沒有任何跳脫語法：寫 `\n` 進去遊戲
+            # 印出反斜線加 n，寫裸換行進 `.mcfunction` 就把一行切成兩行。
+            # 沒有正確的寫法，所以拒寫（缺口 E）。
+            refuse(
+                outcome,
+                edit,
+                "unsupported_encoding",
+                "譯文含控制字元（換行、tab 等），say／me 的純文字參數無法表示",
+            )
+            continue
+
         replacement = _compose_replacement(edit, decode_chain)
         if replacement is None:
             refuse(outcome, edit, "unsupported_encoding", "無法組出替換文字")
@@ -125,7 +139,10 @@ def _compose_replacement(edit: dict[str, Any], decode_chain: list) -> str | None
     if innermost == "json_component":
         serialized = codec_for("json_component").encode(plain)
     elif innermost == "snbt":
-        serialized = codec_for("snbt").encode(_to_amulet(plain))
+        # amulet 的 `to_snbt()` 對字串裡的控制字元原樣輸出。它的輸出是單行的，
+        # 控制字元只可能出現在字串常值內部，所以在整段上替換就等於在每個常值
+        # 內部跳脫（缺口 E）。
+        serialized = _escape_control_chars(codec_for("snbt").encode(_to_amulet(plain)))
     else:
         return None
 
@@ -138,8 +155,43 @@ def _compose_replacement(edit: dict[str, Any], decode_chain: list) -> str | None
 
 
 def _snbt_string_literal(text: str) -> str:
-    """把 `text` 包成一個 SNBT 雙引號字串常值，內部的 `\\` 與 `"` 都跳脫。
+    """把 `text` 包成一個 SNBT 雙引號字串常值，內部的 `\\`、`"` 與控制字元都跳脫。
     `[待驗]`：這裡選雙引號＋跳脫，Mojang 自己的序列化器是不是傾向換成單引號
-    避免跳脫，等 spec §9.3／Task 13 的進遊戲驗證確認。"""
+    避免跳脫，等 spec §9.3／Task 13 的進遊戲驗證確認。
+
+    **控制字元（缺口 E）**：裸換行 amulet 的 `from_snbt` 收得下，1.21.11 的
+    指令解析器收不下，而在 `.mcfunction` 裡它會把實體行切成兩行。所以寫成
+    跳脫序列（`_escape_control_chars`）。`[文件]`：1.21.5（25w02a）起 SNBT
+    字串支援 `\\n`／`\\t`／`\\uXXXX` 等跳脫；`[待驗]`：1.21.11 實際解析結果。
+    amulet 不認這些跳脫（原樣保留兩個字元），所以 `assert_command_reparses`
+    抓不到這一格，測試另外直接斷言輸出裡沒有控制字元。"""
     escaped = text.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
+    return f'"{_escape_control_chars(escaped)}"'
+
+
+_NAMED_ESCAPES = {"\n": "\\n", "\r": "\\r", "\t": "\\t", "\b": "\\b", "\f": "\\f"}
+
+
+def _escape_control_chars(text: str) -> str:
+    """把 C0 控制字元與 DEL 換成 SNBT 跳脫序列；其餘字元原樣。**呼叫端必須
+    已經跳脫過 `\\`**，這裡產生的反斜線不能再被跳脫一次。"""
+    if not _has_control_char(text):
+        return text
+    return "".join(
+        _NAMED_ESCAPES.get(ch, f"\\u{ord(ch):04x}") if _is_control(ch) else ch
+        for ch in text
+    )
+
+
+def _is_control(ch: str) -> bool:
+    return ord(ch) < 0x20 or ord(ch) == 0x7F
+
+
+def _has_control_char(text: str) -> bool:
+    return any(_is_control(ch) for ch in text)
+
+
+def _is_raw_command_text(decode_chain: list) -> bool:
+    """decode 鏈最內層是 `command`——`say`／`me` 的純文字參數，沒有任何結構化
+    包裝，也就沒有任何跳脫語法。"""
+    return bool(decode_chain) and decode_chain[-1].codec.value == "command"
