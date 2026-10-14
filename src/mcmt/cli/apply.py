@@ -153,6 +153,9 @@ def format_apply(summary: dict[str, Any]) -> str:
         lines += ["", "寫入層拒絕的節點"]
         for reason, count in sorted(writer_refusals.items(), key=lambda kv: -kv[1]):
             lines.append(f"  {count:>7,}  {_REASON_TEXT.get(reason, reason)}")
+            lines += _detail_lines(
+                [item for item in outcome.unwritten if item["reason"] == reason]
+            )
 
     for warning in outcome.warnings:
         lines += ["", f"※ {warning['detail']}"]
@@ -170,6 +173,33 @@ def format_apply(summary: dict[str, Any]) -> str:
     if summary["dry_run"]:
         lines.append(f"編輯計畫：{summary['out'] / 'editplan.json'}（可以打開來看）")
     return "\n".join(lines)
+
+
+_MAX_DETAILS_PER_REASON = 3
+
+
+def _detail_lines(items: list[dict[str, Any]]) -> list[str]:
+    """同一個 reason 底下的 `detail`，相同的合併計數、最多的排前面。
+
+    reason 是合約裡的固定 enum，同一個 reason 可能是完全不同的事——
+    `unsupported_encoding` 既是「這種節點形狀還沒有寫入路徑」，也是「say 的
+    譯文含換行」（2026-10-14 遊戲實測時發現只印共用說明會誤導）。不拆新的
+    reason（那是合約改動），改成把 detail 印出來。`node_changed` 的 detail 帶
+    各自的形狀，大地圖可能有上百種，所以只列前幾種，其餘指向報告。"""
+    tally: dict[str, int] = {}
+    for item in items:
+        detail = (item.get("detail") or "").strip()
+        if detail:
+            tally[detail] = tally.get(detail, 0) + 1
+    ranked = sorted(tally.items(), key=lambda kv: (-kv[1], kv[0]))
+    lines = [
+        f"  {'':>7}    └ {count:,} 筆：{detail}"
+        for detail, count in ranked[:_MAX_DETAILS_PER_REASON]
+    ]
+    rest = len(ranked) - _MAX_DETAILS_PER_REASON
+    if rest > 0:
+        lines.append(f"  {'':>7}    └ 另有 {rest} 種說明，見 apply_report.json 的 unwritten")
+    return lines
 
 
 _REASON_TEXT = {
