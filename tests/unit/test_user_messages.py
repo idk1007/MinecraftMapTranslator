@@ -354,3 +354,38 @@ def test_a_known_error_prints_its_title_and_exits_two(project, capsys) -> None:
     err = capsys.readouterr().err
     assert code == 2
     assert "【找不到資料夾】" in err
+
+
+# --- 順序：先擋「不能寫的地方」，再讀別的東西 ------------------------------------
+
+
+def test_apply_outside_the_sandbox_is_refused_before_anything_else_is_read(project) -> None:
+    """對原存檔 apply 要第一時間被擋下，不是先花時間讀完翻譯檔、算完計畫才在
+    備份那關才說「只能修改沙盒」。"""
+    from conftest import RegionBuilder, modern_chunk, write_region_file
+
+    outside = project / "elsewhere" / "world"
+    write_region_file(outside / "region", RegionBuilder().add_chunk_nbt(0, modern_chunk()).build())
+
+    with pytest.raises(PathOutsideSandboxError):
+        run_apply(outside, project / "nope.json")
+
+
+def test_a_dry_run_outside_the_sandbox_is_still_allowed(project) -> None:
+    """dry-run 不碰存檔，預覽原存檔不該被擋（以往的行為，維持）。"""
+    from conftest import RegionBuilder, modern_chunk, write_region_file
+
+    outside = project / "elsewhere" / "world"
+    write_region_file(outside / "region", RegionBuilder().add_chunk_nbt(0, modern_chunk()).build())
+
+    with pytest.raises(InputFileNotFoundError):  # 走到讀翻譯檔才報，代表沒被圍籬擋
+        run_apply(outside, project / "nope.json", dry_run=True)
+
+
+def test_missing_arguments_use_plain_names(capsys) -> None:
+    with pytest.raises(SystemExit):
+        main(["apply"])
+
+    err = capsys.readouterr().err
+    assert "地圖路徑" in err
+    assert "world" not in err.split("格式")[0]

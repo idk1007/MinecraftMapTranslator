@@ -33,6 +33,10 @@ from mcmt.sandbox import import_world
 ERROR_LOG_NAME = "mcmt-error.log"
 
 
+# argparse 用參數的內部名稱回報缺了誰；換成使用者看得懂的叫法。
+_PLAIN_NAMES = {"world": "地圖路徑", "source": "來源地圖路徑"}
+
+
 class _Parser(argparse.ArgumentParser):
     """argparse 的錯誤訊息是英文，而且不會告訴你範例長什麼樣。"""
 
@@ -41,7 +45,9 @@ class _Parser(argparse.ArgumentParser):
     def error(self, message: str):
         required = re.search(r"required: (.+)$", message)
         if required:
-            names = "、".join(required.group(1).split(", "))
+            names = "、".join(
+                _PLAIN_NAMES.get(name, name) for name in required.group(1).split(", ")
+            )
             lines = [f"【缺少必要選項】", f"未指定 {names}。"]
             if self.hint:
                 lines.append(f"格式：{self.hint}")

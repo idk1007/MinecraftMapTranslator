@@ -38,6 +38,10 @@ def run_apply(
 ) -> dict[str, Any]:
     world_path = Path(world).resolve()
     open_world(world_path)  # 不是世界就早點說，不要跑到一半才發現
+    if not dry_run:
+        # 不能寫的地方（原存檔、沙盒之外）第一時間擋下，不要先讀完翻譯檔、算完計畫
+        # 才在備份那一關說「只能修改沙盒」。dry-run 不碰存檔，預覽原存檔照舊允許。
+        ensure_writable(world_path)
 
     translations_file = Path(translations_path).resolve()
     translations = _read_json_file(translations_file, kind="翻譯檔")
