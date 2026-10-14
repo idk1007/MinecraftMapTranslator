@@ -3,7 +3,7 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-10-14**（**指令文字已知缺口清理：E、A 已修，B／C 殘餘待設計決定。**
+最後更新：**2026-10-14**（**指令文字已知缺口 A／B／C 殘餘／E 全部處理完畢。**
 
 - **缺口 E（`write/command_span.py`）已修**，commit `5dfb416`：SNBT 字串常值與
   原生 SNBT component 的輸出裡，C0 控制字元與 DEL 一律寫成跳脫序列
@@ -15,12 +15,24 @@
 - **缺口 A（`scan/command.py`）已修**，commit `0b686f0`：`_find_component` 接受
   `custom_name` 與 `minecraft:custom_name`，別的命名空間照舊不碰。端到端原本釘住
   缺口的測試方向反過來，dispatch 組合 6 → **7** 格（`("region_chunk","snbt","translate")`）。
-- **缺口 B 與 C 殘餘：暫停，待使用者裁定**——見下方已知缺口 B 的「2026-10-14
-  發現」。簡述：[遊戲實測 M0-3] 當初就是用 `/data merge block` 寫入
-  `messages:['{"translate":…}', …]`，**正是缺口 B 的形狀**，遊戲顯示字面文字。
-  照原計畫讓寫入層接受這個形狀，會把一個顯示亂碼的字串換成另一個顯示亂碼的字串。
+- **缺口 B：改成掃描端跳過**（使用者裁定），commit `e9b03d2`。原計畫是讓寫入層
+  讀得回 `command → snbt → json_component` 三步鏈；但 [遊戲實測 M0-3] 當初就是
+  用 `/data merge block` 寫入 `messages:['{"translate":…}', …]`——**正是缺口 B 的
+  形狀**——遊戲顯示字面文字。修寫入層只會把一個亂碼換成另一個亂碼。現在
+  `scan/command.py::_yield_message` 用嗅探器判形狀，四種舊式 JSON 跳過並計入
+  `skipped_legacy_json_in_native_chunk`（沿用既有計數器，不動合約）；`'""'` 從
+  `skipped_empty` 改計入這裡（[遊戲實測 M0-4]）。寫入層讀不回三步鏈這件事保留
+  成兜底。CLAUDE.md 二節的 command text 段落已同步。
+- **缺口 C 殘餘：已補**，commit `4be093e`（`write/` 獨立 commit）。
+  `_apply_decode_group` 的三道守門抽成 `write/common.py::guard_command_edits`，
+  `.mcfunction` 的資料夾式與 zip 式都改呼叫它（長度 → 重新解碼 leaf → 形狀與
+  `raw_snapshot`），`_guard_by_length` 刪除。使用者把字改成一樣長的另一句時現在
+  會拒寫。
+- `docs/m-command-checklist.md` 第四節改寫：4a 的預期改成「形式 A／B 都顯示字面
+  文字」，要看的是有沒有紅字與多出來的反斜線；4c 從「缺口修好後的完整管線覆核」
+  改成「確認跳過的前提成立、工具沒碰它」；新增 4e（控制字元跳脫）。
 
-891 passed／contracts 48 passed。
+894 passed／contracts 48 passed。
 
 前一次更新：**2026-09-13**（**`Against Iskerside [1.21.11]` 翻譯失敗事後檢查，兩個修正。**
 使用者實際拿一張地圖跑壞了，回頭查出兩個獨立缺陷：
@@ -891,8 +903,9 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
   `test_a_give_commands_namespaced_component_is_a_known_scan_gap`。修好後那條測試的
   斷言方向要反過來，`command_dispatch_combination()` 的分類鍵也要多一個維度
   （`give` 修好後會跟 L2 撞同一格）。落在 `scan/`，可與其他修正同 commit。
-* **〔command text 缺口 B〕2026-10-14 發現：這個形狀在 1.21.11 本來就是字面亂碼，
-  修寫入層可能是錯的方向，待使用者裁定。** [遊戲實測 M0-3]（`SPIKE_RESULT.md`
+* **〔command text 缺口 B〕2026-10-14 已處理（`e9b03d2`）：掃描端跳過，不修寫入層。**
+  以下是裁定前的發現，保留原文。**這個形狀在 1.21.11 本來就是字面亂碼，
+  修寫入層可能是錯的方向。** [遊戲實測 M0-3]（`SPIKE_RESULT.md`
   「M0 遊戲實測」）當初實際下的指令就是 `/data merge block`，`back_text` 的
   `messages` 正是 `['{"translate":"mcmt.test.hello"}', '""', …]`——缺口 B 的形狀，
   也是 `docs/m-command-checklist.md` 4a 的形式 B——結果顯示**字面文字**。1.21.5 起
@@ -901,9 +914,10 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
   開始寫出 `"{\"translate\":…}"`——遊戲裡從顯示 `{"text":"Hello"}` 變成顯示
   `{"translate":"mcmt.…`，正是 CLAUDE.md 二節「native chunk 裡的舊式 JSON 一律
   跳過」要擋的那件事（`.mcfunction` 沒有解碼守門，**現在就已經**在寫這種 edit）。
-  替代方向：掃描端把字串包裝 JSON 的訊息比照舊式 JSON 跳過並計數——要不要新增
-  計數器（合約改動）或沿用 `skipped_legacy_json_in_native_chunk`，是設計決定。
-  缺口 C 的殘餘（`.mcfunction` 的 `raw_snapshot` 守門）卡在這個決定之後。原描述：
+  替代方向：掃描端把字串包裝 JSON 的訊息比照舊式 JSON 跳過並計數——**使用者裁定
+  沿用 `skipped_legacy_json_in_native_chunk`，不動合約**。pinned 測試改名
+  `test_a_json_string_wrapped_merge_message_is_skipped_not_translated`（掃描不產生
+  單位＋舊 editplan 的三步鏈 edit 寫入層照舊拒寫）。缺口 B 的原描述：
 * **〔command text 缺口 B〕`write/common.py::_decode_command_leaf` 不能還原
   「SNBT 字串包裝 JSON」的 `data merge` 訊息。** 三步鏈 `command→snbt→json_component`
   時它只看最後一步的 codec，直接對含 SNBT 引號的原始 span 跑 `json.loads`——單引號
@@ -913,7 +927,10 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
   Task 11 釘在 `test_a_json_string_wrapped_merge_message_is_a_known_write_gap`。
   落在 `write/` 目錄——依 CLAUDE.md §五要獨立 commit 並說明理由。
 * **〔command text 缺口 C〕`write/mcfunction_apply.py` 的重放守門 — 2026-09-06
-  補上長度那一層，`raw_snapshot` 那一層仍缺（殘餘）。**
+  補上長度那一層，2026-10-14 補上 `raw_snapshot` 那一層（`4be093e`），已完整。**
+  現在 `.mcfunction` 與 region／entities 共用 `write/common.py::guard_command_edits`；
+  殘餘那條 pinned 測試已反轉成 `test_a_same_length_change_after_extract_is_refused`，
+  並補 zip 版與「快照對得上照常寫」的正向測試。以下為原紀錄：
 
   **先修正一個記錯的描述。** 這條原本寫成「重放永遠成功，把已翻的文字再蓋一次
   同樣的譯文，no-op 但不對稱」。**那個描述只在檔案沒被改過時成立**，而且是因為
@@ -1003,7 +1020,7 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
 - `spike/.venv` 與 `spike/.venv_alt` 共 134 MB，已 gitignore。
 - `claude-code-stats/` 是**放在同一個資料夾裡的第三方工具**，與 mcmt 無關，已 gitignore。
 - 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 48 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
-- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（2026-10-14 為 891 passed；`pyproject` 的 `addopts = "-q"` 會吃掉摘要行，要看總數加 `-o addopts=""`）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
+- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（2026-10-14 為 894 passed；`pyproject` 的 `addopts = "-q"` 會吃掉摘要行，要看總數加 `-o addopts=""`）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
 - 跑 CLI：`.venv\Scripts\python -X utf8 -m mcmt.cli {doctor|sandbox import|extract|apply} …`。
 - **heredoc 會吃掉反斜線**：用 `bash << 'PY'` 寫含 `
 `、``、` ` 的 Python 原始碼會被破壞（曾寫出 NUL byte 讓檔案無法解析）。含跳脫序列的檔案改用 Write 工具，或用 `chr(92)` 組出反斜線。

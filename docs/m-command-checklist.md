@@ -45,7 +45,7 @@
    | ① `tellraw` | `tellraw @a {"text":"MCMD tellraw source A"}` | L1：整包 JSON 參數 |
    | ② `data merge`（原生 SNBT） | `data merge block SX SY SZ {front_text:{messages:[{text:"MCMD merge line one"},{text:""},{text:""},{text:""}]}}` | L2：指令內含 SNBT，SNBT 內含 component（`command→snbt` 兩步鏈） |
    | ③ `say` | `say MCMD say source C` | in_place：純文字尾巴，動詞前綴不能動 |
-   | ④ `data merge`（字串包裝 JSON） | `data merge block SX SY SZ {back_text:{messages:['{"text":"MCMD wrapped line"}','""','""','""']}}` | L2 的子形狀：`command→snbt→json_component` 三步鏈，會走 `_snbt_string_literal`。**見第四節，這一格目前卡在已知寫入缺口。** |
+   | ④ `data merge`（字串包裝 JSON） | `data merge block SX SY SZ {back_text:{messages:['{"text":"MCMD wrapped line"}','""','""','""']}}` | **2026-10-14 起刻意不抽**（缺口 B 的裁定）：這個形狀在 1.21.11 是字面亂碼（[遊戲實測 M0-3]）。這一格驗的是「extract 跳過它、計入 `skipped_legacy_json_in_native_chunk`，apply 後 `back_text` 原封不動」。見第四節 4c。 |
 
 3. **放一個 datapack `.mcfunction`**（可選，覆蓋 `datapack_mcfunction_file` 容器）：
    在世界的 `datapacks/` 底下建一個最小 datapack，`data/<ns>/function/mcmd_test.mcfunction`
@@ -96,7 +96,6 @@
 | `MCMD tellraw source A` | `聊天翻譯成功` |
 | `MCMD merge line one` | `告示牌翻譯成功` |
 | `MCMD say source C` | `說話翻譯成功` |
-| `MCMD wrapped line` | `字串包裝翻譯成功` |
 | `MCMD mcfunction line one` | `函式聊天翻譯成功` |
 | `MCMD mcfunction line two` | `函式說話翻譯成功` |
 
@@ -106,11 +105,10 @@
 ```
 
 **看 apply 摘要的 `unwritten` / refuse 欄**：① ② ③ 與 `.mcfunction` 兩筆應該
-全部寫入、0 拒寫。**④ 的 wrapped 這筆預期會出現在 `unwritten`**，理由是
-`unsupported_encoding` 或 `node_changed`——那是**已知寫入缺口**
-（`SPIKE_RESULT.md`「指令文字方案 1 MP2 全掃」缺口 #2，端到端測試
-`test_a_json_string_wrapped_merge_message_is_a_known_write_gap` 釘著），
-不是這次佈置弄錯。第四節說明怎麼在缺口沒修的情況下仍然驗到 `[待驗]` 那件事。
+全部寫入、0 拒寫。**④ 的 wrapped 根本不會出現在待翻檔裡**（2026-10-14 起掃描端
+跳過，extract 摘要的「新世代 chunk 裡的舊式 JSON」計數會包含它的四行），所以
+`translations.zh_tw.json` 裡找不到 `MCMD wrapped line`——那是預期行為，不是
+佈置弄錯（端到端測試 `test_a_json_string_wrapped_merge_message_is_skipped_not_translated`）。
 
 `apply` 會在 `sandbox\mcmd\` 產生 `resources.zip`（含 `mcmt.*` 的 zh_tw lang 檔）。
 
@@ -132,7 +130,7 @@
 | ① `tellraw` 的 `{"translate":key}` | 聊天出現 **`聊天翻譯成功`**（資源包解出的譯文） | 聊天出現字面的 `{"translate":"mcmt.…"}` 或字面 key，或指令報紅字錯誤 |
 | ② `data merge` 寫的告示牌 | 告示牌正面第一行出現 **`告示牌翻譯成功`** | 出現字面 SNBT／字面 key，或 `data merge` 執行報錯 |
 | ③ `say` 的 in_place 替換 | 聊天出現 **`<你> 說話翻譯成功`**——**動詞前綴（`<你> ` 那段）完整、只有尾巴被換掉** | 前綴不見了、或整行變成 `say 說話翻譯成功` 字面顯示、或原文沒被換掉 |
-| ④ SNBT 字串常值的跳脫方式 | 見第四節（本身分成 4a／4b 兩小步） | 見第四節 |
+| ④ SNBT 字串常值的跳脫方式 | 見第四節（4a 問解析器、4c 確認跳過、4d 裸字串、4e 控制字元） | 見第四節 |
 
 `.mcfunction` 兩行（`函式聊天翻譯成功` / `<你> 函式說話翻譯成功`）跟 ① ③ 同標準，
 順便確認 datapack 容器這一側寫入也 OK。
@@ -151,10 +149,16 @@ SNBT 字串常值：`"{\"translate\":\"mcmt.test.cmd_merge\"}"`。設計文件�
 （`'{"translate":"mcmt.test.cmd_merge"}'`）。要驗的是：**1.21.11 的指令解析器
 接不接受雙引號＋跳脫這個形式，還是會報錯／把 `\"` 當字面字元顯示。**
 
-**問題**：走完整 mcmt 管線驗不到——第 ④ 格的 wrapped 訊息在 `apply` 階段就被
-已知缺口 #2（`_decode_command_leaf` 讀不回字串包裝 JSON）拒寫，那段
-`_snbt_string_literal` 產生的文字根本沒被寫進存檔。所以 `[待驗]` 這件事，
-**跟缺口 #2 解耦**，用底下的手打指令直接問遊戲的解析器。
+**問題**：走完整 mcmt 管線驗不到——第 ④ 格的 wrapped 訊息 2026-10-14 起在
+掃描端就被跳過（缺口 B 的裁定），那段文字根本不會被寫進存檔。但
+`_snbt_string_literal` 仍然被 4d 的裸字串 `data merge` 與缺口 E 的控制字元跳脫
+用到，所以「雙引號＋反斜線被不被接受」仍然要問，用底下的手打指令直接問遊戲的
+解析器。
+
+> **預期**：形式 A／B 都會把 `{"translate":…}` 顯示成**字面文字**，不是
+> `跳脫驗證成功`——形式 B 就是 [遊戲實測 M0-3] 當初下的那條指令。這一節真正要看
+> 的是**形式 A 有沒有紅字**：沒有紅字、而且顯示的字面文字裡沒有多出來的反斜線，
+> 就代表雙引號＋反斜線這個跳脫形式被解析器正確解開了。
 
 ### 4a. 手打指令，問解析器（現在就能做，不依賴任何缺口）
 
@@ -181,9 +185,10 @@ data merge block SX SY SZ {back_text:{messages:['{"translate":"mcmt.test.cmd_mer
 
 | 觀察 | 代表 |
 |---|---|
-| 形式 A 被接受（無紅字），告示牌正面出現 `跳脫驗證成功` | **雙引號＋跳脫成立，`_snbt_string_literal` 不用改。** `[待驗]` → `[遊戲實測]` |
-| 形式 A 報紅字，或告示牌顯示字面的 `\"translate\"` / `{"translate"` | **雙引號＋跳脫不成立。** 走下面的補救 |
-| 形式 B 被接受，告示牌背面出現 `跳脫驗證成功` | 單引號形式是安全的備援（不論 A 結果如何，記下來） |
+| 形式 A 被接受（無紅字），告示牌正面顯示字面的 `{"translate":"mcmt.test.cmd_merge"}`（**沒有反斜線**） | **雙引號＋跳脫成立**：解析器把 `\"` 解回 `"`。`_snbt_string_literal` 不用改。`[待驗]` → `[遊戲實測]` |
+| 形式 A 報紅字，或顯示的字面文字裡**帶著反斜線**（`{\"translate\"…`） | **雙引號＋跳脫不成立。** 走下面的補救 |
+| 形式 A 或 B 顯示 `跳脫驗證成功`（被解析成 component） | **推翻 [遊戲實測 M0-3] 在指令上的延伸**——缺口 B 的裁定（掃描端跳過）前提不成立，停下來回報 |
+| 形式 B 被接受（無紅字） | 單引號形式是安全的備援（不論 A 結果如何，記下來） |
 
 ### 4b. 補救（只有 4a 的形式 A 失敗時才做）
 
@@ -214,20 +219,21 @@ M-command 遊戲實測推翻了雙引號方案。改完，下面這些綁著雙�
   的 `[待驗]` 註記為 `[遊戲實測]` 並記錄結論。
 - `_snbt_string_literal` 的 docstring 把 `[待驗]` 換成 `[遊戲實測 M-command]`。
 
-### 4c.（可選，缺口 #2 已修時才有意義）完整管線覆核
+### 4c. 字串包裝 JSON 被跳過、原封不動（2026-10-14 起的意義）
 
-若哪天缺口 #2（`_decode_command_leaf` 支援 `snbt→json_component`）被修好了，
-把第一節第 ④ 格重新納入 extract／apply。
+原本這一格是「缺口 #2 修好之後的完整管線覆核」。缺口 B 的裁定改成掃描端跳過，
+所以這裡驗的變成**跳過這個決定本身對不對**：
 
 > **第一步：先按一次 ④ 的按鈕，把 `back_text` 重設成管線的輸入。** 4a 的形式 B
-> 剛剛手打覆寫過 `back_text`，不重設的話這一步讀到的是那個手打結果，會把「管線
-> 寫對了」誤判成 PASS（或反過來）。
+> 剛剛手打覆寫過 `back_text`，不重設的話這一步讀到的是那個手打結果。
 
-重設之後：apply 不再把它列 `unwritten`，進遊戲
-確認 `back_text` 第一行顯示 `字串包裝翻譯成功`、`/data get block SX SY SZ back_text`
-的回讀是合法 SNBT（從 `latest.log` 抓，不要抄聊天視窗）。這一步驗的是
-「整條三步鏈寫回後遊戲能解析」，跟 4a 驗的「解析器接不接受這個跳脫形式」
-是兩件事，兩件都要 PASS 才算 ④ 完成。
+1. **跳過的前提成立嗎？** 重設之後看告示牌背面：第一行應該顯示**字面的**
+   `{"text":"MCMD wrapped line"}`（不是 `MCMD wrapped line`），二到四行顯示字面
+   的兩個引號 `""`。**如果反而顯示成 `MCMD wrapped line` 與空白**，代表 1.21.11
+   對指令裡的字串包裝 JSON 會解析，裁定的前提被推翻——停下來回報，這個形狀
+   應該重新納入翻譯。
+2. **工具沒有碰它嗎？** 跑過第二節的 apply 之後，④ 的指令方塊 `Command` 應該
+   跟佈置時一字不差（`/data get block <④ 的座標> Command`，從 `latest.log` 抓）。
 
 ### 4d. 裸字串 `data merge` 訊息（現在就能端到端驗，不等任何缺口）
 
@@ -254,6 +260,18 @@ SNBT 字串常值 splice 回去，list 維持全字串。**這條路徑前面沒
 
 **這一格是 live 的，不是 deferred**：不像形式 A，它不需要 4c 的「缺口 #2 修好後」
 前提。PASS 就直接標 `[遊戲實測]` 寫回 `SPIKE_RESULT.md`。
+
+### 4e. 控制字元跳脫（缺口 E，2026-10-14）
+
+`_snbt_string_literal` 現在把譯文裡的換行寫成 `\n` 跳脫（`[文件]`：1.21.5 起
+SNBT 支援 `\n`／`\t`／`\uXXXX`）。在 4d 那個裸字串 `data merge` 指令方塊的待翻檔
+裡，把 `target` 改成含換行的譯文（JSON 裡寫 `"第一段\n第二段"`），apply 之後：
+
+- 指令方塊 `Command` 應該是單行，含字面的 `\n` 兩個字元（從 `latest.log` 抓）；
+- 觸發後**沒有紅字**；告示牌那一行的顯示（換行被算繪成什麼、或被截掉）照實
+  記下來——告示牌的一行本來就放不下換行，這裡要確認的只是「指令解析得了」。
+- 反向：把 `say` 那筆的 `target` 也填含換行的譯文，apply 摘要應該列為
+  `unsupported_encoding`、detail 寫「控制字元」，指令方塊原封不動。
 
 ---
 

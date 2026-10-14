@@ -466,7 +466,7 @@ warnings：30（全部磁區重整，附前後大小）
 | 缺口 | MP2 實際遇到 |
 |---|---|
 | **#1** `scan/command.py::_find_component` 不認命名空間組件鍵（`minecraft:custom_name=…`） | **遇到，佔比不小。** `give`/`item` 指令共 4,565 次出現，其中 **3,935 次**帶 `minecraft:custom_name=…`（命名空間形式），被 `_find_component` 拿裸字串 `"custom_name"` 比對比不到，整條記進 `skipped_command_unsupported_shape`，一個字沒抽。去重後只是 **8 個相異物品名**（`Jump Left`／`Jump Middle`／`Jump Right`／`Star Protector (Empty)`／`Star Protector (With Star)`／`Emerald Block`／`Diamond Block`／`Gold Block`；後三個看來是地圖自己 item-lock 系統的內部名，`emu_lock_name` 存同一字串），但 3,935／4,565 這個佔比說明真實 1.20.5+ 語料就是用命名空間寫的，非命名空間才是 fixture 的特例。 |
-| **#2** `write/common.py::_decode_command_leaf` 不能還原「SNBT 字串包裝 JSON」的 `data merge` 訊息（三步 `command→snbt→json_component`） | **未遇到（0 次）。** MP2 的 21 個相異 `data merge block` 指令，訊息全是原生 compound（`{text:"Star Stealer",color:"yellow",…}`），沒有單／雙引號字串包一段轉義 JSON 的形式；`.mcfunction` 裡完全沒有 `data merge`。那 8 個 region 指令方塊的 `data merge` L2 路徑因此全部寫成功。 |
+| **#2** `write/common.py::_decode_command_leaf` 不能還原「SNBT 字串包裝 JSON」的 `data merge` 訊息（三步 `command→snbt→json_component`） | **未遇到（0 次）。** MP2 的 21 個相異 `data merge block` 指令，訊息全是原生 compound（`{text:"Star Stealer",color:"yellow",…}`），沒有單／雙引號字串包一段轉義 JSON 的形式；`.mcfunction` 裡完全沒有 `data merge`。那 8 個 region 指令方塊的 `data merge` L2 路徑因此全部寫成功。〔2026-10-14 後記：這個形狀依 [遊戲實測 M0-3] 在 1.21.11 是字面亂碼，修法改為掃描端跳過並計入 `skipped_legacy_json_in_native_chunk`，不修寫入層——原「修寫入層」的推論保留在這一列，推翻理由見 `docs/STATUS.md` 缺口 B。〕 |
 | **#3** `write/mcfunction_apply.py` 沒有重放守門 | **本輪不觸發，但潛在。** 251 筆 `.mcfunction` 指令文字 edit 走的是無守門路徑，首次 apply 正常寫入；只有「拿同一份 plan 對 `.mcfunction` 重放」才會靜默重蓋（region/entities 會拒），本輪只 apply 一次故未暴露。 |
 
 > **[2026-09-06] #3 那一格的「靜默重蓋（no-op）」是錯的，保留原文並說明為何被推翻。**
@@ -1355,7 +1355,7 @@ lang/zh_tw.json` 一起沒生效。告示牌顯示 key 本身而不是譯文。
 | ~~`pack_format` 過期是否只警告不拒載~~ | ~~刻意用過期號打包載入觀察~~ | **已完成（M0-5）**：無警告、無紅字、照常載入 |
 | `Teams[].MemberNamePrefix`/`MemberNameSuffix` 的 translate key 是否真的顯示 | 在一支隊伍上設定非空的前後綴、寫入 translate key、`/team list` 或 tab 列表肉眼確認 | 低 — 兩張語料地圖的實際內容全空，沒有實測動機驅動；`Objectives`/`Teams[].DisplayName` 本身已經是 [全部遊戲實測] |
 | `scoreboard.dat`（DV < 4325）的 legacy JSON 字串寫入是否被 DataFixer 正確解析 | 在一個 DV 3700 的 `scoreboard.dat` 寫入 JSON 字串型 translate key，1.21.11 開啟後看 `/scoreboard objectives list` 或側邊欄 | 中 — 與 chunk 層級的 M4-2 是同一個機制（DataFixerUpper 對任何版本化 NBT 文件一視同仁），但 `.dat` 檔本身沒有被單獨驗證過；寫入器完全沿用 M4 已驗證的 legacy.py，風險主要在「機制是否真的對 `.dat` 檔案一視同仁」這個推論本身 |
-| **指令文字（command text）進遊戲算繪** — ① `tellraw` 的 `{"translate":key}`、② `data merge` 寫的告示牌、③ `say`／`me` 的 in_place、④ `_snbt_string_literal` 的雙引號＋反斜線跳脫被 1.21.11 指令解析器接不接受 | 可重跑程序見 **`docs/m-command-checklist.md`**（在 `TT_WORLD_NAME_PROBE` 手動佈置四個指令方塊＋一塊告示牌，跑 extract／apply，進遊戲肉眼核對） | **中** — 程式碼／單元／端到端／MP2 全掃已驗（見「指令文字方案 1 MP2 全掃」），只差遊戲算繪。④ 目前 `[待驗]`，且與已知缺口 #2（`_decode_command_leaf` 讀不回字串包裝 JSON）解耦——checklist 第四節用手打指令直接問解析器；若雙引號形式被拒，補救是把 `write/command_span.py::_snbt_string_literal` 改成單引號分隔 |
+| **指令文字（command text）進遊戲算繪** — ① `tellraw` 的 `{"translate":key}`、② `data merge` 寫的告示牌、③ `say`／`me` 的 in_place、④ `_snbt_string_literal` 的雙引號＋反斜線跳脫被 1.21.11 指令解析器接不接受 | 可重跑程序見 **`docs/m-command-checklist.md`**（在 `TT_WORLD_NAME_PROBE` 手動佈置四個指令方塊＋一塊告示牌，跑 extract／apply，進遊戲肉眼核對） | **中** — 程式碼／單元／端到端／MP2 全掃已驗（見「指令文字方案 1 MP2 全掃」），只差遊戲算繪。④ 目前 `[待驗]`，且與已知缺口 #2（`_decode_command_leaf` 讀不回字串包裝 JSON）解耦——checklist 第四節用手打指令直接問解析器；若雙引號形式被拒，補救是把 `write/command_span.py::_snbt_string_literal` 改成單引號分隔。〔2026-10-14：缺口 #2 改為掃描端跳過；④ 的預期改成「形式 A／B 都顯示字面文字」，另新增 4e 控制字元跳脫（`[文件]` 1.21.5 起 SNBT 支援 `\n` 等跳脫，1.21.11 `[待驗]`）。〕 |
 
 ---
 
