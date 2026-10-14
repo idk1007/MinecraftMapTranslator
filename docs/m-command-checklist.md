@@ -36,8 +36,8 @@
 
 1. **放一塊站立式告示牌**（`oak_sign` 之類，不上蠟），四行留空，按 Esc 離開編輯。
    F3 記下它的座標，設為 `SX SY SZ`。這是第 ② 案 `data merge` 的目標。
-2. **放四個脈衝型指令方塊**（`/give @s command_block`），排成一列，每個前面放一個
-   按鈕或拉桿。F3 記下四個座標。四個分別貼下面四條指令（把 `SX SY SZ` 換成真的
+2. **放五個脈衝型指令方塊**（`/give @s command_block`），排成一列，每個前面放一個
+   按鈕或拉桿。F3 記下五個座標。五個分別貼下面五條指令（把 `SX SY SZ` 換成真的
    數字，`~ ~ ~` 也可以但要站在告示牌上）：
 
    | # | 指令方塊貼什麼 | 驗的是 |
@@ -46,6 +46,7 @@
    | ② `data merge`（原生 SNBT） | `data merge block SX SY SZ {front_text:{messages:[{text:"MCMD merge line one"},{text:""},{text:""},{text:""}]}}` | L2：指令內含 SNBT，SNBT 內含 component（`command→snbt` 兩步鏈） |
    | ③ `say` | `say MCMD say source C` | in_place：純文字尾巴，動詞前綴不能動 |
    | ④ `data merge`（字串包裝 JSON） | `data merge block SX SY SZ {back_text:{messages:['{"text":"MCMD wrapped line"}','""','""','""']}}` | **2026-10-14 起刻意不抽**（缺口 B 的裁定）：這個形狀在 1.21.11 是字面亂碼（[遊戲實測 M0-3]）。這一格驗的是「extract 跳過它、計入 `skipped_legacy_json_in_native_chunk`，apply 後 `back_text` 原封不動」。見第四節 4c。 |
+   | ⑤ `give`（帶命名空間的物品組件） | `give @p minecraft:stone[minecraft:custom_name={text:"MCMD give item E"}]` | 物品組件內含 SNBT component（`command→snbt` 兩步鏈，走 translate key）。**缺口 A（2026-10-14 修好）**：組件鍵帶 `minecraft:` 命名空間，修好之前整條被跳過、一個字都沒抽。 |
 
 3. **放一個 datapack `.mcfunction`**（可選，覆蓋 `datapack_mcfunction_file` 容器）：
    在世界的 `datapacks/` 底下建一個最小 datapack，`data/<ns>/function/mcmd_test.mcfunction`
@@ -63,14 +64,16 @@
 
 4. **先各觸發一次**（按鈕／`/function`），確認未翻版就能正常運作：聊天出現
    `MCMD tellraw source A`、告示牌正面出現 `MCMD merge line one`、聊天出現
-   `<你> MCMD say source C`……等等。**這一步是「你佈置對了」的訊號**——之後任何
-   變化才確定是工具造成的。存檔離開遊戲。
+   `<你> MCMD say source C`、背包多一塊名為 `MCMD give item E` 的石頭……等等。
+   **這一步是「你佈置對了」的訊號**——之後任何變化才確定是工具造成的。⑤ 給的
+   那塊石頭**先清掉**（`/clear @s stone`），不然進第三節
+   分不出背包裡那塊是翻譯前還是翻譯後給的。存檔離開遊戲。
 
-> 若嫌手動佈置四個指令方塊煩：這批佈置目前沒有 `tools/` 準備腳本
+> 若嫌手動佈置五個指令方塊煩：這批佈置目前沒有 `tools/` 準備腳本
 > （不像 M4 的 `m4_prepare.py`）。理由是指令方塊要人進遊戲放、按鈕要人接，
 > 腳本頂多省下「不要打錯字」，收益低。未來若這個驗證要常跑，值得補一個
 > 「找出世界裡所有 `minecraft:command_block` 方塊實體、把它們的 `Command` 改寫成
-> 上表四條」的腳本，架構抄 `tools/m4_prepare.py`（`read_region` → 改 `block_entities`
+> 上表五條」的腳本，架構抄 `tools/m4_prepare.py`（`read_region` → 改 `block_entities`
 > → `BackupSet` → `write_region`），但仍需要人先進遊戲放方塊。
 
 ---
@@ -84,9 +87,10 @@
 ```
 
 `extract` 的摘要裡應該看到 `command_say_text` 與 `command_component_text` 兩個
-新分類各有數字（① tellraw 與 ④ 的 wrapped 是 `command_component_text`，
-② merge 是 `command_component_text`，③ say 是 `command_say_text`）。若某一格
-沒被抽到，先停下來查掃描端，不要進遊戲。
+新分類各有數字（① tellraw、② merge、⑤ give 是 `command_component_text`，
+③ say 是 `command_say_text`；④ 的 wrapped 不抽，見下面）。若某一格沒被抽到，
+先停下來查掃描端，不要進遊戲。**⑤ 沒被抽到**（待翻檔裡找不到 `MCMD give item E`、
+摘要的「指令形狀不支援」計數多了一）就是缺口 A 又回來了。
 
 編輯 `sandbox\.mcmt-out\mcmd\translations.zh_tw.json`，把這幾筆的 `target` 填上
 可分辨的中文（`source` 會告訴你哪筆是哪筆）：
@@ -96,6 +100,7 @@
 | `MCMD tellraw source A` | `聊天翻譯成功` |
 | `MCMD merge line one` | `告示牌翻譯成功` |
 | `MCMD say source C` | `說話翻譯成功` |
+| `MCMD give item E` | `給予物品翻譯成功` |
 | `MCMD mcfunction line one` | `函式聊天翻譯成功` |
 | `MCMD mcfunction line two` | `函式說話翻譯成功` |
 
@@ -104,7 +109,7 @@
 .venv\Scripts\python -X utf8 -m mcmt.cli apply "sandbox\mcmd" --translations "sandbox\.mcmt-out\mcmd\translations.zh_tw.json"
 ```
 
-**看 apply 摘要的 `unwritten` / refuse 欄**：① ② ③ 與 `.mcfunction` 兩筆應該
+**看 apply 摘要的 `unwritten` / refuse 欄**：① ② ③ ⑤ 與 `.mcfunction` 兩筆應該
 全部寫入、0 拒寫。**④ 的 wrapped 根本不會出現在待翻檔裡**（2026-10-14 起掃描端
 跳過，extract 摘要的「新世代 chunk 裡的舊式 JSON」計數會包含它的四行），所以
 `translations.zh_tw.json` 裡找不到 `MCMD wrapped line`——那是預期行為，不是
@@ -121,9 +126,9 @@
 2. 用 **1.21.11** 開啟，語言切**繁體中文**，`/gamemode creative`。
 3. 資源包清單確認 `mcmd/resources.zip` 有生效（沒生效的話 `mcmt.*` key 會顯示
    成字面 key，那是資源包的病不是寫入的病，見失敗分診）。
-4. 重新觸發四個指令方塊與 `/function <ns>:mcmd_test`，逐項核對：
+4. 重新觸發五個指令方塊與 `/function <ns>:mcmd_test`，逐項核對：
 
-### 要回報的四件事（照抄 spec §9.3）
+### 要回報的五件事（①–④ 照抄 spec §9.3，⑤ 是 2026-10-14 缺口 A 修好後補的）
 
 | # | 檢查 | PASS | FAIL |
 |---|---|---|---|
@@ -131,6 +136,7 @@
 | ② `data merge` 寫的告示牌 | 告示牌正面第一行出現 **`告示牌翻譯成功`** | 出現字面 SNBT／字面 key，或 `data merge` 執行報錯 |
 | ③ `say` 的 in_place 替換 | 聊天出現 **`<你> 說話翻譯成功`**——**動詞前綴（`<你> ` 那段）完整、只有尾巴被換掉** | 前綴不見了、或整行變成 `say 說話翻譯成功` 字面顯示、或原文沒被換掉 |
 | ④ SNBT 字串常值的跳脫方式 | 見第四節（4a 問解析器、4c 確認跳過、4d 裸字串、4e 控制字元） | 見第四節 |
+| ⑤ `give` 的 `minecraft:custom_name` | 按下按鈕後背包多一塊石頭，**滑鼠移上去的物品名是 `給予物品翻譯成功`**（資源包解出的譯文）；指令方塊沒有紅字 | 物品名是字面的 `{translate:…}`／字面 key、仍是 `MCMD give item E`（沒被寫到）、拿到的是沒有名字的普通石頭（組件被弄壞），或指令報紅字 |
 
 `.mcfunction` 兩行（`函式聊天翻譯成功` / `<你> 函式說話翻譯成功`）跟 ① ③ 同標準，
 順便確認 datapack 容器這一側寫入也 OK。
@@ -302,7 +308,8 @@ SNBT 支援 `\n`／`\t`／`\uXXXX`）。在 4d 那個裸字串 `data merge` 指�
 **單人開發沒有第二個人會提醒你這一步。** 進完遊戲後：
 
 1. **`SPIKE_RESULT.md`**：新增一節「指令文字 M-command 遊戲實測（<日期>）」，
-   四項（① tellraw／② data merge／③ say／④ SNBT 跳脫）各記顯示結果與證據等級。
+   五項（① tellraw／② data merge／③ say／④ SNBT 跳脫／⑤ give 命名空間組件）各記
+   顯示結果與證據等級。
    PASS 標 `[遊戲實測]`；有偏差就記實際現象並說明對策。同時更新
    「尚待驗證」表——把對應列劃掉並註明本節。
 2. **④ 若形式 A 失敗**：照第 4b 節改 `src/mcmt/write/command_span.py`
