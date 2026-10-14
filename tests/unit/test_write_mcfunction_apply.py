@@ -19,6 +19,7 @@ def _edit(
     key_suffix: str,
     *,
     line_length: int,
+    raw_snapshot: str | None = None,
 ) -> dict:
     """`container_path` 已經是完整的 `<relative>:<行號 1-based>` 字串。
 
@@ -47,6 +48,7 @@ def _edit(
             {"t": "decode", "codec": "command", "arg": None, "span": list(span)},
         ],
         "expected_encoding": "bare_string",
+        "raw_snapshot": raw_snapshot,
         "value": {"kind": "literal", "text": fallback, "style": None},
     }
 
@@ -181,8 +183,8 @@ def test_zip_form_applies_edit_and_preserves_other_entries(project) -> None:
 # `write/common.py::_apply_decode_group` 在委派給 `command_span.py` 之前先跑
 # `_command_length_matches` ＋ `_decode_command_leaf` ＋ `_guarded_encoding`；
 # `.mcfunction` 這條路以前**一道都沒有**。它被記成「重放會靜默寫一次同樣的譯文
-# （no-op，無害）」——那個描述只在**檔案沒被改過**時成立。下面三條把真實行為
-# 釘住：長度守門補上了，逐位元組守門還沒有。
+# （no-op，無害）」——那個描述只在**檔案沒被改過**時成立。下面幾條把真實行為
+# 釘住：長度守門（2026-09-06）與逐位元組守門（2026-10-14）都補上了。
 
 
 def test_a_line_that_changed_after_extract_is_refused_not_spliced_at_a_stale_offset(
@@ -257,22 +259,18 @@ def test_replaying_the_same_plan_on_an_mcfunction_is_refused(project) -> None:
     assert path.read_text(encoding="utf-8") == "say 你好世界\n"
 
 
-def test_a_same_length_change_after_extract_is_the_remaining_mcfunction_gap(
-    project,
-) -> None:
-    """**縮小後的缺口，釘在一個會被讀到的地方——不是慶祝現況。**
+def test_a_same_length_change_after_extract_is_refused(project) -> None:
+    """**缺口 C 的殘餘，2026-10-14 補上。**
 
     長度守門問的是「這一行還有沒有那麼長」。使用者在 extract 之後把字改成
-    **一樣長**的另一句時，長度對得上，這一筆就照樣寫下去，把使用者自己剛改的字
-    蓋掉。region／entities 那條路還有第二層（`_decode_command_leaf` ＋
-    `_guarded_encoding` 的 `raw_snapshot` 逐位元組比對）擋得住這種；
-    `.mcfunction` 目前沒有接上那一層。
+    **一樣長**的另一句時，長度對得上；這一筆以前照樣寫下去，把使用者自己剛改的
+    字蓋掉。現在 `.mcfunction` 跟 region／entities 走同一套守門
+    （`write/common.py::guard_command_edits`：長度 → 重新解碼 leaf →
+    `_guarded_encoding` 的形狀與 `raw_snapshot` 逐位元組比對）。
 
-    為什麼沒有一起接：`_decode_command_leaf` 自己還帶著缺口 B（三步鏈的
-    「SNBT 字串常值包 JSON」重新解碼是壞的）。把它照搬過來，會讓
-    `.mcfunction` 裡**目前寫得出去**的那個形狀反而開始被拒寫——用一個已知壞掉的
-    解碼器去守門，是拿一個真缺陷換一個假保護。等缺口 B 修好，這一層才該補上，
-    到時候這條測試會變紅，那就是提醒。
+    這條測試原本叫 `..._is_the_remaining_mcfunction_gap`，斷言的是「沒被擋下來」。
+    當時沒接的理由是 `_decode_command_leaf` 帶著缺口 B；缺口 B 改成掃描端跳過
+    之後，三步鏈不再被產生，那個理由不成立了。
     """
     world = project / "sandbox"
     relative = "datapacks/p/data/n/function/hello.mcfunction"
@@ -282,15 +280,81 @@ def test_a_same_length_change_after_extract_is_the_remaining_mcfunction_gap(
     path.write_text("say HELLO WORLD\n", encoding="utf-8")
 
     container_path = f"{relative}:1"
-    edit = _edit(container_path, (4, 15), "你好世界", "bbbbbbbbbbbbbbbb", line_length=15)
+    edit = _edit(
+        container_path,
+        (4, 15),
+        "你好世界",
+        "bbbbbbbbbbbbbbbb",
+        line_length=15,
+        raw_snapshot="Hello world",
+    )
     outcome = ApplyOutcome()
 
     with BackupSet(world) as backup:
         apply_to_mcfunction_file(world, container_path, [edit], outcome, backup)
 
-    # 沒有被擋下來——使用者自己改的字被蓋掉了。這就是殘餘缺口。
+    assert [item["reason"] for item in outcome.unwritten] == ["node_changed"]
+    assert path.read_text(encoding="utf-8") == "say HELLO WORLD\n"
+    assert outcome.counts["files_rewritten"] == 0
+    assert outcome.counts["edits_written"] == 0
+
+
+def test_an_unchanged_line_with_a_matching_snapshot_is_still_written(project) -> None:
+    """守門的另一面：`raw_snapshot` 對得上就照常寫。只測拒寫的話，一個什麼都擋
+    的守門也會是綠的。"""
+    world = project / "sandbox"
+    relative = "datapacks/p/data/n/function/hello.mcfunction"
+    path = world / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("say Hello world\n", encoding="utf-8")
+
+    container_path = f"{relative}:1"
+    edit = _edit(
+        container_path,
+        (4, 15),
+        "你好世界",
+        "dddddddddddddddd",
+        line_length=15,
+        raw_snapshot="Hello world",
+    )
+    outcome = ApplyOutcome()
+
+    with BackupSet(world) as backup:
+        apply_to_mcfunction_file(world, container_path, [edit], outcome, backup)
+
     assert not outcome.unwritten
     assert path.read_text(encoding="utf-8") == "say 你好世界\n"
+    assert outcome.counts["edits_written"] == 1
+
+
+def test_zip_form_a_same_length_change_is_refused_too(project) -> None:
+    """zip 形式與資料夾形式必須是同一條規則——守門只補一邊等於沒補。"""
+    world = project / "sandbox"
+    zip_relative = "datapacks/p.zip"
+    zip_path = world / zip_relative
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    entry_name = "data/n/function/hello.mcfunction"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(entry_name, "say HELLO WORLD\n")
+
+    container_path = f"{zip_relative}/{entry_name}:1"
+    edit = _edit(
+        container_path,
+        (4, 15),
+        "你好世界",
+        "eeeeeeeeeeeeeeee",
+        line_length=15,
+        raw_snapshot="Hello world",
+    )
+    outcome = ApplyOutcome()
+
+    with BackupSet(world) as backup:
+        apply_to_mcfunction_file(world, container_path, [edit], outcome, backup)
+
+    assert [item["reason"] for item in outcome.unwritten] == ["node_changed"]
+    with zipfile.ZipFile(zip_path) as archive:
+        assert archive.read(entry_name) == b"say HELLO WORLD\n"
+    assert outcome.counts["files_rewritten"] == 0
 
 
 def test_zip_form_a_changed_line_is_refused_too(project) -> None:

@@ -9,27 +9,22 @@ docs/superpowers/specs/2026-09-05-command-text-design.md §6。
 換行符只被 `scan/sources/mcfunction.py::split_lines()` 認出、存起來、原封貼
 回去，從未被任何字串運算正規化過。
 
-**寫之前先過長度守門**（`_guard_by_length`，2026-09-06 補）。region／entities 走
-`write/common.py::_apply_decode_group`，那裡在委派給 `command_span.py` 之前有
-`_command_length_matches` ＋ `_decode_command_leaf` ＋ `_guarded_encoding` 三道；
-`.mcfunction` 這條路以前一道都沒有，唯一的把關是 `cli/apply.py` 最外層那個
-`world_fingerprint` 閘門。那個閘門確實涵蓋 `datapacks/**`，但
-`apply_editplan` 是一個函式庫進入點，而防禦縱深本來就是 `_guarded_encoding` ＋
-`raw_snapshot` 這整套設計的用意——**唯一只靠外層閘門的容器**不該是這一個。
+**寫之前先過守門**（`write/common.py::guard_command_edits`）——跟 region／
+entities 的 `Command` 欄位同一份定義：長度 → 重新解碼 leaf → `_guarded_encoding`
+的形狀與 `raw_snapshot` 逐位元組比對。
 
-這個缺口被記錄成「重放會靜默寫一次同樣的譯文（no-op，無害）」，那個描述只在
+這條路以前一道都沒有，唯一的把關是 `cli/apply.py` 最外層那個 `world_fingerprint`
+閘門。那個閘門確實涵蓋 `datapacks/**`，但 `apply_editplan` 是一個函式庫進入點，
+而防禦縱深本來就是 `_guarded_encoding` ＋ `raw_snapshot` 這整套設計的用意——
+**唯一只靠外層閘門的容器**不該是這一個。
+
+這個缺口曾被記錄成「重放會靜默寫一次同樣的譯文（no-op，無害）」，那個描述只在
 **檔案沒被改過**時成立：plan 裡的 span 是絕對位移，對一行在 extract 之後變長的
 指令重放，會從一個 token 的正中央切開，寫出語法壞掉的指令，而 `unwritten` 是空
-的。長度守門就是擋這個。
-
-**還沒補上的是逐位元組那一層**（`raw_snapshot` 對照，region／entities 有）：
-使用者把字改成**一樣長**的另一句時，長度對得上，這一筆照樣寫下去。沒有一起補的
-理由是 `_decode_command_leaf` 自己還帶著已知缺口（三步鏈「SNBT 字串常值包 JSON」
-的重新解碼是壞的，見 `docs/STATUS.md` 缺口 B）——照搬過來會讓 `.mcfunction` 裡
-**目前寫得出去**的那個形狀反而開始被拒寫，等於拿一個真缺陷換一個假保護。缺口 B
-修好之後才該接上，屆時
-`test_a_same_length_change_after_extract_is_the_remaining_mcfunction_gap`
-會變紅，那就是提醒。
+的。2026-09-06 先補了長度那一道；逐位元組那一道（使用者把字改成**一樣長**的另一
+句）當時沒接，理由是 `_decode_command_leaf` 帶著缺口 B。缺口 B 在 2026-10-14
+改成掃描端跳過、三步鏈不再被產生之後，那個理由不成立了，於是整套接上
+（缺口 C）。
 
 **行號只從 `relative`（呼叫端傳進來的 `container.path` 字串）解析。**
 `scan/sources/mcfunction.py::_container()` 把它組成
@@ -50,36 +45,11 @@ from mcmt.safety.paths import ensure_readable, ensure_writable
 from mcmt.scan.sources.mcfunction import split_lines
 from mcmt.write.command_span import apply_command_edits
 
-# `_command_length_matches` 是 `write/common.py` 的模組內部函式，但**守門的定義
-# 必須只有一份**——在這裡複製一份四行的長度比對，就是複製一個哪天會跟本尊分岔
-# 的判準。同一個 `mcmt.write` 套件內共用內部函式，比兩份會漂移的實作安全。
-from mcmt.write.common import ApplyOutcome, _command_length_matches, refuse
+# **守門的定義必須只有一份**——在這裡另寫一份，就是複製一個哪天會跟本尊分岔的
+# 判準。
+from mcmt.write.common import ApplyOutcome, guard_command_edits, refuse
 
 __all__ = ["apply_to_mcfunction_file"]
-
-
-def _guard_by_length(command: str, edits: list[dict], outcome: ApplyOutcome) -> list[dict]:
-    """留下「這一行還跟 extract 當下一樣長」的 edits，其餘拒寫。
-
-    判準與拒寫理由都跟 `write/common.py::_apply_decode_group` 用的同一份——
-    `decode_chain` 的固定第一步 `("command", (0, 整行長度))`。長度對不上，這一行
-    就不是 extract 抽的那一行，plan 裡的絕對位移全部失效。
-    """
-    guarded: list[dict] = []
-    for edit in edits:
-        decode_chain = [
-            step for step in NodePath.from_json(edit["node_path"]) if step.t == "decode"
-        ]
-        if not _command_length_matches(command, decode_chain):
-            refuse(
-                outcome,
-                edit,
-                "node_changed",
-                "指令字串的長度跟 extract 當下不一樣——世界在 extract 之後被改過了",
-            )
-            continue
-        guarded.append(edit)
-    return guarded
 
 
 def apply_to_mcfunction_file(
@@ -139,7 +109,7 @@ def _apply_to_folder_line(
         return
 
     command, terminator = lines[index]
-    guarded = _guard_by_length(command, edits, outcome)
+    guarded = guard_command_edits(command, edits, outcome)
     if not guarded:
         return
     # `before` 要在守門**之後**才取——不然守門拒掉的那幾筆會被算進下面的
@@ -203,7 +173,7 @@ def _apply_to_zip_line(
         return
 
     command, terminator = lines[index]
-    guarded = _guard_by_length(command, edits, outcome)
+    guarded = guard_command_edits(command, edits, outcome)
     if not guarded:
         return
     before = len(outcome.unwritten)

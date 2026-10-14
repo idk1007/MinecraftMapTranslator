@@ -251,6 +251,35 @@ def _apply_decode_group(
         return 0
 
     text = str(tag)
+    guarded = guard_command_edits(text, edits, outcome)
+    if not guarded:
+        return 0
+
+    before = len(outcome.unwritten)
+    new_text = apply_command_edits(text, guarded, outcome=outcome)
+    if new_text is None:
+        return 0
+    container[key] = amulet_nbt.StringTag(new_text)
+    return len(guarded) - (len(outcome.unwritten) - before)
+
+
+def guard_command_edits(
+    text: str, edits: list[dict[str, Any]], outcome: ApplyOutcome
+) -> list[dict[str, Any]]:
+    """指令文字的守門，**唯一一份定義**：region／entities 的 `Command` 欄位
+    （`_apply_decode_group`）與 `.mcfunction` 的一行（`mcfunction_apply.py`）
+    都走這裡。留下通過的 edits，其餘拒寫。
+
+    三道，由便宜到貴：
+
+    1. 長度（`_command_length_matches`）——對不上，plan 裡的絕對位移全部失效。
+    2. 從**現在的**字串重新解碼 leaf（`_decode_command_leaf`）——解不出來就
+       承認解不出來，拒寫。
+    3. `_guarded_encoding`——形狀，再加 `raw_snapshot` 逐位元組比對。長度一樣、
+       字不一樣（使用者把字改成一樣長的另一句）只有這一道擋得住。
+
+    `.mcfunction` 以前只有第 1 道（缺口 C，2026-10-14 補齊）。
+    """
     guarded: list[dict[str, Any]] = []
     for edit in edits:
         decode_chain = [
@@ -271,16 +300,7 @@ def _apply_decode_group(
         if _guarded_encoding(decoded, edit, outcome) is None:
             continue
         guarded.append(edit)
-
-    if not guarded:
-        return 0
-
-    before = len(outcome.unwritten)
-    new_text = apply_command_edits(text, guarded, outcome=outcome)
-    if new_text is None:
-        return 0
-    container[key] = amulet_nbt.StringTag(new_text)
-    return len(guarded) - (len(outcome.unwritten) - before)
+    return guarded
 
 
 def _command_length_matches(text: str, decode_chain: list) -> bool:
@@ -299,7 +319,13 @@ def _decode_command_leaf(text: str, decode_chain: list) -> Any:
     """`decode_chain` 最後一步才是真正的 splice 目標（`command_span.py` 的
     說明）；把它對應的片段從**現在的**物理字串重新解碼回一棵 tag，只為了餵給
     `_guarded_encoding` 走跟原生 NBT 節點同一套形狀／內容守門——不是重新做一次
-    `scan/command.py` 的動詞判斷，解碼失敗就承認解不出來，不猜。"""
+    `scan/command.py` 的動詞判斷，解碼失敗就承認解不出來，不猜。
+
+    **`snbt → json_component` 三步鏈（SNBT 字串常值包 JSON）在這裡讀不回來**
+    ——最後一步的 span 是字串常值本身（含引號），不是解開後的 JSON。這曾經是
+    缺口 B；2026-10-14 的裁定是那個形狀在 1.21.11 本來就是字面亂碼，掃描端
+    跳過不抽，所以這裡讀不回來反而是對的兜底：裁定之前產生的舊 editplan 帶著
+    這種 edit 時，守門會拒寫。"""
     if not decode_chain:
         return None
     last = decode_chain[-1]

@@ -1394,15 +1394,16 @@ def test_the_command_span_primitive_itself_has_no_replay_guard_by_design() -> No
     指令，而 `unwritten` 是空的。**釘住現狀的測試挑了最方便的例子，於是「測試
     是綠的」被讀成「行為是無害的」。**
 
-    2026-09-06 已補：`write/mcfunction_apply.py::_guard_by_length()`（資料夾式
-    與 zip 式兩條路都接）。`.mcfunction` 的重放行為現在釘在
-    `tests/unit/test_write_mcfunction_apply.py` 的四條，包括還沒補上的
-    `raw_snapshot` 那一層（殘餘缺口）。
+    2026-09-06 補上長度守門、2026-10-14 補上 `raw_snapshot` 那一層：
+    `.mcfunction` 現在跟 region／entities 走同一份
+    `write/common.py::guard_command_edits`（資料夾式與 zip 式兩條路都接）。
+    重放行為釘在 `tests/unit/test_write_mcfunction_apply.py`。
 
     **這條測試留下來，釘的是另一件仍然為真、而且是刻意的事**：
     `command_span.py::apply_command_edits` 這個**原語本身**不做任何 extract-當下
     快照比對，它只負責 splice。守門是呼叫端的責任（`write/common.py::
-    _apply_decode_group` 與 `write/mcfunction_apply.py::_guard_by_length`）。
+    _apply_decode_group` 與 `write/mcfunction_apply.py`，兩者都呼叫
+    `write/common.py::guard_command_edits`）。
     把守門下放到原語裡會讓兩個呼叫端各自的分組／快照語意糊掉——所以這裡不是
     缺口，是分層。
     """
@@ -1437,8 +1438,8 @@ def test_the_command_span_primitive_itself_has_no_replay_guard_by_design() -> No
 
     # 第二次：對**已經被翻譯過**的字串重放同一筆 edit——原語本身不做任何
     # extract-當下快照比對，只單純 splice，所以永遠成功。兩個呼叫端各自在
-    # 委派給它之前擋（`write/common.py::_apply_decode_group` 的三層、
-    # `write/mcfunction_apply.py::_guard_by_length` 的長度那層），所以**走
+    # 委派給它之前擋（兩者都走 `write/common.py::guard_command_edits` 的三層），
+    # 所以**走
     # 真實入口的重放是被拒的**——那件事釘在
     # `tests/unit/test_write_mcfunction_apply.py::test_replaying_the_same_plan_on_an_mcfunction_is_refused`。
     twice = apply_command_edits(once, [edit], outcome=outcome)
