@@ -249,7 +249,10 @@ def test_a_stale_translation_file_is_refused(tmp_path) -> None:
     with pytest.raises(ValueError) as exc:
         build_editplan(extract, translations, language="zh_tw")
 
-    assert "extract" in str(exc.value)
+    # 措辭改成給使用者看的（docs/error-messages-review.md A5）：指紋留在屬性裡，
+    # 畫面上只說「請使用最新產生的翻譯檔」。
+    assert exc.value.title == "翻譯檔與地圖不符"
+    assert exc.value.found == "blake2b:deadbeefdeadbeef"
 
 
 def test_a_schema_version_mismatch_is_refused(tmp_path) -> None:

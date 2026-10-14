@@ -15,7 +15,11 @@ from typing import Any
 
 from mcmt.backends.resourcepack.backend import build_editplan
 from mcmt.backends.resourcepack.pack import build_pack
-from mcmt.errors import WorldChangedSinceExtractError
+from mcmt.errors import (
+    InputFileNotFoundError,
+    InvalidJsonFileError,
+    WorldChangedSinceExtractError,
+)
 from mcmt.extract.emit import dump_json
 from mcmt.fingerprint import world_fingerprint
 from mcmt.safety.paths import ensure_readable, ensure_writable, sandbox_root
@@ -36,11 +40,11 @@ def run_apply(
     open_world(world_path)  # 不是世界就早點說，不要跑到一半才發現
 
     translations_file = Path(translations_path).resolve()
-    translations = json.loads(ensure_readable(translations_file).read_bytes().decode("utf-8"))
+    translations = _read_json_file(translations_file, kind="翻譯檔")
     language = translations["language"]
 
     extract_file = Path(extract_path) if extract_path else translations_file.parent / "extract.json"
-    extract = json.loads(ensure_readable(extract_file).read_bytes().decode("utf-8"))
+    extract = _read_json_file(extract_file, kind="掃描紀錄")
 
     plan = build_editplan(extract, translations, language=language)
 
@@ -109,6 +113,25 @@ def run_apply(
         "pack": pack_report,
         "dry_run": dry_run,
     }
+
+
+def _read_json_file(path: Path, *, kind: str) -> Any:
+    """讀使用者給的 JSON。不存在、語法錯誤都換成使用者看得懂的訊息：
+    哪個檔案、第幾行、出錯那一行與前後各一行——不是 `Errno 2` 或
+    `Expecting property name…(char 1)`。"""
+    if not path.is_file():
+        raise InputFileNotFoundError(path, kind=kind)
+    text = ensure_readable(path).read_bytes().decode("utf-8")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        lines = text.splitlines()
+        first = max(1, exc.lineno - 1)
+        last = min(len(lines), exc.lineno + 1)
+        context = [(number, lines[number - 1]) for number in range(first, last + 1)]
+        raise InvalidJsonFileError(
+            path=path, line=exc.lineno, column=exc.colno, context=context, kind=kind
+        ) from exc
 
 
 # editplan 的拒絕原因與 apply_report 的詞彙表是**互斥**的，所以後端的拒絕不會被

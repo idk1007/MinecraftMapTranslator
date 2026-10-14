@@ -22,6 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 from mcmt.errors import (
+    NotAWorldError,
     SandboxTargetExistsError,
     SandboxTargetInsideSourceError,
     WorldNotFoundError,
@@ -50,9 +51,10 @@ def import_world(
     """把一個世界完整複製進 `sandbox/`，並記下它的來歷。"""
     source_path = Path(source).resolve()
     if not _looks_like_a_world(source_path):
-        raise WorldNotFoundError(
-            f"{source_path} 看起來不是一個世界資料夾"
-            f"（找不到 level.dat，也找不到任何 region 目錄）"
+        raise (
+            NotAWorldError(source_path)
+            if source_path.exists()
+            else WorldNotFoundError(source_path)
         )
 
     target = ensure_writable(sandbox_root() / (name or source_path.name))

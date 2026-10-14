@@ -12,8 +12,11 @@
 洗掉——那是這個指令唯一會造成真正損失的方式。
 """
 
+import shutil
+from datetime import datetime
 from pathlib import Path
 
+from mcmt.errors import NamespaceConflictError, TranslationsExistError
 from mcmt.extract.build import build_units
 from mcmt.extract.emit import (
     build_extract_document,
@@ -40,6 +43,9 @@ def run_extract(
     replace: bool = False,
 ) -> dict:
     """跑一次 extract，回傳給 CLI 印的摘要。"""
+    if namespace == "minecraft":
+        # 在動任何東西之前擋：覆寫原版 key 會改掉原版所有語言的文字。
+        raise NamespaceConflictError(namespace)
     world_path = Path(world).resolve()
     readable = open_world(world_path)
     destination = ensure_writable(
@@ -47,7 +53,7 @@ def run_extract(
     )
     translations_path = destination / f"translations.{language}.json"
     if translations_path.exists() and not replace:
-        raise FileExistsError(translations_path)
+        raise TranslationsExistError(translations_path)
 
     result = build_units(world_path, namespace=namespace, world_root=readable)
     extract = build_extract_document(
@@ -63,6 +69,10 @@ def run_extract(
     )
 
     destination.mkdir(parents=True, exist_ok=True)
+    if translations_path.exists():
+        # 覆蓋之前先留一份：這是整個專案裡唯一給人手動編輯的檔案，辛苦填的譯文
+        # 不該因為按錯一次就沒了。
+        _keep_backup(translations_path)
     _write(destination / "extract.json", dump_json(extract))
     _write(translations_path, dump_json(translations))
     _write(destination / "keymap.json", dump_json(result.keymap))
@@ -149,6 +159,18 @@ def format_result(summary: dict) -> str:
 
 def _write(path: Path, text: str) -> None:
     ensure_writable(path).write_text(text, encoding="utf-8")
+
+
+def _keep_backup(path: Path) -> Path:
+    """把 `path` 複製成 `<檔名>.bak-<時間>`，同一秒重複就加序號，絕不覆蓋既有備份。"""
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    candidate = path.with_name(f"{path.name}.bak-{stamp}")
+    counter = 1
+    while candidate.exists():
+        counter += 1
+        candidate = path.with_name(f"{path.name}.bak-{stamp}-{counter}")
+    shutil.copyfile(path, ensure_writable(candidate))
+    return candidate
 
 
 def _level_data_version(world) -> int:

@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from mcmt.backends.resourcepack.lang import build_lang, inline_text, sigma_codes_for
+from mcmt.errors import TranslationsMismatchError
 from mcmt.extract.placeholders import unescape, validate
 from mcmt.model import SCHEMA_VERSION
 from mcmt.model.strategy import strategy_for
@@ -271,10 +272,9 @@ def _check_binding(extract: dict[str, Any], translations: dict[str, Any]) -> Non
     wanted = extract["world"]["extract_fingerprint"]
     found = translations["extract_ref"]["extract_fingerprint"]
     if wanted != found:
-        raise ValueError(
-            f"這份譯文不是為這份 extract 產生的（{found} ≠ {wanted}）。"
-            f"世界或規則集變了就要重新 extract，硬套會安靜地對錯節點。"
-        )
+        # 世界或規則集變了就要重新 extract，硬套會安靜地對錯節點。指紋留在屬性裡
+        # 給日誌，不放在畫面上。
+        raise TranslationsMismatchError(found=found, wanted=wanted)
 
 
 def _now() -> str:

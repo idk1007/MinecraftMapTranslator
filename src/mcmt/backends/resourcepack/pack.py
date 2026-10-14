@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from mcmt.backends.resourcepack.lang import dump_lang
+from mcmt.errors import PackMetaError
 from mcmt.packmeta import FORWARD_PACK_FORMAT, widen_supported_formats
 from mcmt.safety.paths import ensure_readable, ensure_writable
 from mcmt.tree.codecs import codec_for
@@ -144,10 +145,8 @@ def _read_existing(
                     # 地圖的 pack.mcmeta 常有註解與尾逗號，走寬容解析。
                     meta = codec_for("lang_json").decode(raw)
                 except Exception as exc:
-                    raise ValueError(
-                        f"{path} 裡的 pack.mcmeta 解析不了：{exc}。"
-                        f"不猜——猜錯會讓整包被拒而使用者不知道為什麼。"
-                    ) from exc
+                    # 不猜——猜錯會讓整包被拒而使用者不知道為什麼。
+                    raise PackMetaError(path=path, detail=str(exc)) from exc
                 continue
             if info.filename in skip:
                 continue

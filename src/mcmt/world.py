@@ -7,7 +7,7 @@
 
 from pathlib import Path
 
-from mcmt.errors import WorldNotFoundError
+from mcmt.errors import NotAWorldError, WorldNotFoundError
 from mcmt.safety.paths import ReadOnlyPath, ensure_readable
 
 __all__ = ["open_world", "region_dirs_of"]
@@ -21,13 +21,11 @@ def open_world(path: Path | str) -> ReadOnlyPath:
     """
     world = Path(path)
     if not world.is_dir():
-        raise WorldNotFoundError(f"找不到世界資料夾：{world}")
+        raise WorldNotFoundError(world)
 
     readable = ensure_readable(world)
     if not region_dirs_of(readable):
-        raise WorldNotFoundError(
-            f"{world} 底下找不到任何 region 目錄——這看起來不是一個世界資料夾"
-        )
+        raise NotAWorldError(world)
     return readable
 
 
