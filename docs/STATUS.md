@@ -3,7 +3,26 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-09-13**（**`Against Iskerside [1.21.11]` 翻譯失敗事後檢查，兩個修正。**
+最後更新：**2026-10-14**（**指令文字已知缺口清理：E、A 已修，B／C 殘餘待設計決定。**
+
+- **缺口 E（`write/command_span.py`）已修**，commit `5dfb416`：SNBT 字串常值與
+  原生 SNBT component 的輸出裡，C0 控制字元與 DEL 一律寫成跳脫序列
+  （`\n` `\r` `\t` `\b` `\f`，其餘 `\uXXXX`）；`say`／`me`（沒有跳脫語法）含控制
+  字元的譯文改為拒寫（`unsupported_encoding`，detail 寫明控制字元）。amulet 不認
+  `\n` 跳脫，`assert_command_reparses` 單獨抓不到這一格，新測試直接斷言輸出無控制
+  字元並用獨立的解碼器比對原文。`[文件]` 1.21.5 起 SNBT 支援這些跳脫；1.21.11 的
+  實際解析仍 `[待驗]`。
+- **缺口 A（`scan/command.py`）已修**，commit `0b686f0`：`_find_component` 接受
+  `custom_name` 與 `minecraft:custom_name`，別的命名空間照舊不碰。端到端原本釘住
+  缺口的測試方向反過來，dispatch 組合 6 → **7** 格（`("region_chunk","snbt","translate")`）。
+- **缺口 B 與 C 殘餘：暫停，待使用者裁定**——見下方已知缺口 B 的「2026-10-14
+  發現」。簡述：[遊戲實測 M0-3] 當初就是用 `/data merge block` 寫入
+  `messages:['{"translate":…}', …]`，**正是缺口 B 的形狀**，遊戲顯示字面文字。
+  照原計畫讓寫入層接受這個形狀，會把一個顯示亂碼的字串換成另一個顯示亂碼的字串。
+
+891 passed／contracts 48 passed。
+
+前一次更新：**2026-09-13**（**`Against Iskerside [1.21.11]` 翻譯失敗事後檢查，兩個修正。**
 使用者實際拿一張地圖跑壞了，回頭查出兩個獨立缺陷：
 
 **(1) 指令文字漏了 M13b 的「已在地化就跳過」守門**（`scan/command.py`）。
@@ -204,7 +223,7 @@ mcmt extract → translations.<lang>.json（人直接編輯）→ mcmt apply
 | `docs/STATUS.md` | 本檔。進度與交接 | 每次開新對話 |
 | `SPIKE_RESULT.md` | **事實依據**。所有實測結論與證據等級（四級制） | 要引用「為什麼這樣設計」時 |
 | `docs/superpowers/plans/2026-08-15-mcmt-architecture.md` | 架構計畫 rev.2。目錄結構、四份合約、A/B/C 題、M0–M14 | 排下一步工作時 |
-| `docs/contracts/*.json` | 四份 JSON Schema（`SCHEMA_VERSION = 6`） | 寫任何跨層資料時 |
+| `docs/contracts/*.json` | 四份 JSON Schema（`SCHEMA_VERSION = 7`） | 寫任何跨層資料時 |
 | `docs/ownership.md` | 模組邊界與三個整合檢查點 | 決定某段程式該放哪裡時 |
 | `docs/adr/0007-prior-art-and-licensing.md` | 為何不得對照 maptranslator 原始碼 | 想參考既有實作時 |
 | `docs/m0-checklist.md` | M0 可重跑程序（換版本時用） | 要重驗遊戲行為時 |
@@ -860,7 +879,10 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
   計數」，doctor 只是把這個結果提前到不用跑一次 extract 就看得到。真實地圖驗證：
   Arena of Darkness 的 doctor 報告正確印出「datapack 進度檔：30 個」，與 extract 的
   既有數字對得上。
-* **〔command text 缺口 A〕`scan/command.py::_find_component` 不認命名空間組件鍵。**
+* ~~**〔command text 缺口 A〕`scan/command.py::_find_component` 不認命名空間組件鍵。**~~
+  → **2026-10-14 已修**（`0b686f0`）：接受 `custom_name` 與 `minecraft:custom_name`；
+  pinned 測試已改名 `test_a_give_commands_namespaced_custom_name_is_translated` 並反轉斷言，
+  dispatch 組合補成 7 格（L2 在 entities、give 在 region，靠容器種類就分得開）。原描述：
   真實 1.20.5+ 語法是 `give @s minecraft:stone[minecraft:custom_name={...}]`，但
   `_find_component` 拿裸字串 `"custom_name"` 去比 `key=value` 的 `key`，命名空間形式
   永遠比不到，整條指令記進 `skipped_command_unsupported_shape`、一個字沒抽。
@@ -869,6 +891,19 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
   `test_a_give_commands_namespaced_component_is_a_known_scan_gap`。修好後那條測試的
   斷言方向要反過來，`command_dispatch_combination()` 的分類鍵也要多一個維度
   （`give` 修好後會跟 L2 撞同一格）。落在 `scan/`，可與其他修正同 commit。
+* **〔command text 缺口 B〕2026-10-14 發現：這個形狀在 1.21.11 本來就是字面亂碼，
+  修寫入層可能是錯的方向，待使用者裁定。** [遊戲實測 M0-3]（`SPIKE_RESULT.md`
+  「M0 遊戲實測」）當初實際下的指令就是 `/data merge block`，`back_text` 的
+  `messages` 正是 `['{"translate":"mcmt.test.hello"}', '""', …]`——缺口 B 的形狀，
+  也是 `docs/m-command-checklist.md` 4a 的形式 B——結果顯示**字面文字**。1.21.5 起
+  指令裡的 component 是 SNBT，字串元素就是字面文字，`data merge` 也不經過
+  DataFixer。所以讓 `_decode_command_leaf` 讀得回這個形狀，只會讓 region 指令方塊
+  開始寫出 `"{\"translate\":…}"`——遊戲裡從顯示 `{"text":"Hello"}` 變成顯示
+  `{"translate":"mcmt.…`，正是 CLAUDE.md 二節「native chunk 裡的舊式 JSON 一律
+  跳過」要擋的那件事（`.mcfunction` 沒有解碼守門，**現在就已經**在寫這種 edit）。
+  替代方向：掃描端把字串包裝 JSON 的訊息比照舊式 JSON 跳過並計數——要不要新增
+  計數器（合約改動）或沿用 `skipped_legacy_json_in_native_chunk`，是設計決定。
+  缺口 C 的殘餘（`.mcfunction` 的 `raw_snapshot` 守門）卡在這個決定之後。原描述：
 * **〔command text 缺口 B〕`write/common.py::_decode_command_leaf` 不能還原
   「SNBT 字串包裝 JSON」的 `data merge` 訊息。** 三步鏈 `command→snbt→json_component`
   時它只看最後一步的 codec，直接對含 SNBT 引號的原始 span 跑 `json.loads`——單引號
@@ -933,7 +968,10 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
      `assert_command_reparses()`（`tests/conftest.py`）——每一次 splice 之後問一句
      「這還解得回來嗎」，套用在每一格 dispatch 組合與端到端全世界掃描上。
      端到端也補上第六格組合 `("entities_chunk","snbt","literal")`。
-* **〔command text 缺口 E〕`_snbt_string_literal` 不跳脫控制字元。**
+* ~~**〔command text 缺口 E〕`_snbt_string_literal` 不跳脫控制字元。**~~
+  → **2026-10-14 已修**（`5dfb416`）：兩個修法都用上——SNBT 常值（含 amulet `to_snbt()`
+  輸出的原生 compound）寫成跳脫序列，`say`／`me` 含控制字元則拒寫。1.21.11 是否接受
+  `\n` 跳脫仍 `[待驗]`。原描述：
   `write/command_span.py::_snbt_string_literal`（約 140 行）只跳脫 `\` 與 `"`。
   譯文裡若有一個裸換行，會原樣 splice 進去：`amulet_nbt.from_snbt` 收得下，但
   1.21.11 的指令解析器收不下，而且在 `.mcfunction` 裡那個換行會把實體行切成兩行、
@@ -964,8 +1002,8 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
 - **語料地圖在版本隔離的資料夾**：`%APPDATA%\.minecraft\versions\1.21.10\saves`，不是 `%APPDATA%\.minecraft\saves`。找不到 Minecraft Party 2 就是找錯地方了。
 - `spike/.venv` 與 `spike/.venv_alt` 共 134 MB，已 gitignore。
 - `claude-code-stats/` 是**放在同一個資料夾裡的第三方工具**，與 mcmt 無關，已 gitignore。
-- 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 47 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
-- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（目前 712 passed）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
+- 驗證合約：`.venv\Scripts\python tools/validate_contracts.py`（目前 48 passed, 0 failed）。`jsonschema` + `referencing` 是 dev 相依，不是執行期相依。
+- 開發環境是根目錄的 `.venv`（`pip install -e ".[dev,lz4]"`），跑測試：`.venv\Scripts\python -m pytest`（2026-10-14 為 891 passed；`pyproject` 的 `addopts = "-q"` 會吃掉摘要行，要看總數加 `-o addopts=""`）。**全域 python 沒有 pytest**，直接打 `python -m pytest` 會失敗。
 - 跑 CLI：`.venv\Scripts\python -X utf8 -m mcmt.cli {doctor|sandbox import|extract|apply} …`。
 - **heredoc 會吃掉反斜線**：用 `bash << 'PY'` 寫含 `
 `、``、` ` 的 Python 原始碼會被破壞（曾寫出 NUL byte 讓檔案無法解析）。含跳脫序列的檔案改用 Write 工具，或用 `chr(92)` 組出反斜線。
