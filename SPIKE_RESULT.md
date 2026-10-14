@@ -1325,6 +1325,67 @@ lang/zh_tw.json` 一起沒生效。告示牌顯示 key 本身而不是譯文。
 
 ---
 
+## 指令文字 M-command 遊戲實測（2026-10-14）
+
+環境：`TT_WORLD_NAME_PROBE` 匯入成 `sandbox\mcmd`，照 `docs/m-command-checklist.md`
+手動佈置六個指令方塊、一塊告示牌、一個資料夾形式 datapack（`function/` 單數目錄），
+跑 extract → 編輯 → apply，整份複製回 saves 用 Minecraft 1.21.11（checklist 指定版本）
+開啟，結果由使用者在遊戲內肉眼核對、回報。程式碼是缺口 A／B／C／E 修完之後的版本
+（`0b686f0`／`e9b03d2`／`4be093e`／`5dfb416`）。
+
+### 結果
+
+| # | 檢查 | 結果 | 等級 |
+|---|---|---|---|
+| ① | `tellraw` 寫回 `{"translate":key}` | 聊天顯示 `聊天翻譯成功`（資源包解出的譯文） | `[遊戲實測]` |
+| ② | `data merge`（原生 SNBT compound 訊息）寫回 translate | 告示牌正面第一行顯示 `告示牌翻譯成功` | `[遊戲實測]` |
+| ③ | 指令方塊 `say` 的 in_place 替換 | 聊天顯示 `[@] 說話翻譯成功`——動詞前綴完整、只有尾巴被換掉 | `[遊戲實測]` |
+| ④ | 字串包裝 JSON 訊息（`back_text` 的 `messages:['{"text":"MCMD wrapped line"}','""','""','""']`） | 背面第一行顯示**字面的** `{"text":"MCMD wrapped line"}`，二到四行顯示字面的 `""` | `[遊戲實測]` |
+| 4a | 手打形式 A（雙引號＋反斜線跳脫的 SNBT 字串常值） | 無紅字，顯示的字面文字裡**沒有**多出來的反斜線 | `[遊戲實測]` |
+| 4d | 裸字串 `data merge` 訊息走 in_place，寫成 SNBT 字串常值 | apply 寫入、無紅字；`/data get … front_text` 讀回 `messages: ["第一段\n第二段","","",""]`——四個都還是字串 | `[遊戲實測]` |
+| 4e | 譯文含換行：SNBT 常值寫成 `\n` 跳脫 | `/data get … Command` 讀回單行、含字面 `\n`；觸發無紅字；告示牌第一行顯示 `第一段`，第二段被截掉 | `[遊戲實測]` |
+| 4e 反向 | `say` 的譯文含換行 | apply 拒寫（`unsupported_encoding`，detail「譯文含控制字元」），同一單位兩個 occurrence 各拒一筆 | `[實測]`（工具行為，非遊戲算繪） |
+| ⑤ | `give @p minecraft:stone[minecraft:custom_name={text:…}]`（缺口 A） | 物品名顯示 `給予物品翻譯成功` | `[遊戲實測]` |
+| mcfunction | 資料夾 datapack 的 `tellraw`／`say` 兩行 | 聊天顯示 `函式聊天翻譯成功` 與 `[idk_1007] 函式說話翻譯成功` | `[遊戲實測]` |
+
+### 結論
+
+**① 指令文字的寫回路徑在遊戲裡成立。** ①②③⑤ 與 `.mcfunction` 兩行全部顯示譯文，
+`[待驗]` → `[遊戲實測]`。
+
+**② 缺口 B 的裁定有了直接證據。** 2026-10-14 把字串包裝 JSON 改成掃描端跳過時，
+依據是 [遊戲實測 M0-3]（chunk NBT 裡的字串）加上「1.21.5 起指令裡的 component 是
+SNBT、`data merge` 不經過 DataFixer」這個 `[文件]` 級推論。④ 這次是**指令**寫進去的
+同一個形狀，結果一樣是字面文字——推論升成 `[遊戲實測]`。
+
+**③ 雙引號＋反斜線的 SNBT 字串常值被 1.21.11 正確解開**（4a）。
+`_snbt_string_literal` 不用改成單引號，checklist 4b 的補救不必做。
+
+**④ 控制字元的 `\n` 跳脫成立**（4e）。原本是 `[文件]`（1.21.5 起 SNBT 支援 `\n`
+等跳脫）。回讀出來的 `"第一段\n第二段"` 是遊戲自己的 SNBT 印出器把**真的換行字元**
+再跳脫一次印出來——指令解析器把 `\n` 解成了換行，不是兩個字面字元。告示牌一行放
+不下換行，所以只顯示第一段；這是告示牌的版面限制，不是寫入錯誤。
+
+### 兩個 checklist 本身的錯，已修正
+
+- **③ 的預期寫錯了。** checklist 寫的是 `<你> 說話翻譯成功`，那是玩家自己打 `say`
+  的樣子；指令方塊執行 `say` 的前綴是 `[@]`（指令方塊的預設名稱），`.mcfunction`
+  由玩家觸發 `/function` 時前綴是玩家名。判準本身（動詞前綴完整、只有尾巴被換）
+  沒錯，錯的是寫出來的範例。
+- **同一段文字可能出現兩次。** 4d 第一次跑時，`merge 裸字串來源` 在待翻檔裡有兩筆：
+  告示牌本身（之前觸發過指令，告示牌上已經有這行字，`u:sign:…`）與產生它的指令方塊
+  （`u:command_say_text:…`）。只填了告示牌那筆，指令方塊沒被改，一按按鈕告示牌又被
+  重設回原文——看起來像沒寫進去。要用 `where` 分辨。
+
+### 一個沒修的觀察
+
+CLI 摘要把「say 譯文含控制字元」的拒寫印成「這種節點形狀還沒有寫入路徑」——那是
+`unsupported_encoding` 共用的說明文字（`cli/apply.py::_REASON_TEXT`），套在這裡會
+誤導；正確原因只在 `apply_report.json` 的 `detail` 裡。不影響安全，記進
+`docs/STATUS.md` 已知缺口。
+
+---
+
 ## 尚待驗證
 
 > 已完成：寫入端編碼對照（兩種皆有效）、Q3 五個結構推論項（全部成立）、第二輪 P1/P2/P3（extra 巢狀、filterable、空值分佈）、M0 遊戲實測（資源包路線、`'""'` 算繪、`pack_format` 過期）、**M4 遊戲實測（舊世代 legacy 寫入、DataFixer 解析、世代升級、`pack_format` 下限）**。
@@ -1355,7 +1416,7 @@ lang/zh_tw.json` 一起沒生效。告示牌顯示 key 本身而不是譯文。
 | ~~`pack_format` 過期是否只警告不拒載~~ | ~~刻意用過期號打包載入觀察~~ | **已完成（M0-5）**：無警告、無紅字、照常載入 |
 | `Teams[].MemberNamePrefix`/`MemberNameSuffix` 的 translate key 是否真的顯示 | 在一支隊伍上設定非空的前後綴、寫入 translate key、`/team list` 或 tab 列表肉眼確認 | 低 — 兩張語料地圖的實際內容全空，沒有實測動機驅動；`Objectives`/`Teams[].DisplayName` 本身已經是 [全部遊戲實測] |
 | `scoreboard.dat`（DV < 4325）的 legacy JSON 字串寫入是否被 DataFixer 正確解析 | 在一個 DV 3700 的 `scoreboard.dat` 寫入 JSON 字串型 translate key，1.21.11 開啟後看 `/scoreboard objectives list` 或側邊欄 | 中 — 與 chunk 層級的 M4-2 是同一個機制（DataFixerUpper 對任何版本化 NBT 文件一視同仁），但 `.dat` 檔本身沒有被單獨驗證過；寫入器完全沿用 M4 已驗證的 legacy.py，風險主要在「機制是否真的對 `.dat` 檔案一視同仁」這個推論本身 |
-| **指令文字（command text）進遊戲算繪** — ① `tellraw` 的 `{"translate":key}`、② `data merge` 寫的告示牌、③ `say`／`me` 的 in_place、④ `_snbt_string_literal` 的雙引號＋反斜線跳脫被 1.21.11 指令解析器接不接受 | 可重跑程序見 **`docs/m-command-checklist.md`**（在 `TT_WORLD_NAME_PROBE` 手動佈置四個指令方塊＋一塊告示牌，跑 extract／apply，進遊戲肉眼核對） | **中** — 程式碼／單元／端到端／MP2 全掃已驗（見「指令文字方案 1 MP2 全掃」），只差遊戲算繪。④ 目前 `[待驗]`，且與已知缺口 #2（`_decode_command_leaf` 讀不回字串包裝 JSON）解耦——checklist 第四節用手打指令直接問解析器；若雙引號形式被拒，補救是把 `write/command_span.py::_snbt_string_literal` 改成單引號分隔。〔2026-10-14：缺口 #2 改為掃描端跳過；④ 的預期改成「形式 A／B 都顯示字面文字」，另新增 4e 控制字元跳脫（`[文件]` 1.21.5 起 SNBT 支援 `\n` 等跳脫，1.21.11 `[待驗]`）。〕 |
+| ~~**指令文字（command text）進遊戲算繪**~~ → **2026-10-14 完成**，見「指令文字 M-command 遊戲實測」。原列： ① `tellraw` 的 `{"translate":key}`、② `data merge` 寫的告示牌、③ `say`／`me` 的 in_place、④ `_snbt_string_literal` 的雙引號＋反斜線跳脫被 1.21.11 指令解析器接不接受 | 可重跑程序見 **`docs/m-command-checklist.md`**（在 `TT_WORLD_NAME_PROBE` 手動佈置四個指令方塊＋一塊告示牌，跑 extract／apply，進遊戲肉眼核對） | **中** — 程式碼／單元／端到端／MP2 全掃已驗（見「指令文字方案 1 MP2 全掃」），只差遊戲算繪。④ 目前 `[待驗]`，且與已知缺口 #2（`_decode_command_leaf` 讀不回字串包裝 JSON）解耦——checklist 第四節用手打指令直接問解析器；若雙引號形式被拒，補救是把 `write/command_span.py::_snbt_string_literal` 改成單引號分隔。〔2026-10-14：缺口 #2 改為掃描端跳過；④ 的預期改成「形式 A／B 都顯示字面文字」，另新增 4e 控制字元跳脫（`[文件]` 1.21.5 起 SNBT 支援 `\n` 等跳脫，1.21.11 `[待驗]`）。〕 |
 
 ---
 

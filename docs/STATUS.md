@@ -32,6 +32,13 @@
   文字」，要看的是有沒有紅字與多出來的反斜線；4c 從「缺口修好後的完整管線覆核」
   改成「確認跳過的前提成立、工具沒碰它」；新增 4e（控制字元跳脫）。
 
+- **指令文字進遊戲驗證完成，全部 PASS**（`docs/m-command-checklist.md`，結果見
+  `SPIKE_RESULT.md`「指令文字 M-command 遊戲實測」）：①②③⑤、`.mcfunction`、
+  4a（雙引號跳脫）、4d（裸字串 in_place）、4e（`
+` 跳脫）升成 `[遊戲實測]`；④ 證實
+  字串包裝 JSON 在 1.21.11 是字面文字，缺口 B 的裁定有了直接證據。checklist 本身
+  兩處錯誤（③ 的前綴範例、4d 同文兩筆）已修正。
+
 894 passed／contracts 48 passed。
 
 前一次更新：**2026-09-13**（**`Against Iskerside [1.21.11]` 翻譯失敗事後檢查，兩個修正。**
@@ -997,6 +1004,11 @@ legacy JSON 寫入路徑都只做到 `[實測]`（CLI 抽出來的真實數字�
   先跳脫過）；C2 讓它多涵蓋一個形狀（裸字串 `data merge` 訊息）。兩個修法：在
   `_snbt_string_literal` 裡跳脫控制字元，或在驗證階段直接拒收含 `\n` 的
   command-category 譯文。本波**不修**（不碰 `write/`）。
+* **〔CLI 摘要的拒寫原因說明不夠細〕**（2026-10-14 遊戲實測時發現）`say` 譯文含
+  控制字元被拒寫時，`mcmt apply` 摘要印的是 `unsupported_encoding` 共用的說明
+  「這種節點形狀還沒有寫入路徑」，會誤導；正確原因只在 `apply_report.json` 的
+  `detail`。不影響安全。修法方向：摘要對 `unsupported_encoding` 同時印出 detail，
+  或拆一個新的 reason（後者是合約改動）。
 * **〔擴範圍檢查清單，belt-and-braces〕新的寫入路徑有沒有經過那個 writer？**
   擴大寫入範圍時要問一句：這條新路徑有沒有走過強制 list 同型／世代分派／
   `raw_snapshot` 的那個 writer，還是繞過去了？C2 正是繞過去的實例（教訓目前只
