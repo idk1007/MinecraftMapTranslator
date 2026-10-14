@@ -398,3 +398,35 @@ def test_give_finds_the_custom_name_component():
     )
     assert len(nodes) == 1
     assert str(nodes[0].tag["text"]) == "Special Stone"
+
+
+def test_give_finds_a_namespaced_custom_name_component():
+    """**缺口 A**：1.20.5+ 的真實語法帶 `minecraft:` 命名空間（MP2 的 `give`／
+    `item` 4,565 次裡有 3,935 次是這個形狀）。上面那條測試的組件鍵剛好沒帶
+    命名空間，所以單元測試層級一直是綠的，真實地圖一個字都沒抽出來。"""
+    stats = Counter()
+    text = 'give @s minecraft:stone[minecraft:custom_name={text:"Special Stone"},minecraft:lore=[]]'
+    nodes = list(scan_command_string(text, base_path=_path(), anchor=None, stats=stats))
+
+    assert len(nodes) == 1
+    assert str(nodes[0].tag["text"]) == "Special Stone"
+    assert stats["skipped_command_unsupported_shape"] == 0
+    span = nodes[0].path.last_span
+    assert text[span[0] : span[1]] == '{text:"Special Stone"}'
+
+
+def test_give_ignores_a_custom_name_from_another_namespace():
+    """只有 `minecraft:` 命名空間（或省略命名空間）才是原版的 `custom_name`。
+    別的命名空間是模組／資料包自己的組件，形狀不明，不碰。"""
+    stats = Counter()
+    nodes = list(
+        scan_command_string(
+            'give @s stone[othermod:custom_name={text:"Not Ours"}]',
+            base_path=_path(),
+            anchor=None,
+            stats=stats,
+        )
+    )
+
+    assert nodes == []
+    assert stats["skipped_command_unsupported_shape"] == 1

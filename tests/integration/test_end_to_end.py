@@ -409,9 +409,9 @@ TRANSLATIONS = {
     "TT_CMDBLOCK_SAY_TEXT": "指令說話文字",
     "TT_CMDBLOCK_TELLRAW_TEXT": "指令提示文字",
     "TT_CMDBLOCK_TITLE_TEXT": "指令標題文字",
-    # `TT_CMDBLOCK_NESTED_ITEM_NAME`（`give` 的巢狀 `minecraft:custom_name`）
-    # 刻意不填——它目前整批被 `scan/command.py` 跳過，見
-    # `test_a_give_commands_namespaced_component_is_a_known_scan_gap`。
+    # `give` 的巢狀 `minecraft:custom_name`（缺口 A，2026-10-14 修好之前整批被
+    # `scan/command.py` 跳過）
+    "TT_CMDBLOCK_NESTED_ITEM_NAME": "指令給予的物品名",
     # L2 巢狀 SNBT（`data merge` 目標告示牌的原生 compound 訊息）
     "TT_CMDBLOCK_MERGE_TEXT": "合併寫入的告示牌文字",
     # L2 裸字串訊息（C2：走 in_place，list 維持全字串）
@@ -759,7 +759,7 @@ def commands_of(world):
     """`region/r.0.0.mca`（真實探測世界切片）`LIVE_CHUNK` 裡指令方塊的
     `Command` 字串——`say`（in_place）、`tellraw`／`title`（L1 translate key）
     已經是這張 fixture 原本就帶的，見 SPIKE_RESULT.md。（fixture 還有第四個
-    `give` 指令方塊，見下面 `test_a_give_commands_namespaced_component_is_a_known_scan_gap`。）
+    `give` 指令方塊，見下面 `test_a_give_commands_namespaced_custom_name_is_translated`。）
     """
     return [
         str(entity["Command"])
@@ -788,26 +788,28 @@ def test_a_command_block_tellraw_line_becomes_a_translate_component(round_trip) 
     assert payload["translate"].startswith("mcmt.")
 
 
-def test_a_give_commands_namespaced_component_is_a_known_scan_gap(round_trip) -> None:
-    """**已知缺口，Task 11 端到端才照出來，不在本任務授權修改的檔案清單裡。**
+def test_a_give_commands_namespaced_custom_name_is_translated(round_trip) -> None:
+    """**region chunk × translate key（`give` 的巢狀 SNBT 組件）。**
 
     這張 fixture 第四個指令方塊是 `give @s minecraft:stone[minecraft:custom_name=
-    {text:"..."}]`——1.20.5+ 的物品組件語法本身帶 `minecraft:` 命名空間，這正是
-    SPIKE_RESULT.md 記錄的真實樣本形狀。但 `scan/command.py::_find_component`
-    拿字面 `"custom_name"`（沒有命名空間）去跟組件鍵比對，永遠比不到帶命名空間
-    的鍵，於是 `stats["skipped_command_unsupported_shape"]` 加一、整條指令一個
-    字都沒被抽出來——`tests/unit/test_scan_command.py::test_give_finds_the_custom_name_component`
-    用的組件鍵剛好沒帶命名空間，繞過了這個問題，所以單元測試層級一直是綠的。
+    {text:"..."}]`——1.20.5+ 的物品組件語法本身帶 `minecraft:` 命名空間。
 
-    這裡釘住現狀（`give` 的 `custom_name` 進不了待翻檔，也就不會被翻譯），
-    不是慶祝現況——這是需要一個後續任務去修 `scan/command.py::_find_component`
-    的真實缺口（多接受一個帶命名空間的鍵，或比對時忽略命名空間前綴）。
+    **缺口 A（2026-10-14 修好）**：`scan/command.py::_find_component` 原本拿
+    字面 `"custom_name"` 去比對組件鍵，帶命名空間的鍵永遠比不到，整條指令一個
+    字都沒抽出來（MP2 實測 3,935 次）。這條測試原本叫
+    `test_a_give_commands_namespaced_component_is_a_known_scan_gap`，斷言的是
+    「沒被翻」；修好之後方向反過來。
     """
     commands = commands_of(round_trip["world"])
     (give,) = [c for c in commands if c.startswith("give @s ")]
 
-    assert "TT_CMDBLOCK_NESTED_ITEM_NAME" in give
-    assert "mcmt." not in give
+    assert "TT_CMDBLOCK_NESTED_ITEM_NAME" not in give
+    assert_command_reparses(give)
+    bracket = give.index("[")
+    assert give[:bracket] == "give @s minecraft:stone"
+    component = give[give.index("minecraft:custom_name=") + len("minecraft:custom_name=") : -1]
+    document = amulet_nbt.from_snbt(component)
+    assert str(document["translate"]).startswith("mcmt.")
 
 
 def test_a_command_block_minecart_merge_writes_the_nested_snbt_message(round_trip) -> None:
@@ -932,11 +934,10 @@ def command_dispatch_combination(edit) -> tuple[str, str, str] | None:
     `data merge` 的原生 compound 訊息最後一步是 `snbt`。三者互斥，加上容器種類
     與 `value.kind`，對這五格兩兩不同。
 
-    （`give`／`item` 的巢狀 SNBT component 理論上也會落在 `("region_chunk",
-    "snbt", "translate")` 這格，跟 L2 撞在一起——但 `give` 目前整條被
-    `scan/command.py` 跳過，見上面 `test_a_give_commands_namespaced_component_
-    is_a_known_scan_gap`，所以這裡不會真的收到那筆 edit。等那個缺口修好，
-    這個分類函式需要多一個維度才分得開兩者。）"""
+    （`give`／`item` 的巢狀 SNBT component 落在 `("region_chunk", "snbt",
+    "translate")`。L2 的 `data merge` 在這份 fixture 裡放在指令方塊礦車上
+    （`entities_chunk`），所以兩者靠容器種類就分得開，不必多一個維度。
+    哪天 fixture 把 L2 也放進 region，這裡才需要再加一個維度。）"""
     container = edit["container"]["kind"]
     if container not in ("region_chunk", "entities_chunk", "datapack_mcfunction_file"):
         return None
@@ -951,18 +952,22 @@ EXPECTED_COMMAND_COMBINATIONS = {
     ("region_chunk", "json_component", "translate"),  # region/entities × translate key，L1
     ("entities_chunk", "snbt", "translate"),  # region/entities × translate key，L2 巢狀 SNBT
     ("entities_chunk", "snbt", "literal"),  # region/entities × in_place，L2 裸字串訊息（C2）
+    ("region_chunk", "snbt", "translate"),  # region/entities × translate key，give 組件（缺口 A）
     ("datapack_mcfunction_file", "command", "literal"),  # .mcfunction × in_place
     ("datapack_mcfunction_file", "json_component", "translate"),  # .mcfunction × translate key
 }
 
 
-def test_the_round_trip_exercises_all_six_command_dispatch_combinations(
+def test_the_round_trip_exercises_all_seven_command_dispatch_combinations(
     round_trip,
 ) -> None:
     """**這份測試自己的守門，照抄 `..._all_four_dispatch_combinations` 的做法。**
 
-    六格都得走到，否則某一格的 writer/scan 接線斷了也不會有任何測試變紅——
+    七格都得走到，否則某一格的 writer/scan 接線斷了也不會有任何測試變紅——
     這正是 M13a 那次「舊不變式在新範圍下靜默失效」的同一種盲點。
+
+    第七格（`("region_chunk","snbt","translate")`）是缺口 A 修好之後的 `give`
+    組件（2026-10-14）。
 
     第六格（`("entities_chunk","snbt","literal")`）是 2026-09-06 C2 補的：同一個
     `snbt` codec、同一個容器，只因為 `messages[]` 元素是裸字串而不是 compound，
@@ -986,10 +991,8 @@ def test_no_command_edit_is_refused_for_an_unsupported_encoding(round_trip) -> N
     """**F2 驗收條件的指令文字版。** 接上 `_WRITERS`／`scan/registry.py` 之前，
     `datapack_mcfunction_file` 沒有任何寫入器，這五格裡最後一格整批會被拒寫。
 
-    `give` 的巢狀命名空間組件不在這裡的涵蓋範圍內——它在**掃描**這關就被跳過
-    （見 `test_a_give_commands_namespaced_component_is_a_known_scan_gap`），
-    根本沒有 edit 產生，所以也不會出現在這裡的 `unwritten` 清單裡。這條測試
-    驗的是「有 edit 被產生了，但因為容器/形狀沒有寫入器而被拒」這件事。
+    `give` 的巢狀命名空間組件（缺口 A 修好之後）也在這裡的涵蓋範圍內。這條
+    測試驗的是「有 edit 被產生了，但因為容器/形狀沒有寫入器而被拒」這件事。
     """
     unwritten = round_trip["applied"]["report"]["unwritten"]
 

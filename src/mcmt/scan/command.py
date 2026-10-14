@@ -473,15 +473,20 @@ def _find_component(
     逗號分隔多個組件、深度 0——跟 SNBT compound 的 `{key:value}` 語法不同
     （`locate_path_span` 認的是 `:`），所以不能直接複用它。物品組件永遠是
     `key=value` 用逗號分隔、深度 0，直接複用 `_split_top_level` 切逗號、自己
-    找 `=` 就夠，不需要動 `span_locator.py` 已經測過的 `:` 分隔行為。"""
+    找 `=` 就夠，不需要動 `span_locator.py` 已經測過的 `:` 分隔行為。
+
+    組件鍵可以省略命名空間，也可以寫成 `minecraft:custom_name`（1.20.5+ 的
+    真實地圖多半是後者；缺口 A：原本只認前者，MP2 3,935 次全被跳過）。只認
+    `minecraft:`——別的命名空間是模組／資料包自己的組件，形狀不明，不碰。"""
     start, end = bracket_span
     body = text[start + 1 : end - 1]
+    accepted = {key, f"minecraft:{key}"}
     for elem_start, elem_end in _split_top_level(body):
         piece = body[elem_start:elem_end]
         eq = piece.find("=")
         if eq == -1:
             continue
-        if piece[:eq].strip() == key:
+        if piece[:eq].strip() in accepted:
             value_start = start + 1 + elem_start + eq + 1
             value_end = start + 1 + elem_end
             return (value_start, value_end)
