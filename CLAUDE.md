@@ -496,3 +496,16 @@ discriminator = blake2b(hash_input.encode("utf-8"), digest_size=8).hexdigest()
 - `probe_components.py` / `probe_components2.py` — 第二輪 P1/P2/P3 掃描，含 per-region 串流的可行性驗證
 
 **排程時不要按 90 行估 anvil 層。** 那是「乾淨資料上能跑通」的骨架，不含 LZ4、`.mcc`、損壞防禦。完整實作落在 200–300 行。
+
+### 自主推進與停止條件
+
+- **預設自動推進**：收到多步驟任務時，只要測試通過且未觸發下方停止條件，請直接推進到下一步並完成 commit，**不要中途停下來詢問「是否繼續」或等待確認**。
+- **嚴格遵守既有 TDD 與獨立 Commit 鐵律**：
+  - 每個任務維持「先寫失敗測試 → 確認失敗 → 最小實作 → 測試通過 → commit」。
+  - 凡動到 `src/mcmt/write/` 或 `src/mcmt/safety/`，每一項修改必須各自獨立 commit 並寫明理由，絕不因為自動推進而把多個修改混進同一個 commit。
+- **只有遇到以下情況才允許停下來詢問使用者**：
+  1. 需要修改 `docs/contracts/*.json`、`src/mcmt/model/` 或 bump `SCHEMA_VERSION`，且任務未事先授權。
+  2. 需要修改任務指定範圍以外的 `src/mcmt/write/` 或 `src/mcmt/safety/` 檔案。
+  3. 遇到需要「尚未做出的設計決定」（例如不支援結構的硬性中止策略）。
+  4. 同一問題卡住超過 30 分鐘或測試出現無法自行查明原因的失敗（請先依上方規則把「試了什麼、看到什麼」寫進 `docs/journal/`，再停下回報）。
+  5. 走到必須進 Minecraft 遊戲肉眼確認的步驟。**沒有使用者提供的遊戲內實測結果，絕不可自行將 `[待驗]` 改為 `[遊戲實測]`。**
