@@ -25,9 +25,15 @@
   資料夾同名但來源不同的兩張地圖不會被當成同一張。真實地圖（`Be-boxed`，22 個
   單位）整條流程走過：抽取 5.9 秒、寫回 2 秒、重新開始 6.2 秒、沿用 20 筆譯文、
   重新匯入後 `resources.zip` 與原存檔位元組一致。988 passed／contracts 48 passed。
-- **下一步**：第 3 步 tkinter 視窗與拖放（拖放打算用 `ctypes` 接 Windows 的
-  `WM_DROPFILES`，不加第三方相依，另附「選擇資料夾…」按鈕當後備）；沙盒位置改成
-  exe 旁邊要動 `safety/paths.py`（獨立 commit）。第 4 步打包。
+- **第 3 步（視窗）** `3280d58` `783365f`：沙盒在打包後固定放 exe 旁邊
+  （`safety/paths.py`，獨立 commit，`sys.frozen` 時才生效）；`mcmt/gui/`（tkinter，
+  拖放用 `ctypes` 接 `WM_DROPFILES`，不加第三方套件，另有「選擇資料夾…」後備），
+  入口 `mcmt-gui`。**[實測] 在 Windows 視窗程序的回呼裡碰 tkinter 會讓 Python
+  崩潰**，回呼只能把路徑丟進佇列。測試會真的送一個 `WM_DROPFILES`、真的建視窗並
+  自動按按鈕走完抽取與寫回；驗不到外觀與實際拖放手感，**等使用者實際操作回報**。
+  1003 passed。
+- **下一步**：使用者試用視窗版後回報外觀／手感；第 4 步打包（PyInstaller 資料夾版、
+  關 UPX、`mcmt.exe`＋`mcmt-cli.exe`、附 lz4、SHA256 雜湊檔；上傳 Releases 由使用者做）。
 
 前一次更新：**2026-10-15**（**指令方塊的前導斜線**，commit `b70518b`。[實測]
 `escape_the_illusion` 的指令方塊寫 `/tellraw`、`/title`，掃描器把 `/tellraw`
