@@ -42,6 +42,41 @@ def test_sandbox_root_falls_back_to_cwd_without_a_project_marker(tmp_path, monke
     assert sandbox_root() == tmp_path / "sandbox"
 
 
+def test_a_packaged_exe_keeps_its_sandbox_next_to_the_exe(tmp_path, monkeypatch) -> None:
+    """打包成 exe 之後沒有「專案根」可找：沙盒放在 exe 旁邊，與工作目錄無關。
+    從哪裡雙擊、從哪個資料夾拖放，沙盒都是同一個，不會散落在各處。"""
+    import sys
+
+    exe = tmp_path / "mcmt" / "mcmt.exe"
+    exe.parent.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / ".git").mkdir()  # 就算工作目錄剛好在某個專案裡，也不能被它帶走
+    monkeypatch.chdir(elsewhere)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(exe))
+
+    assert sandbox_root() == exe.parent.resolve() / "sandbox"
+
+
+def test_the_exe_sandbox_is_still_fenced_like_any_other(tmp_path, monkeypatch) -> None:
+    """換了沙盒的位置，圍籬規則一條都沒變：exe 旁邊的其他東西不能寫。"""
+    import sys
+
+    exe = tmp_path / "mcmt" / "mcmt.exe"
+    exe.parent.mkdir()
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(exe))
+
+    assert ensure_writable(exe.parent / "sandbox" / "w" / "x") == (
+        exe.parent.resolve() / "sandbox" / "w" / "x"
+    )
+    with pytest.raises(PathOutsideSandboxError):
+        ensure_writable(exe.parent / "mcmt.exe")
+    with pytest.raises(PathOutsideSandboxError):
+        ensure_writable(exe.parent / "notes.txt")
+
+
 # --- ensure_writable ------------------------------------------------------
 
 

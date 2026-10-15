@@ -16,8 +16,8 @@ sandbox 根目錄 = `<專案根>/sandbox`，專案根是從 CWD 往上找到的�
 `tests/` 底下跑指令都指向同一個沙箱，不會因為 `cd` 就多出第二個。
 """
 
+import sys
 from pathlib import Path
-
 
 from mcmt.errors import MinecraftSavesPathError, PathOutsideSandboxError
 
@@ -39,7 +39,13 @@ _read_log: list[Path] = []
 
 
 def sandbox_root() -> Path:
-    """唯一允許寫入的目錄。**不建立它**——建立是 `sandbox import` 的事。"""
+    """唯一允許寫入的目錄。**不建立它**——建立是 `sandbox import` 的事。
+
+    打包成 exe 之後沒有「專案根」可找（也不該找：使用者從哪個資料夾雙擊、拖放，
+    都不該讓沙盒跟著搬家），所以沙盒固定放在 exe 旁邊。圍籬的其餘規則
+    （`.minecraft/saves` 優先、先 `resolve()`、必須在沙盒底下）一條都沒變。"""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / _SANDBOX_DIR_NAME
     cwd = Path.cwd().resolve()
     for candidate in (cwd, *cwd.parents):
         if any((candidate / marker).exists() for marker in _PROJECT_MARKERS):
