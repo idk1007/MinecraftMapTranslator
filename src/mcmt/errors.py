@@ -517,3 +517,39 @@ class MissingDependencyError(McmtError):
     """需要一個可選相依，但它沒被安裝。訊息必須告訴使用者裝什麼。"""
 
     title = "缺少必要套件"
+
+
+class ExternalChunksFoundError(FormatError):
+    """整張地圖層級的外部 `.mcc` 閘門：`doctor` 數到了外部 chunk，**硬中止**。
+
+    跟 `ExternalChunkError`（讀到某一個 chunk 時拋）是同一個理由、不同的時機：
+    這個在匯入之前就擋，所以真的是「未變更任何檔案」。這條寫入路徑沒有任何樣本
+    走過（CLAUDE.md §1.4），沒有任何旗標可以繞過。
+    """
+
+    title = "不支援的地圖格式"
+
+    def __init__(self, count: int) -> None:
+        self.count = count
+        super().__init__(
+            f"此地圖有 {count} 個區塊存放在外部 .mcc 檔（區塊過大時 Minecraft 會另存），"
+            f"目前無法安全處理。\n未變更任何檔案。"
+        )
+
+
+class OriginMissingError(McmtError):
+    """要重新開始，但沙盒副本的來源（原存檔）已經不在了。
+
+    在刪掉沙盒裡任何東西之前就要發現：沒有原存檔就沒辦法重新匯入，刪了就回不去。
+    """
+
+    title = "找不到原存檔"
+
+    def __init__(self, *, name: str, source) -> None:
+        self.name = name
+        self.source = source
+        where = str(source) if source else "（沙盒裡沒有記錄來源）"
+        super().__init__(
+            f"沙盒裡的 {name} 是從 {where} 匯入的，但那個位置已經不存在。\n"
+            f"請把原存檔放回去，或直接把地圖拖曳至程式。未變更任何檔案。"
+        )

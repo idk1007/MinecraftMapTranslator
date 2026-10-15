@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 from mcmt.cli.apply import format_apply, run_apply
+from mcmt.cli.console_ui import ConsoleUi
 from mcmt.cli.doctor import format_survey
 from mcmt.cli.extract import format_result, run_extract
 from mcmt.cli.sandbox import format_import
@@ -27,6 +28,7 @@ from mcmt.errors import (
     SandboxTargetExistsError,
     TranslationsExistError,
 )
+from mcmt.flow import run_flow
 from mcmt.safety.paths import ensure_writable, sandbox_root
 from mcmt.sandbox import import_world
 
@@ -97,6 +99,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="重新抽取時，把舊待翻檔裡已填的譯文依編號帶過來，並列出對不上的",
     )
 
+    drop = sub.add_parser(
+        "drop",
+        help="一步一步帶你走的互動流程（匯入→抽取→等你填譯文→寫回），視窗版的終端機版",
+    )
+    drop.hint = 'mcmt drop "地圖路徑"'
+    drop.add_argument("world", help="地圖資料夾（原存檔或沙盒裡的副本都可以）")
+
     apply = sub.add_parser("apply", help="讀翻好的檔案，產出資源包並寫回世界")
     apply.hint = 'mcmt apply "沙盒裡的地圖路徑" --translations "翻譯檔路徑"'
     apply.add_argument("world", help="世界資料夾（必須在沙盒底下）")
@@ -139,6 +148,17 @@ def _dispatch(args) -> int:
         survey = survey_world(args.world)
         print(format_survey(survey))
         return 0 if survey.supported else 1
+
+    if args.command == "drop":
+        if not sys.stdin.isatty():
+            print(
+                "【需要互動環境】\n這個指令需要在終端機裡一步一步回答問題，"
+                "請直接在終端機執行。",
+                file=sys.stderr,
+            )
+            return 2
+        run_flow(args.world, ConsoleUi())
+        return 0
 
     if args.command == "extract":
         kwargs = dict(
