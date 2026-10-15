@@ -3,7 +3,33 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-10-15**（**指令方塊的前導斜線**，commit `b70518b`。[實測]
+最後更新：**2026-10-15（晚）**（**「做成給一般人用的 exe」第 1–2 步完成。**
+目標：打開 exe → 把地圖拖進視窗 → 一步步對話框，沒有黑色 cmd 視窗。已定案的決定
+（不必重推）：沙盒放 exe 旁邊；使用者面對的詞是「沙盒」；`.mcc` **硬中止**、舊格式
+區塊與損毀檔案**問一聲**（繼續／取消）；覆蓋重來時**問**是否保留舊譯文，保留的話
+依 `unit_id` 搬、對不上的列清單，**不做模糊比對**；打包 Windows 資料夾版 zip、
+關 UPX、附 `mcmt.exe`（無黑視窗）與 `mcmt-cli.exe`、GitHub 附雜湊；README 由
+使用者自己構思，不替他改。措辭的來源與逐條對照在 `docs/error-messages-review.md`。
+
+- **第 1 步（訊息）** `145b7ab` `36588aa` `0a94c4c`：每個例外是「【標題】＋內容」
+  （`McmtError.title`）；argparse 英文錯誤中文化；沒預期的例外寫
+  `sandbox\mcmt-error.log` 不印堆疊（日誌放沙盒內，安全規則 1）；apply 摘要列出
+  被拒條目的位置與原文；覆蓋待翻檔前自動另存 `.bak-時間`；apply 先擋不能寫的地方。
+  `write/` 與 `safety/` **沒動**：D3 的驗證失敗訊息只在例外類別補標題與一句
+  「請附上 mcmt-error.log」。
+- **第 2 步（流程邏輯，不含視窗）** `d2c6628` `91ede5d`：`extract --keep-translations`
+  （`extract/carry.py`）；`mcmt/flow.py` 的狀態機，只看沙盒裡有什麼判斷四個狀態
+  （還沒抽取／譯文全空／有譯文未寫回／已寫回過）；介面 `Ui` 只有 `log`／`ask`／
+  `choose_language`／`open_path` 四個方法，測試用假介面，終端機版是 `mcmt drop`。
+  **會刪東西的「重新開始」在動手前先檢查原存檔還在不在、現在還能不能處理。**
+  資料夾同名但來源不同的兩張地圖不會被當成同一張。真實地圖（`Be-boxed`，22 個
+  單位）整條流程走過：抽取 5.9 秒、寫回 2 秒、重新開始 6.2 秒、沿用 20 筆譯文、
+  重新匯入後 `resources.zip` 與原存檔位元組一致。988 passed／contracts 48 passed。
+- **下一步**：第 3 步 tkinter 視窗與拖放（拖放打算用 `ctypes` 接 Windows 的
+  `WM_DROPFILES`，不加第三方相依，另附「選擇資料夾…」按鈕當後備）；沙盒位置改成
+  exe 旁邊要動 `safety/paths.py`（獨立 commit）。第 4 步打包。
+
+前一次更新：**2026-10-15**（**指令方塊的前導斜線**，commit `b70518b`。[實測]
 `escape_the_illusion` 的指令方塊寫 `/tellraw`、`/title`，掃描器把 `/tellraw`
 當成不認得的動詞整條略過。`scan_command_string` 新增 `allow_leading_slash`，只有
 指令方塊與指令方塊礦車開啟；`.mcfunction` 不放寬（函式檔裡前導 `/` 是語法錯誤）。
