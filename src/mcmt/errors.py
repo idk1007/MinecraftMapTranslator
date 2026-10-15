@@ -131,7 +131,8 @@ class WorldChangedSinceExtractError(SafetyError):
         self.expected = expected
         self.actual = actual
         super().__init__(
-            "地圖在抽取文字後被修改過，為避免存檔損壞已中止。\n請重新抽取文字。"
+            "地圖在抽取文字後被修改過，為避免存檔損壞已中止。\n"
+            "請重新抽取文字，過程中可選擇保留已填的譯文（--keep-translations）。"
         )
 
 
