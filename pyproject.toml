@@ -26,6 +26,10 @@ dev = [
 [project.scripts]
 mcmt = "mcmt.cli.__main__:main"
 
+# 視窗版：Windows 上用 pythonw 啟動，沒有黑色的命令列視窗。
+[project.gui-scripts]
+mcmt-gui = "mcmt.gui.app:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

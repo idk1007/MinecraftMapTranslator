@@ -9,10 +9,8 @@
 """
 
 import argparse
-import platform
 import re
 import sys
-import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -29,11 +27,9 @@ from mcmt.errors import (
     TranslationsExistError,
 )
 from mcmt.flow import run_flow
-from mcmt.safety.paths import ensure_writable, sandbox_root
+from mcmt.safety.paths import sandbox_root
 from mcmt.sandbox import import_world
-
-ERROR_LOG_NAME = "mcmt-error.log"
-
+from mcmt.usererror import ERROR_LOG_NAME, render_error, write_error_log
 
 # argparse 用參數的內部名稱回報缺了誰；換成使用者看得懂的叫法。
 _PLAIN_NAMES = {"world": "地圖路徑", "source": "來源地圖路徑"}
@@ -118,11 +114,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     return parser
-
-
-def render_error(exc: BaseException) -> str:
-    """終端機與對話框共用的格式：【標題】＋內容。"""
-    return f"【{getattr(exc, 'title', '發生錯誤')}】\n{exc}"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -232,7 +223,7 @@ def _confirm(question: str) -> bool | None:
 
 def _unexpected(exc: Exception, args, started: datetime) -> int:
     """沒被預期的例外：寫日誌，畫面上不印 Python 堆疊。"""
-    log = _write_error_log(exc, args, started)
+    log = write_error_log(exc, label=str(args.command), started=started)
     lines = ["【發生未預期的錯誤】"]
     if log is not None:
         lines.append(f"錯誤資訊已存至 {log}。")
@@ -243,24 +234,6 @@ def _unexpected(exc: Exception, args, started: datetime) -> int:
         lines.append(f"備份存放於：{backup}")
     print("\n".join(lines), file=sys.stderr)
     return 3
-
-
-def _write_error_log(exc: Exception, args, started: datetime) -> Path | None:
-    """日誌放在沙盒裡（`<沙盒>/mcmt-error.log`）：安全規則 1，任何寫入都要在沙盒
-    底下，錯誤日誌也不例外。寫不出去就回傳 `None`，不能讓「記錄錯誤」本身再炸一次。"""
-    try:
-        path = ensure_writable(sandbox_root() / ERROR_LOG_NAME)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        header = (
-            f"=== {started.isoformat(timespec='seconds')} · mcmt {args.command} · "
-            f"Python {platform.python_version()} · {platform.platform()} ===\n"
-        )
-        body = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(header + body + "\n")
-        return path
-    except Exception:  # noqa: BLE001
-        return None
 
 
 def _backup_since(args, started: datetime) -> Path | None:
