@@ -91,6 +91,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="覆蓋既有的待翻檔（舊檔會先另存為 .bak-時間）",
     )
+    extract.add_argument(
+        "--keep-translations",
+        action="store_true",
+        help="重新抽取時，把舊待翻檔裡已填的譯文依編號帶過來，並列出對不上的",
+    )
 
     apply = sub.add_parser("apply", help="讀翻好的檔案，產出資源包並寫回世界")
     apply.hint = 'mcmt apply "沙盒裡的地圖路徑" --translations "翻譯檔路徑"'
@@ -140,7 +145,12 @@ def _dispatch(args) -> int:
             language=args.lang, namespace=args.namespace, out=args.out
         )
         try:
-            summary = run_extract(args.world, replace=args.replace, **kwargs)
+            summary = run_extract(
+                args.world,
+                replace=args.replace,
+                keep_translations=args.keep_translations,
+                **kwargs,
+            )
         except TranslationsExistError as exc:
             answer = _confirm(
                 f"已有 {Path(str(exc.path)).name}，重新抽取會覆蓋它"
@@ -151,7 +161,10 @@ def _dispatch(args) -> int:
             if not answer:
                 print("已取消，沒有變更任何檔案。", file=sys.stderr)
                 return 2
-            summary = run_extract(args.world, replace=True, **kwargs)
+            keep = _confirm("要把舊待翻檔裡已填的譯文帶到新的翻譯檔嗎（保留舊譯文）？")
+            summary = run_extract(
+                args.world, replace=True, keep_translations=bool(keep), **kwargs
+            )
         print(format_result(summary))
         return 0
 

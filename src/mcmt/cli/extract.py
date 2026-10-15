@@ -16,8 +16,10 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
+from mcmt.cli.jsonfile import read_json_file
 from mcmt.errors import NamespaceConflictError, TranslationsExistError
 from mcmt.extract.build import build_units
+from mcmt.extract.carry import carry_translations
 from mcmt.extract.emit import (
     build_extract_document,
     build_translations_document,
@@ -41,8 +43,12 @@ def run_extract(
     namespace: str = "mcmt",
     out: Path | None = None,
     replace: bool = False,
+    keep_translations: bool = False,
 ) -> dict:
-    """跑一次 extract，回傳給 CLI 印的摘要。"""
+    """跑一次 extract，回傳給 CLI 印的摘要。
+
+    `keep_translations`：把既有待翻檔裡使用者填的 `target`／`status` 依編號搬進新檔，
+    並在摘要的 `carry` 列出對不上的舊譯文。既有待翻檔不存在就什麼都不做。"""
     if namespace == "minecraft":
         # 在動任何東西之前擋：覆寫原版 key 會改掉原版所有語言的文字。
         raise NamespaceConflictError(namespace)
@@ -68,11 +74,23 @@ def run_extract(
         result, language=language, extract_document=extract
     )
 
-    destination.mkdir(parents=True, exist_ok=True)
+    carry = None
+    backup = None
     if translations_path.exists():
+        if keep_translations:
+            # 在覆蓋之前讀：讀不懂就報錯，而不是蓋掉一份讀不懂的檔案。
+            carry = carry_translations(
+                read_json_file(translations_path, kind="翻譯檔"), translations
+            )
         # 覆蓋之前先留一份：這是整個專案裡唯一給人手動編輯的檔案，辛苦填的譯文
         # 不該因為按錯一次就沒了。
-        _keep_backup(translations_path)
+        backup = _keep_backup(translations_path)
+    destination.mkdir(parents=True, exist_ok=True)
+    for stale in ("apply_report.json", "editplan.json"):
+        # 上一輪 apply 的產物。留著的話，同一張沒改過的地圖重抽出同樣的指紋，
+        # 舊報告會讓「這張地圖寫回過了嗎」的判斷誤以為寫回過。
+        if (destination / stale).exists():
+            _keep_backup(destination / stale, remove=True)
     _write(destination / "extract.json", dump_json(extract))
     _write(translations_path, dump_json(translations))
     _write(destination / "keymap.json", dump_json(result.keymap))
@@ -84,6 +102,8 @@ def run_extract(
         "result": result,
         "extract": extract,
         "translations_path": translations_path,
+        "carry": carry,
+        "backup": backup,
     }
 
 
@@ -146,6 +166,8 @@ def format_result(summary: dict) -> str:
             f"※ key 碰撞 {len(result.keymap['collisions'])} 組，已用 _1 解決並記進 keymap.json",
         ]
 
+    lines += _carry_lines(summary)
+
     lines += [
         "",
         f"產出：{summary['out']}",
@@ -157,12 +179,50 @@ def format_result(summary: dict) -> str:
     return "\n".join(lines)
 
 
+_MAX_ORPHANS_SHOWN = 10
+_MAX_TEXT_CHARS = 30
+
+
+def _short(text: str) -> str:
+    text = text.replace("\n", " ").strip()
+    return text if len(text) <= _MAX_TEXT_CHARS else text[:_MAX_TEXT_CHARS] + "…"
+
+
+def _carry_lines(summary: dict) -> list[str]:
+    """沿用舊譯文的結果：搬了幾筆、哪幾筆對不上、新出現幾筆。
+
+    對不上的要列出來，不能只印數字——地圖變了，那幾筆是白翻了，還是該手動搬去
+    新的條目，只有看得到內容的人才判斷得了。"""
+    carry = summary.get("carry")
+    backup = summary.get("backup")
+    lines: list[str] = []
+    if carry is not None:
+        lines += ["", f"沿用舊譯文：{carry.carried:,} 筆"]
+        if carry.orphans:
+            lines.append(f"  舊譯文對不上（地圖裡已找不到對應的原文）：{len(carry.orphans):,} 筆")
+            for orphan in carry.orphans[:_MAX_ORPHANS_SHOWN]:
+                where = f"{orphan.where}：" if orphan.where else ""
+                lines.append(
+                    f"    · {where}{_short(orphan.source)} → {_short(orphan.target)}"
+                )
+            if len(carry.orphans) > _MAX_ORPHANS_SHOWN:
+                lines.append(
+                    f"    · 另有 {len(carry.orphans) - _MAX_ORPHANS_SHOWN} 筆，完整內容在備份檔"
+                )
+        if carry.new_units:
+            lines.append(f"  新出現、還沒翻：{carry.new_units:,} 筆")
+    if backup is not None:
+        lines += ["", f"舊的翻譯檔另存為：{backup}"]
+    return lines
+
+
 def _write(path: Path, text: str) -> None:
     ensure_writable(path).write_text(text, encoding="utf-8")
 
 
-def _keep_backup(path: Path) -> Path:
-    """把 `path` 複製成 `<檔名>.bak-<時間>`，同一秒重複就加序號，絕不覆蓋既有備份。"""
+def _keep_backup(path: Path, *, remove: bool = False) -> Path:
+    """把 `path` 複製成 `<檔名>.bak-<時間>`，同一秒重複就加序號，絕不覆蓋既有備份。
+    `remove=True` 是「改名」：備份建好之後把原檔刪掉。"""
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     candidate = path.with_name(f"{path.name}.bak-{stamp}")
     counter = 1
@@ -170,6 +230,8 @@ def _keep_backup(path: Path) -> Path:
         counter += 1
         candidate = path.with_name(f"{path.name}.bak-{stamp}-{counter}")
     shutil.copyfile(path, ensure_writable(candidate))
+    if remove:
+        ensure_writable(path).unlink()
     return candidate
 
 
