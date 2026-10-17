@@ -251,6 +251,9 @@ def test_the_window_walks_a_fresh_map_through_extract(app, project) -> None:
     assert app.opened == [project / "sandbox" / ".mcmt-out" / "world"]
     log = app.log_text.get("1.0", "end")
     assert "抽取文字" in log
+    # 對話框的字也要留在視窗的紀錄裡：很多人按了按鈕才發現沒看清楚內容。
+    assert "【請填寫翻譯檔】" in log
+    assert "填完後再把同一張地圖拖進來" in log.split("【請填寫翻譯檔】", 1)[1]
 
 
 def test_the_window_applies_after_the_confirmation_dialog(app, project) -> None:
@@ -279,7 +282,9 @@ def test_a_known_error_becomes_an_error_dialog_not_a_crash(app, project) -> None
 
     assert unexpected == []
     assert app.last_outcome is None
-    assert "【找不到資料夾】" in app.log_text.get("1.0", "end")
+    log = app.log_text.get("1.0", "end")
+    assert "【找不到資料夾】" in log
+    assert "nope 不存在" in log  # 錯誤內容也要寫進紀錄，不只標題
 
 
 def test_an_unexpected_error_is_logged_and_offers_the_log_folder(app, project, monkeypatch) -> None:

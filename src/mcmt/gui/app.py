@@ -155,6 +155,9 @@ class TkUi:
         self.app.bridge.post(self.app.append_log, message)
 
     def ask(self, title: str, body: str, buttons: Sequence[str]) -> str | None:
+        # 對話框的字同時留在視窗的紀錄裡：很多人看到按鈕就按，對話框關掉後才發現
+        # 沒看清楚要做什麼。
+        self.log(f"【{title}】\n{body}")
         return self.app.bridge.call(
             lambda: ButtonDialog(self.app, title, body, list(buttons)).show()
         )
@@ -296,11 +299,12 @@ class App:
             outcome = run_flow(path, self.ui)
             self.ui.log("完成。" if outcome.kind != "cancelled" else "已取消。")
         except McmtError as exc:
-            self.ui.log(f"【{title_of(exc)}】")
+            self.ui.log(f"【{title_of(exc)}】\n{exc}")
             self.bridge.call(self._show_error, exc, None)
         except Exception as exc:  # noqa: BLE001 —— 最後一道網
             log = write_error_log(exc, label="gui", started=started)
-            self.ui.log(f"【{UNEXPECTED_TITLE}】")
+            where = f"\n錯誤資訊已存至 {log}。" if log else ""
+            self.ui.log(f"【{UNEXPECTED_TITLE}】{where}")
             self.bridge.call(self._show_error, exc, log)
         finally:
             self.bridge.post(self._finish, outcome)
