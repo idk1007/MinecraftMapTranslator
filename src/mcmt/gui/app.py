@@ -318,13 +318,29 @@ def _sharp_on_high_dpi() -> None:
         pass
 
 
+def _pin_working_directory() -> None:
+    """開發環境裡，沙盒是從「目前資料夾」往上找專案根決定的；終端機這樣很合理，
+    視窗版卻會被啟動的位置帶走（[實測回報] 從另一個 git 專案裡啟動，沙盒就建在
+    那個專案底下）。所以視窗版一開始就把目前資料夾固定到 mcmt 自己的專案根。
+    打包後的 exe 不需要：沙盒本來就固定在 exe 旁邊。"""
+    if getattr(sys, "frozen", False):
+        return
+    for candidate in Path(__file__).resolve().parents:
+        if (candidate / "pyproject.toml").is_file():
+            os.chdir(candidate)
+            return
+
+
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
+    # 參數裡的相對路徑要在換資料夾之前就轉成絕對路徑。
+    first = Path(args[0]).resolve() if args else None
+    _pin_working_directory()
     _sharp_on_high_dpi()
     app = App()
-    if args:
+    if first is not None:
         # 把資料夾拖到 exe 圖示上：Windows 會把路徑當參數傳進來，一樣接。
-        app.root.after(200, app.start, Path(args[0]))
+        app.root.after(200, app.start, first)
     app.root.mainloop()
     return 0
 

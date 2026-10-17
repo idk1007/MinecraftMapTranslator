@@ -347,3 +347,24 @@ def test_the_language_dialog_rejects_a_malformed_code(app) -> None:
     dialog.value.set("ja_jp  日文")
     dialog.confirm()
     assert dialog.result == "ja_jp"
+
+
+def test_the_dev_window_pins_the_sandbox_to_the_project_not_the_launch_folder(
+    monkeypatch, tmp_path
+) -> None:
+    """[實測回報] 從別的 git 專案資料夾啟動 mcmt-gui，沙盒跑到那個專案底下。
+    視窗版不能看「從哪裡啟動」，要固定在 mcmt 自己的專案裡。"""
+    from pathlib import Path
+
+    from mcmt.gui.app import _pin_working_directory
+    from mcmt.safety.paths import sandbox_root
+
+    elsewhere = tmp_path / "other-project"
+    (elsewhere / ".git").mkdir(parents=True)
+    monkeypatch.chdir(elsewhere)
+    monkeypatch.delattr(sys, "frozen", raising=False)
+
+    _pin_working_directory()
+
+    project = Path(__file__).resolve().parents[2]
+    assert sandbox_root() == project / "sandbox"
