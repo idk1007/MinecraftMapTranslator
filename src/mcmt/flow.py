@@ -12,22 +12,34 @@
     有譯文，還沒寫回           →  試跑 → 確認 → 寫回
     已經寫回過                 →  確認後重新開始（可選擇保留舊譯文）
 
+**也可以直接拖翻譯檔**（翻完的時候手上就是它）：從檔案位置——或檔案裡記錄的
+抽取指紋——找出是哪一張地圖，放進沙盒，接著走同一套判斷。唯一不同的是「已經
+寫回過」：拖翻譯檔的意思是「套用我改過的譯文」，所以只確認一次就從原存檔重新
+複製、寫入，不再問要不要重新開始、要不要保留舊譯文。
+
 **會刪東西的那一步（重新開始）在動手之前，先把所有會失敗的事檢查完**：原存檔
 還在不在、原存檔現在還能不能處理。刪到一半才發現原存檔不見了，沙盒副本就回不來。
 """
 
 import json
 import os
+import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, Sequence
 
 from mcmt.cli.apply import run_apply
-from mcmt.cli.extract import OUT_DIR_NAME, run_extract
+from mcmt.cli.extract import OUT_DIR_NAME, keep_backup, run_extract
 from mcmt.cli.jsonfile import read_json_file
 from mcmt.doctor import survey_world
-from mcmt.errors import ExternalChunksFoundError, OriginMissingError
-from mcmt.safety.paths import sandbox_root
+from mcmt.errors import (
+    ExternalChunksFoundError,
+    NotATranslationsFileError,
+    OriginMissingError,
+    TranslationsMapNotFoundError,
+)
+from mcmt.safety.paths import ensure_writable, sandbox_root
 from mcmt.sandbox import ORIGIN_FILENAME, import_world
 from mcmt.world import open_world
 
@@ -40,6 +52,9 @@ GO_ON, CANCEL, OVERWRITE = "繼續", "取消", "覆蓋"
 RESTART, KEEP, FROM_SCRATCH = "重新開始", "保留舊譯文", "全部重來"
 WRITE, SEE_REPORT = "寫回", "查看報告"
 OPEN_FOLDER, CLOSE = "開啟資料夾", "關閉"
+
+_TRANSLATIONS_FORMAT = "mcmt-translations"
+_LANGUAGE_CODE = re.compile(r"^[a-z]{2,3}(_[a-z0-9]{2,8})?$")
 
 # 「還沒翻」「刻意不翻」是正常狀態，不算「有問題而被拒寫」。
 _NOT_A_PROBLEM = {"untranslated", "skipped"}
@@ -69,6 +84,8 @@ class FlowOutcome:
 def run_flow(dropped: Path | str, ui: Ui) -> FlowOutcome:
     """處理一次拖入。錯誤（`McmtError`）照原樣往外拋，由視窗層顯示成錯誤對話框。"""
     dropped = Path(dropped).resolve()
+    if dropped.is_file() and dropped.suffix.lower() == ".json":
+        return _run_translations(dropped, ui)
     sandbox = sandbox_root().resolve()
     open_world(dropped)  # 不是地圖就在這裡說，不要等到走了一半
 
@@ -103,15 +120,38 @@ def run_flow(dropped: Path | str, ui: Ui) -> FlowOutcome:
     language, translations_path = existing
     if _already_applied(out_dir):
         return _restart(name, source, sandbox_world, language, ui)
-    if not _has_any_target(translations_path):
-        ui.ask(
-            "還沒有譯文",
-            f"翻譯檔裡還沒有填入任何譯文。請先填寫 {translations_path.name}，"
-            f"再把地圖拖進來。",
-            [OPEN_FOLDER, CLOSE],
-        )
-        return FlowOutcome("nothing_to_do", out_dir)
+    if not _has_any_target(read_json_file(translations_path, kind="翻譯檔")):
+        return _nothing_to_do(translations_path, out_dir, ui)
     return _apply(sandbox_world, translations_path, out_dir, ui)
+
+
+def _run_translations(dropped: Path, ui: Ui) -> FlowOutcome:
+    document = read_json_file(dropped, kind="翻譯檔")
+    if not isinstance(document, dict) or document.get("format") != _TRANSLATIONS_FORMAT:
+        raise NotATranslationsFileError(dropped)
+    language = document.get("language")
+    if not isinstance(language, str) or not _LANGUAGE_CODE.match(language):
+        raise NotATranslationsFileError(dropped)
+
+    out_dir = _out_dir_for(dropped, document)
+    name = out_dir.name
+    sandbox_world = sandbox_root().resolve() / name
+    if not sandbox_world.is_dir():
+        raise TranslationsMapNotFoundError(dropped)
+    target = out_dir / f"translations.{language}.json"
+
+    # 先把會失敗的事檢查完，才動沙盒裡的任何檔案。
+    applied = _already_applied(out_dir)
+    source = _origin_source(sandbox_world)
+    if applied and (source is None or not source.exists()):
+        raise OriginMissingError(name=name, source=source)
+    if not _has_any_target(document):
+        return _nothing_to_do(dropped, out_dir, ui)
+
+    _install_translations(dropped, target, ui)
+    if applied:
+        return _rewrite(name, source, sandbox_world, language, document, ui)
+    return _apply(sandbox_world, target, out_dir, ui)
 
 
 # --- 狀態判斷 -------------------------------------------------------------------
@@ -129,6 +169,24 @@ def _same_path(a: Path, b: Path) -> bool:
     return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
 
 
+def _out_dir_for(dropped: Path, document: dict) -> Path:
+    """翻譯檔屬於哪一張地圖的輸出資料夾。在沙盒的 `.mcmt-out/<地圖>/` 裡就看位置；
+    在別處（例如複製到桌面翻）就比對檔案裡記錄的抽取指紋。"""
+    outputs = sandbox_root().resolve() / OUT_DIR_NAME
+    if _same_path(dropped.parent.parent, outputs):
+        return dropped.parent
+    wanted = (document.get("extract_ref") or {}).get("extract_fingerprint")
+    if wanted and outputs.is_dir():
+        for candidate in sorted(outputs.iterdir()):
+            try:
+                extract = json.loads((candidate / "extract.json").read_text(encoding="utf-8"))
+                if extract["world"]["extract_fingerprint"] == wanted:
+                    return candidate
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+    raise TranslationsMapNotFoundError(dropped)
+
+
 def _latest_translations(out_dir: Path) -> tuple[str, Path] | None:
     """輸出資料夾裡最近修改的 `translations.<語言>.json`。`.bak-` 結尾的備份不算。"""
     candidates = sorted(out_dir.glob("translations.*.json"), key=lambda p: p.stat().st_mtime)
@@ -138,8 +196,7 @@ def _latest_translations(out_dir: Path) -> tuple[str, Path] | None:
     return path.name[len("translations.") : -len(".json")], path
 
 
-def _has_any_target(translations_path: Path) -> bool:
-    document = read_json_file(translations_path, kind="翻譯檔")
+def _has_any_target(document: dict) -> bool:
     return any(
         str(entry.get("target", "")).strip() for entry in document.get("entries", {}).values()
     )
@@ -206,13 +263,71 @@ def _ask_for_translations(summary: dict, ui: Ui, *, carry_note: str) -> FlowOutc
     out_dir = summary["out"]
     body = (
         f"已抽取 {summary['extract']['stats']['unit_count']:,} 個翻譯單位。"
-        f"請編輯 {summary['translations_path'].name}，填完後再把同一張地圖拖進來。"
+        f"請編輯 {summary['translations_path'].name}，填完後把這個翻譯檔拖進來。"
         f"{carry_note}"
     )
     answer = ui.ask("請填寫翻譯檔", body, [OPEN_FOLDER, CLOSE])
     if answer == OPEN_FOLDER:
         ui.open_path(out_dir)
     return FlowOutcome("extracted", out_dir)
+
+
+def _nothing_to_do(translations_path: Path, out_dir: Path, ui: Ui) -> FlowOutcome:
+    answer = ui.ask(
+        "還沒有譯文",
+        f"翻譯檔裡還沒有填入任何譯文。請先填寫 {translations_path.name}，"
+        f"再把翻譯檔拖進來。",
+        [OPEN_FOLDER, CLOSE],
+    )
+    if answer == OPEN_FOLDER:
+        ui.open_path(translations_path.parent)
+    return FlowOutcome("nothing_to_do", out_dir)
+
+
+def _install_translations(dropped: Path, target: Path, ui: Ui) -> None:
+    """把沙盒外的翻譯檔放進沙盒。沙盒裡原本那份內容不同就先留 `.bak-時間`。"""
+    if _same_path(dropped, target):
+        return
+    if target.exists():
+        if target.read_bytes() == dropped.read_bytes():
+            return
+        keep_backup(target)
+    shutil.copyfile(dropped, ensure_writable(target))
+    ui.log(f"已把翻譯檔放進沙盒：{target}")
+
+
+def _rewrite(name, source, sandbox_world, language, document, ui) -> FlowOutcome:
+    """寫回過之後又拖翻譯檔進來：確認一次，就從原存檔重新複製、帶入譯文、寫回。"""
+    entries = document.get("entries", {})
+    filled = sum(1 for entry in entries.values() if str(entry.get("target", "")).strip())
+    blank = len(entries) - filled
+    body = (
+        f"這張地圖已經寫回過。將從原存檔重新複製一份，再寫入這份翻譯檔的 {filled:,} 筆譯文"
+        + (f"（{blank:,} 筆還沒翻，會保留原文）" if blank else "")
+        + "。\n上一次寫回的結果會被取代，目前的翻譯檔會另存為 .bak-時間 備份。"
+    )
+    if ui.ask("準備寫回", body, [WRITE, CANCEL]) != WRITE:
+        return FlowOutcome("cancelled")
+    if not _gate(Path(source), ui):
+        return FlowOutcome("cancelled")
+
+    ui.log("重新匯入沙盒…")
+    import_world(Path(source), name=name, replace=True)
+    ui.log("抽取文字…")
+    summary = run_extract(sandbox_world, language=language, replace=True, keep_translations=True)
+    ui.log("寫回存檔…")
+    real = run_apply(sandbox_world, summary["translations_path"])
+    return _done(sandbox_world, real, ui, note=_rewrite_note(summary))
+
+
+def _rewrite_note(summary: dict) -> str:
+    carry = summary.get("carry")
+    note = ""
+    if carry is not None and carry.orphans:
+        note += f"\n{len(carry.orphans):,} 筆譯文在地圖裡找不到對應的原文，沒有寫入（詳見備份檔）。"
+    if carry is not None and carry.new_units:
+        note += f"\n{carry.new_units:,} 筆是新出現的原文，還沒有譯文。"
+    return note
 
 
 def _restart(name, source, sandbox_world, language, ui) -> FlowOutcome:
@@ -277,6 +392,10 @@ def _apply(sandbox_world, translations_path, out_dir, ui) -> FlowOutcome:
 
     ui.log("寫回存檔…")
     real = run_apply(sandbox_world, translations_path)
+    return _done(sandbox_world, real, ui)
+
+
+def _done(sandbox_world: Path, real: dict, ui: Ui, *, note: str = "") -> FlowOutcome:
     written = real["report"]["counts"]["edits_written"]
     if written:
         text = (
@@ -285,7 +404,7 @@ def _apply(sandbox_world, translations_path, out_dir, ui) -> FlowOutcome:
         )
     else:
         text = "沒有寫入任何文字，地圖維持原樣。原因見報告。"
-    answer = ui.ask("完成", text, [OPEN_FOLDER, CLOSE])
+    answer = ui.ask("完成", text + note, [OPEN_FOLDER, CLOSE])
     if answer == OPEN_FOLDER:
         ui.open_path(sandbox_world)
     return FlowOutcome("applied", sandbox_world)

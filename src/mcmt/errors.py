@@ -554,3 +554,29 @@ class OriginMissingError(McmtError):
             f"沙盒裡的 {name} 是從 {where} 匯入的，但那個位置已經不存在。\n"
             f"請把原存檔放回去，或直接把地圖拖曳至程式。未變更任何檔案。"
         )
+
+
+class NotATranslationsFileError(McmtError):
+    """拖進來的 `.json` 不是 mcmt 產生的翻譯檔。"""
+
+    title = "不是翻譯檔"
+
+    def __init__(self, path) -> None:
+        self.path = path
+        super().__init__(
+            f"{Path(str(path)).name} 不是 mcmt 產生的翻譯檔。\n"
+            f"請拖入地圖資料夾，或抽取時產生的 translations.語言.json。"
+        )
+
+
+class TranslationsMapNotFoundError(McmtError):
+    """翻譯檔對不上沙盒裡任何一張地圖（地圖被刪了，或從沒抽取過）。"""
+
+    title = "找不到對應的地圖"
+
+    def __init__(self, path) -> None:
+        self.path = path
+        super().__init__(
+            f"沙盒裡沒有 {Path(str(path)).name} 對應的地圖。\n"
+            f"請先把地圖拖曳至程式抽取文字。未變更任何檔案。"
+        )

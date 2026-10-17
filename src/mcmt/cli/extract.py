@@ -31,7 +31,7 @@ from mcmt.nbtio.datfile import read_dat
 from mcmt.safety.paths import ensure_writable, sandbox_root
 from mcmt.world import open_world
 
-__all__ = ["OUT_DIR_NAME", "format_result", "run_extract"]
+__all__ = ["OUT_DIR_NAME", "format_result", "keep_backup", "run_extract"]
 
 OUT_DIR_NAME = ".mcmt-out"
 
@@ -84,13 +84,13 @@ def run_extract(
             )
         # 覆蓋之前先留一份：這是整個專案裡唯一給人手動編輯的檔案，辛苦填的譯文
         # 不該因為按錯一次就沒了。
-        backup = _keep_backup(translations_path)
+        backup = keep_backup(translations_path)
     destination.mkdir(parents=True, exist_ok=True)
     for stale in ("apply_report.json", "editplan.json"):
         # 上一輪 apply 的產物。留著的話，同一張沒改過的地圖重抽出同樣的指紋，
         # 舊報告會讓「這張地圖寫回過了嗎」的判斷誤以為寫回過。
         if (destination / stale).exists():
-            _keep_backup(destination / stale, remove=True)
+            keep_backup(destination / stale, remove=True)
     _write(destination / "extract.json", dump_json(extract))
     _write(translations_path, dump_json(translations))
     _write(destination / "keymap.json", dump_json(result.keymap))
@@ -220,7 +220,7 @@ def _write(path: Path, text: str) -> None:
     ensure_writable(path).write_text(text, encoding="utf-8")
 
 
-def _keep_backup(path: Path, *, remove: bool = False) -> Path:
+def keep_backup(path: Path, *, remove: bool = False) -> Path:
     """把 `path` 複製成 `<檔名>.bak-<時間>`，同一秒重複就加序號，絕不覆蓋既有備份。
     `remove=True` 是「改名」：備份建好之後把原檔刪掉。"""
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")

@@ -100,7 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="一步一步帶你走的互動流程（匯入→抽取→等你填譯文→寫回），視窗版的終端機版",
     )
     drop.hint = 'mcmt drop "地圖路徑"'
-    drop.add_argument("world", help="地圖資料夾（原存檔或沙盒裡的副本都可以）")
+    drop.add_argument("world", help="地圖資料夾（原存檔或沙盒裡的副本都可以），或填好的翻譯檔 translations.語言.json")
 
     apply = sub.add_parser("apply", help="讀翻好的檔案，產出資源包並寫回世界")
     apply.hint = 'mcmt apply "沙盒裡的地圖路徑" --translations "翻譯檔路徑"'

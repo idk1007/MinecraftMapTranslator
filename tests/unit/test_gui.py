@@ -253,7 +253,7 @@ def test_the_window_walks_a_fresh_map_through_extract(app, project) -> None:
     assert "抽取文字" in log
     # 對話框的字也要留在視窗的紀錄裡：很多人按了按鈕才發現沒看清楚內容。
     assert "【請填寫翻譯檔】" in log
-    assert "填完後再把同一張地圖拖進來" in log.split("【請填寫翻譯檔】", 1)[1]
+    assert "填完後把這個翻譯檔拖進來" in log.split("【請填寫翻譯檔】", 1)[1]
 
 
 def test_the_window_applies_after_the_confirmation_dialog(app, project) -> None:
@@ -373,3 +373,35 @@ def test_the_dev_window_pins_the_sandbox_to_the_project_not_the_launch_folder(
 
     project = Path(__file__).resolve().parents[2]
     assert sandbox_root() == project / "sandbox"
+
+
+def test_the_window_applies_a_dropped_translations_file(app, project) -> None:
+    from test_flow import fill_all, make_original, translations_file
+
+    original = make_original(project)
+    autoanswer(app, {"請填寫翻譯檔": "關閉"})
+    app.start(original)
+    pump_until(app.root, lambda: not app.busy)
+    fill_all(project)
+
+    unexpected = autoanswer(app, {"準備寫回": "寫回", "完成": "關閉"})
+    app.on_drop([str(translations_file(project))])
+    pump_until(app.root, lambda: not app.busy)
+
+    assert unexpected == []
+    assert app.last_outcome.kind == "applied"
+
+
+def test_the_window_offers_a_file_picker_for_the_translations_file(app, monkeypatch) -> None:
+    from mcmt.gui import app as app_module
+
+    started = []
+    monkeypatch.setattr(app, "start", started.append)
+    monkeypatch.setattr(
+        app_module.filedialog, "askopenfilename", lambda **kwargs: "C:/x/translations.zh_tw.json"
+    )
+
+    app.pick_file_button.invoke()
+
+    assert started == [__import__("pathlib").Path("C:/x/translations.zh_tw.json")]
+    assert "翻譯檔" in app.drop_zone.cget("text")

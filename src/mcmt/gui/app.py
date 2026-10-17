@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""mcmt 的視窗：一塊拖放區、一個「選擇資料夾…」按鈕、一排處理進度。
+"""mcmt 的視窗：一塊拖放區、「選擇資料夾…」「選擇翻譯檔…」兩個按鈕、一排處理進度。
 
 流程本身在 `mcmt.flow`；這裡只負責畫面：把地圖交給流程（在背景執行緒跑），流程要
 問問題時畫對話框、把使用者按的按鈕交回去，出錯時畫錯誤對話框。對話框的標題與內容
@@ -198,7 +198,7 @@ class App:
 
         self.drop_zone = tk.Label(
             outer,
-            text="把地圖資料夾拖到這裡",
+            text="把地圖資料夾或翻譯檔拖到這裡",
             font=("", 14),
             relief="groove",
             borderwidth=2,
@@ -210,6 +210,8 @@ class App:
         row.pack(fill="x", pady=(10, 10))
         self.pick_button = ttk.Button(row, text="選擇資料夾…", command=self.pick_folder)
         self.pick_button.pack(side="left")
+        self.pick_file_button = ttk.Button(row, text="選擇翻譯檔…", command=self.pick_file)
+        self.pick_file_button.pack(side="left", padx=(8, 0))
         self.status = ttk.Label(row, text="")
         self.status.pack(side="left", padx=(12, 0))
 
@@ -223,8 +225,8 @@ class App:
 
         self.dnd_enabled = dnd.install(self.root, self.on_drop)
         if not self.dnd_enabled:
-            self.drop_zone.configure(text="請按「選擇資料夾…」選擇地圖資料夾")
-            self.append_log("（這台電腦上無法使用拖放，請用「選擇資料夾…」按鈕。）")
+            self.drop_zone.configure(text="請用下方按鈕選擇地圖資料夾或翻譯檔")
+            self.append_log("（這台電腦上無法使用拖放，請用「選擇資料夾…」或「選擇翻譯檔…」按鈕。）")
 
         self.root.after(_POLL_MS, self._poll)
 
@@ -252,6 +254,15 @@ class App:
         if chosen:
             self.start(Path(chosen))
 
+    def pick_file(self) -> None:
+        chosen = filedialog.askopenfilename(
+            parent=self.root,
+            title="選擇翻譯檔",
+            filetypes=[("翻譯檔", "translations.*.json"), ("JSON", "*.json")],
+        )
+        if chosen:
+            self.start(Path(chosen))
+
     def start(self, path: Path) -> bool:
         """把一張地圖交給流程。正在處理別的地圖時不接（一次只做一件事）。"""
         if self.busy:
@@ -259,6 +270,7 @@ class App:
             return False
         self.busy = True
         self.pick_button.configure(state="disabled")
+        self.pick_file_button.configure(state="disabled")
         self.status.configure(text="處理中…")
         self.append_log(f"── {path}")
         threading.Thread(target=self._work, args=(Path(path),), daemon=True).start()
@@ -268,6 +280,7 @@ class App:
         self.busy = False
         self.last_outcome = outcome
         self.pick_button.configure(state="normal")
+        self.pick_file_button.configure(state="normal")
         self.status.configure(text="")
 
     def on_close(self) -> None:

@@ -467,3 +467,126 @@ def test_overwriting_with_the_other_map_starts_clean_and_keeps_a_backup(project)
     assert "完全不同的告示牌" in {e["source"] for e in document["entries"].values()}
     assert all(e["target"] == "" for e in document["entries"].values())
     assert list(out_dir(project).glob("translations.zh_tw.json.bak-*"))
+
+
+# --- 拖翻譯檔進來 -----------------------------------------------------------------
+# 翻完的時候手上就是那個 json：拖它進來，跟拖地圖走同一套狀態判斷。
+
+
+def extracted_world(project):
+    original = make_original(project)
+    run_flow(original, FakeUi({"請填寫翻譯檔": "關閉"}))
+    return original
+
+
+def test_the_first_dialog_tells_people_to_drop_the_translations_file(project) -> None:
+    ui = FakeUi({"請填寫翻譯檔": "關閉"})
+
+    run_flow(make_original(project), ui)
+
+    assert "把這個翻譯檔拖進來" in ui.asked[0][1]
+
+
+def test_dropping_the_filled_translations_file_applies_it(project) -> None:
+    extracted_world(project)
+    fill_all(project)
+    ui = FakeUi(READY)
+
+    outcome = run_flow(translations_file(project), ui)
+
+    assert outcome.kind == "applied"
+    assert ui.titles == ["準備寫回", "完成"]
+    assert (project / "sandbox" / "world" / "resources.zip").is_file()
+
+
+def test_dropping_an_empty_translations_file_asks_to_fill_it_first(project) -> None:
+    extracted_world(project)
+    ui = FakeUi({"還沒有譯文": "關閉"})
+
+    outcome = run_flow(translations_file(project), ui)
+
+    assert outcome.kind == "nothing_to_do"
+    assert "翻譯檔拖進來" in ui.asked[0][1]
+
+
+def test_a_copy_outside_the_sandbox_is_matched_to_its_map(project) -> None:
+    extracted_world(project)
+    fill_all(project, text="桌面上翻的")
+    desktop = project / "desktop" / "translations.zh_tw.json"
+    desktop.parent.mkdir()
+    shutil.copy(translations_file(project), desktop)
+    # 沙盒裡那份還是空的（使用者是在桌面那份上翻的）
+    blank = json.loads(translations_file(project).read_text(encoding="utf-8"))
+    for entry in blank["entries"].values():
+        entry["target"] = ""
+    translations_file(project).write_text(json.dumps(blank, ensure_ascii=False), encoding="utf-8")
+
+    outcome = run_flow(desktop, FakeUi(READY))
+
+    installed = json.loads(translations_file(project).read_text(encoding="utf-8"))
+    assert outcome.kind == "applied"
+    assert {e["target"] for e in installed["entries"].values()} == {"桌面上翻的"}
+    assert list(out_dir(project).glob("translations.zh_tw.json.bak-*"))  # 沙盒那份留了備份
+
+
+def test_a_translations_file_for_no_known_map_is_refused(project) -> None:
+    from mcmt.errors import TranslationsMapNotFoundError
+
+    extracted_world(project)
+    stray = project / "desktop" / "translations.zh_tw.json"
+    stray.parent.mkdir()
+    document = json.loads(translations_file(project).read_text(encoding="utf-8"))
+    document["extract_ref"]["extract_fingerprint"] = "blake2b:0000000000000000"
+    stray.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(TranslationsMapNotFoundError):
+        run_flow(stray, FakeUi())
+
+
+def test_a_json_that_is_not_a_translations_file_is_refused(project) -> None:
+    from mcmt.errors import NotATranslationsFileError
+
+    other = project / "something.json"
+    other.write_text('{"hello": 1}', encoding="utf-8")
+
+    with pytest.raises(NotATranslationsFileError):
+        run_flow(other, FakeUi())
+
+
+def test_after_applying_a_corrected_file_is_rewritten_with_one_confirmation(project) -> None:
+    """寫回過之後改了錯字、再拖 json：只問一次「準備寫回」，從原存檔重新複製再寫入。"""
+    applied_world(project)
+    fill_all(project, text="改過的\n譯文")
+    ui = FakeUi(READY)
+
+    outcome = run_flow(translations_file(project), ui)
+
+    assert outcome.kind == "applied"
+    assert ui.titles == ["準備寫回", "完成"]
+    assert "原存檔" in ui.asked[0][1]
+    document = json.loads(translations_file(project).read_text(encoding="utf-8"))
+    assert {e["target"] for e in document["entries"].values()} == {"改過的\n譯文"}
+    assert (project / "sandbox" / "world" / "resources.zip").is_file()
+
+
+def test_cancelling_the_rewrite_leaves_the_applied_world_alone(project) -> None:
+    applied_world(project)
+    fill_all(project, text="改過的\n譯文")
+    zip_before = (project / "sandbox" / "world" / "resources.zip").read_bytes()
+
+    outcome = run_flow(translations_file(project), FakeUi({"準備寫回": "取消"}))
+
+    assert outcome.kind == "cancelled"
+    assert (project / "sandbox" / "world" / "resources.zip").read_bytes() == zip_before
+
+
+def test_a_rewrite_with_the_original_gone_is_refused_before_asking(project) -> None:
+    original = applied_world(project)
+    shutil.rmtree(original)
+    ui = FakeUi()
+
+    with pytest.raises(OriginMissingError):
+        run_flow(translations_file(project), ui)
+
+    assert ui.asked == []
+    assert (project / "sandbox" / "world" / "resources.zip").is_file()
