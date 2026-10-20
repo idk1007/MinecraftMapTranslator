@@ -352,6 +352,9 @@ def test_the_language_dialog_rejects_a_malformed_code(app) -> None:
     dialog.value.set("ja_jp  日文")
     dialog.confirm()
     assert dialog.result == "ja_jp"
+    # 沒經過 show()，要自己放掉 tkinter 變數：不然它之後在別條測試的背景執行緒上被
+    # 回收，會在錯的執行緒上碰 Tk（正式程式一律經過 show()，那裡已經放掉了）。
+    dialog.value = None
 
 
 def test_the_dev_window_pins_the_sandbox_to_the_project_not_the_launch_folder(
