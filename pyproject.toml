@@ -22,6 +22,8 @@ dev = [
     "jsonschema>=4.20",
     "referencing>=0.35",
 ]
+# 打包成 Windows exe（tools/build_exe.py）。只有建置的人需要。
+build = ["pyinstaller>=6"]
 
 [project.scripts]
 mcmt = "mcmt.cli.__main__:main"
