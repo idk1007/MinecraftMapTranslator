@@ -3,7 +3,7 @@
 **這份檔案是跨對話的交接點。** 新開一個 Claude Code 對話時先讀這裡，就知道做到哪、下一步是什麼、哪些結論不能重新推導。
 **每完成一個里程碑就更新這裡**，和「進遊戲驗證要寫回 `SPIKE_RESULT.md`」是同一個紀律：單人開發沒有第二個人會提醒你。
 
-最後更新：**2026-10-17**（**「做成給一般人用的 exe」第 1–3 步完成，依試用回報修正中。**
+最後更新：**2026-10-20**（**「做成給一般人用的 exe」第 1–4 步完成（含打包）。**
 目標：打開 exe → 把地圖拖進視窗 → 一步步對話框，沒有黑色 cmd 視窗。已定案的決定
 （不必重推）：沙盒放 exe 旁邊；使用者面對的詞是「沙盒」；`.mcc` **硬中止**、舊格式
 區塊與損毀檔案**問一聲**（繼續／取消）；覆蓋重來時**問**是否保留舊譯文，保留的話
@@ -40,8 +40,17 @@
   「準備寫回」就從原存檔重新複製、依 `unit_id` 帶入、寫回（使用者選的，不問 G1／G1b）；
   新錯誤 G8「不是翻譯檔」、G9「找不到對應的地圖」；視窗多「選擇翻譯檔…」按鈕。
   1015 passed。
-- **下一步**：使用者試用視窗版後回報外觀／手感；第 4 步打包（PyInstaller 資料夾版、
-  關 UPX、`mcmt.exe`＋`mcmt-cli.exe`、附 lz4、SHA256 雜湊檔；上傳 Releases 由使用者做）。
+- **第 4 步（打包）** `84d937f`：`.venv\Scripts\python toolsuild_exe.py` →
+  `dist/mcmt-<版本>-windows.zip`（32 MB，解開 79 MB）＋ `.sha256`。PyInstaller 資料夾版
+  （`packaging/mcmt.spec`，兩個執行檔共用一份 Python，UPX 關，lz4 以 hidden import
+  帶入），附 `LICENSE.txt`；zip 只有一個頂層資料夾、永不含 `sandbox`。PyInstaller 是
+  `build` extra，不是執行期相依。**[實測]** 解壓到別處後：`mcmt-cli.exe` 對真實地圖
+  Be-boxed 跑 doctor → sandbox import → extract → apply 全部成功，沙盒建在 exe 旁邊；
+  `mcmt.exe` 啟動後視窗標題正確、沒有錯誤日誌。
+  **已知**：`mcmt-cli.exe` 的輸出被導到檔案／管線時用系統編碼（cp950），在真正的
+  cmd 視窗裡顯示正常。
+- **下一步**：使用者實際用打包版走一遍（視窗外觀、從檔案總管拖放）；上傳 GitHub
+  Releases（zip ＋ 雜湊）由使用者做。
 
 前一次更新：**2026-10-15**（**指令方塊的前導斜線**，commit `b70518b`。[實測]
 `escape_the_illusion` 的指令方塊寫 `/tellraw`、`/title`，掃描器把 `/tellraw`
